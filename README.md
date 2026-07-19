@@ -66,8 +66,19 @@ banda. Vale migrar para:
 
 ## Novidades desta versão
 
-- **Cronômetro de chamada** — aparece assim que a chamada conecta, formato mm:ss (ou h:mm:ss em chamadas longas).
-- **Áudio com fallback de autoplay** — se o navegador bloquear a reprodução automática (política padrão de autoplay), aparece um botão "🔈 Toque p/ tocar" no player de música.
-- **Vídeo compartilhado transmitido de verdade** — antes só tocava localmente para quem compartilhava; agora usamos `captureStream()` do próprio `<video>` + Web Audio API (`GainNode`) para substituir as faixas de vídeo/áudio enviadas na chamada, então o outro lado assiste ao vivo, em tempo real. O painel de controle (canto superior esquerdo do vídeo) permite pausar/continuar para todos e ajustar o volume do que é transmitido. Funciona com arquivos locais ou links diretos `.mp4`/`.webm` — links do YouTube não funcionam com essa técnica (o YouTube não expõe o `<video>` para captura).
-- **Compartilhar tela em dispositivo móvel** — a maioria dos navegadores mobile (Android/iOS) não permite capturar a tela via navegador. Agora o app detecta isso e avisa claramente em vez de falhar silenciosamente.
-- **Tradutor (🌐 no cabeçalho)** — escolha um idioma entre mais de 10 dos mais falados do mundo (português, inglês, espanhol, chinês, hindi, árabe, francês, russo, alemão, japonês, italiano). Toque no 🌐 de qualquer mensagem para traduzi-la; a tradução é feita pelo servidor (`/api/translate`) usando o endpoint público do Google Translate — sem chave de API. Requer Node.js 18+ (usa `fetch` nativo).
+- **Cronômetro de chamada** — aparece assim que a chamada conecta, formato mm:ss (ou h:mm:ss em chamadas longas). Funciona tanto em chamadas de vídeo quanto de voz.
+- **Áudio com fallback de autoplay** — se o navegador bloquear a reprodução automática (política padrão de autoplay), aparece um botão "🔈 Toque p/ tocar".
+- **Vídeo compartilhado transmitido de verdade** — usamos `captureStream()` + Web Audio API para transmitir ao vivo. Painel de controle com pausar/continuar, volume, **fechar (✖️)**, **minimizar (🔽)** e **arrastar** para qualquer canto do vídeo.
+- **Compartilhar tela** — detecta quando o navegador/dispositivo não suporta (mobile) e avisa claramente. Também tenta capturar e transmitir o **áudio do sistema/aba**, quando o navegador permite (mais comum no Chrome desktop, compartilhando uma aba).
+- **Tradutor (🌐)** — mais de 10 idiomas, tradução via `/api/translate` no servidor, sem chave de API.
+- **Quadro branco sincronizado (🎨)** — cada traço desenhado por um lado agora aparece em tempo real no outro.
+- **Chat ao lado da videochamada (💬)** — painel deslizante para continuar a escrever enquanto fala, com seletor de emojis (também disponível no chat normal).
+- **Música partilhada na chamada (🔗)** — quem está a tocar uma música de fundo pode ligar a partilha para a outra pessoa também ouvir em tempo real durante a chamada. Botões de trocar (▶️/📁), parar (⏹️) e fechar (✖️) o player.
+- **Correção do bug de rechamada** — antes, ao terminar uma chamada, os dois lados entravam num loop de eventos que impedia iniciar uma nova chamada depois. Corrigido com uma verificação de estado (`callActive`).
+- **Autenticação de usuários** — tela de login/criar conta com nome, telemóvel, país, email e senha. As senhas são guardadas com hash `scrypt` (nunca em texto puro), num arquivo `users.json` no servidor (mesmo padrão de persistência do histórico de mensagens — ver aviso sobre deploys abaixo).
+- **Painel de administrador (⚙️)** — visível apenas para o administrador, lista todos os usuários cadastrados (nome, telemóvel, país, email). Por padrão, o **primeiro usuário a se cadastrar** no servidor vira administrador automaticamente. Para escolher um telemóvel específico como admin, defina a variável de ambiente `ADMIN_PHONE` no Railway/Render (Settings → Variables) com o número exato usado no cadastro.
+
+### Sobre os arquivos `messages.json` e `users.json`
+
+Ambos são criados automaticamente pelo servidor e **não devem ser enviados ao GitHub** (já estão no `.gitignore`). Como nos serviços gratuitos o disco é recriado a cada novo deploy, um `git push` novo apaga o histórico de conversas e a lista de usuários cadastrados. Para persistência permanente entre deploys, o próximo passo é trocar por um banco de dados real (ex: Postgres, oferecido como plugin no Railway).
+

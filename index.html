@@ -64,6 +64,54 @@
         .login-screen.hidden {
             display: none;
         }
+        .login-screen {
+            overflow-y: auto;
+        }
+        .login-row {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
+        .login-row input, .login-row select {
+            flex: 1;
+        }
+        .login-screen select {
+            width: 100%;
+            padding: 14px 18px;
+            border-radius: 30px;
+            border: 2px solid var(--bg-tertiary);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 15px;
+            outline: none;
+        }
+        .login-switch {
+            color: var(--blue);
+            font-size: 13px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .login-error {
+            color: var(--red);
+            font-size: 13px;
+            text-align: center;
+            min-height: 16px;
+        }
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            color: var(--text-primary);
+        }
+        .admin-table th, .admin-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            text-align: left;
+        }
+        .admin-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
         .login-avatar {
             width: 100px;
             height: 100px;
@@ -564,6 +612,103 @@
             display: flex;
             gap: 6px;
         }
+        .video-share-panel .vsp-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: move;
+            gap: 4px;
+        }
+        .video-share-panel .vsp-header span {
+            color: #fff;
+            font-size: 11px;
+        }
+        .video-share-panel .vsp-header button {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 2px 4px;
+        }
+        .video-share-panel.minimized video,
+        .video-share-panel.minimized .vsp-row,
+        .video-share-panel.minimized .vsp-controls {
+            display: none !important;
+        }
+        .video-share-panel.minimized {
+            width: auto;
+        }
+        /* ===== Chat lateral durante a chamada ===== */
+        .call-chat-panel {
+            position: absolute;
+            top: 0;
+            right: -100%;
+            width: 88%;
+            height: 100%;
+            background: var(--bg-secondary);
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.25s ease;
+            box-shadow: -6px 0 20px rgba(0,0,0,0.4);
+        }
+        .call-chat-panel.active {
+            right: 0;
+        }
+        .call-chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            color: var(--text-primary);
+        }
+        .call-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 14px;
+        }
+        .call-chat-input-area {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            position: relative;
+        }
+        .call-chat-input-area input {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border: none;
+            padding: 10px 14px;
+            border-radius: 20px;
+            color: #fff;
+            outline: none;
+        }
+        .emoji-picker {
+            position: absolute;
+            bottom: 56px;
+            right: 10px;
+            width: 220px;
+            max-height: 180px;
+            overflow-y: auto;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 8px;
+            display: none;
+            flex-wrap: wrap;
+            gap: 4px;
+            box-shadow: var(--shadow);
+        }
+        .emoji-picker.active {
+            display: flex;
+        }
+        .emoji-picker span {
+            font-size: 20px;
+            cursor: pointer;
+            padding: 3px;
+        }
         .call-info h2 {
             font-size: 20px;
         }
@@ -796,9 +941,34 @@
         <div class="login-avatar">💬</div>
         <h1>ChatApp Completo</h1>
         <p style="color:#8696a0;text-align:center;">Grupos com até 500 pessoas • Videochamadas • Conferências • IA • Música • Filmes • Quadro Branco</p>
-        <input type="text" id="loginName" placeholder="Seu nome" value="Usuário">
-        <input type="text" id="loginPhone" placeholder="Número de telefone" value="+55 11 99999-9999">
-        <button class="btn btn-primary" onclick="login()">🚀 Entrar</button>
+
+        <!-- Formulário de ENTRAR -->
+        <div id="loginFormBox" style="width:100%;display:flex;flex-direction:column;gap:14px;">
+            <input type="text" id="loginPhone" placeholder="Número de telemóvel">
+            <input type="password" id="loginPassword" placeholder="Senha">
+            <div class="login-error" id="loginError"></div>
+            <button class="btn btn-primary" onclick="doLogin()">🚀 Entrar</button>
+            <div class="login-switch" onclick="showAuthForm('register')">Não tem conta? Criar conta</div>
+        </div>
+
+        <!-- Formulário de CRIAR CONTA -->
+        <div id="registerFormBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
+            <input type="text" id="regName" placeholder="Seu nome">
+            <div class="login-row">
+                <input type="text" id="regPhone" placeholder="Número de telemóvel">
+                <select id="regCountry">
+                    <option value="">País</option>
+                    <option>Portugal</option><option>Brasil</option><option>Angola</option>
+                    <option>Moçambique</option><option>Cabo Verde</option><option>Estados Unidos</option>
+                    <option>Espanha</option><option>França</option><option>Reino Unido</option><option>Outro</option>
+                </select>
+            </div>
+            <input type="email" id="regEmail" placeholder="Email">
+            <input type="password" id="regPassword" placeholder="Senha (mín. 4 caracteres)">
+            <div class="login-error" id="registerError"></div>
+            <button class="btn btn-primary" onclick="doRegister()">✅ Criar conta</button>
+            <div class="login-switch" onclick="showAuthForm('login')">Já tem conta? Entrar</div>
+        </div>
     </div>
 
     <div id="mainApp" style="display:none;flex-direction:column;flex:1;overflow:hidden;position:relative;width:100%;">
@@ -815,6 +985,7 @@
                 <button class="btn-icon" onclick="toggleMusicPlayer()" title="Música de fundo">🎵</button>
                 <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
+                <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -840,9 +1011,11 @@
                     </div>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
-                <div class="chat-input-area">
+                <div class="chat-input-area" style="position:relative;">
+                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
+                    <div class="emoji-picker" id="emojiPickerMain"></div>
                 </div>
             </div>
         </div>
@@ -853,14 +1026,33 @@
                     <video id="pipVideo" autoplay playsinline muted></video>
                 </div>
                 <div class="video-share-panel" id="videoSharePanel" style="display:none;">
+                    <div class="vsp-header" id="vspDragHandle">
+                        <span>🎬 Vídeo</span>
+                        <div>
+                            <button onclick="toggleMinimizeVideoShare()" id="vspMinBtn" title="Minimizar">🔽</button>
+                            <button onclick="stopVideoShare()" title="Fechar">✖️</button>
+                        </div>
+                    </div>
                     <video id="sharedVideoPreview" playsinline muted></video>
                     <div class="vsp-row">
                         <button class="btn-small" id="vspPlayBtn" onclick="toggleSharedVideoPlay()" title="Pausar/continuar para todos">⏸️</button>
-                        <button class="btn-small btn-danger" onclick="stopVideoShare()" title="Parar compartilhamento">⏹️</button>
                     </div>
                     <div class="vsp-controls">
                         <span style="color:#fff;font-size:12px;">🔊</span>
                         <input type="range" id="vspVolume" min="0" max="100" value="100" oninput="setSharedVideoVolume(this.value)">
+                    </div>
+                </div>
+                <div class="call-chat-panel" id="callChatPanel">
+                    <div class="call-chat-header">
+                        <strong>💬 Mensagens</strong>
+                        <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="toggleCallChat()">✖️</button>
+                    </div>
+                    <div class="call-chat-messages" id="callChatMessages"></div>
+                    <div class="call-chat-input-area">
+                        <button class="btn-icon" style="width:38px;height:38px;font-size:18px;" onclick="toggleEmojiPicker()">😊</button>
+                        <input type="text" id="callMessageInput" placeholder="Digite uma mensagem..." onkeypress="if(event.key==='Enter')sendMessage('callMessageInput')">
+                        <button class="btn-icon" style="width:38px;height:38px;" onclick="sendMessage('callMessageInput')">📨</button>
+                        <div class="emoji-picker" id="emojiPicker"></div>
                     </div>
                 </div>
             </div>
@@ -875,6 +1067,7 @@
                 <button class="call-btn call-btn-action" onclick="shareVideo()" title="Compartilhar filme/vídeo">🎬</button>
                 <button class="call-btn call-btn-action" onclick="shareScreen()" title="Compartilhar tela">🖥️</button>
                 <button class="call-btn call-btn-action" onclick="openWhiteboard()" title="Quadro branco">🎨</button>
+                <button class="call-btn call-btn-action" onclick="toggleCallChat()" title="Mensagens">💬</button>
                 <button class="call-btn call-btn-end" onclick="endCall()">❌</button>
                 <button class="call-btn call-btn-action" onclick="toggleCamera()">📸</button>
             </div>
@@ -885,7 +1078,9 @@
             <input type="file" id="musicFileInput" accept="audio/*" style="display:none;" onchange="loadMusicFile(this)">
             <button class="btn-small" onclick="document.getElementById('musicFileInput').click()">📁</button>
             <button class="btn-small btn-accept" onclick="loadMusicFromUrl()">▶️</button>
-            <button class="btn-small btn-danger" onclick="stopMusic()">⏹️</button>
+            <button class="btn-small" id="musicShareBtn" onclick="toggleMusicShare()" title="Deixar a outra pessoa ouvir esta música na chamada">🔗</button>
+            <button class="btn-small btn-danger" onclick="stopMusic()" title="Parar música">⏹️</button>
+            <button class="btn-small btn-danger" onclick="closeMusicPlayer()" title="Fechar">✖️</button>
             <button class="btn-small btn-accept" id="musicPlayFallback" style="display:none;" onclick="retryPlayMusic()" title="O navegador bloqueou a reprodução automática — toque para reproduzir">🔈 Toque p/ tocar</button>
             <audio id="bgMusic" loop></audio>
         </div>
@@ -933,6 +1128,21 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalAdmin">
+            <div class="modal">
+                <h3>⚙️ Utilizadores cadastrados</h3>
+                <p style="color:#8696a0;font-size:13px;">Visível apenas para o administrador.</p>
+                <div style="max-height:320px;overflow:auto;">
+                    <table class="admin-table" id="adminUsersTable">
+                        <thead><tr><th>Nome</th><th>Telemóvel</th><th>País</th><th>Email</th></tr></thead>
+                        <tbody id="adminUsersBody"></tbody>
+                    </table>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalAdmin')">Fechar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalTranslator">
             <div class="modal">
                 <h3>🌐 Idioma do Tradutor</h3>
@@ -965,10 +1175,12 @@
 
     const APP = {
         user: null,
+        token: null,
         chats: [],
         currentChatId: null,
         messages: {},
         callStream: null,
+        callActive: false, // evita loop de "end_call" indo e voltando entre os dois lados
         isMuted: false,
         isSpeakerOn: true,
         isCameraOn: true,
@@ -978,20 +1190,28 @@
         callStartTime: null,
         videoShare: {
             active: false,
+            minimized: false,
             videoEl: null,
             audioCtx: null,
             gainNode: null,
             camVideoTrack: null,
             camAudioTrack: null
         },
+        musicShare: {
+            active: false
+        },
+        _musicMix: null, // AudioContext/nodes persistentes p/ partilhar música na chamada (ver getMusicMix)
         translatorLang: localStorage.getItem('translatorLang') || '',
         musicAudio: document.getElementById('bgMusic'),
         whiteboard: {
             canvas: document.getElementById('whiteboardCanvas'),
             ctx: document.getElementById('whiteboardCanvas').getContext('2d'),
-            drawing: false
+            drawing: false,
+            remote: false // true enquanto desenha um traço recebido do outro lado (evita reenviar)
         }
     };
+
+    const COMMON_EMOJIS = ['😀','😂','😍','😊','😉','😘','😎','🤔','😢','😭','😡','👍','👎','👏','🙏','❤️','🔥','🎉','😴','🤗','😱','🥳','👋','💯','✅','❌','🎵','📞','📹','😅'];
 
     const DEFAULT_CONTACTS = [
         { id: 'ai_assistant', name: '🤖 Assistente IA', phone: '', avatar: '🤖', type: 'ai', memberCount: 1 },
@@ -1005,30 +1225,103 @@
         ], memberCount: 120 },
     ];
 
-    function login() {
-        const name = document.getElementById('loginName').value.trim() || 'Usuário';
-        const phone = document.getElementById('loginPhone').value.trim() || '+55 11 99999-9999';
-        APP.user = { name, phone, avatar: name.charAt(0).toUpperCase() };
+    function showAuthForm(which) {
+        document.getElementById('loginFormBox').style.display = which === 'login' ? 'flex' : 'none';
+        document.getElementById('registerFormBox').style.display = which === 'register' ? 'flex' : 'none';
+        document.getElementById('loginError').textContent = '';
+        document.getElementById('registerError').textContent = '';
+    }
+
+    async function doLogin() {
+        const phone = document.getElementById('loginPhone').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        const errEl = document.getElementById('loginError');
+        errEl.textContent = '';
+        if (!phone || !password) { errEl.textContent = 'Preencha telemóvel e senha.'; return; }
+        try {
+            const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, password }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao entrar.'; return; }
+            enterApp(data.user, data.token);
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+
+    async function doRegister() {
+        const name = document.getElementById('regName').value.trim();
+        const phone = document.getElementById('regPhone').value.trim();
+        const country = document.getElementById('regCountry').value;
+        const email = document.getElementById('regEmail').value.trim();
+        const password = document.getElementById('regPassword').value;
+        const errEl = document.getElementById('registerError');
+        errEl.textContent = '';
+        if (!name || !phone || !country || !password) { errEl.textContent = 'Preencha nome, telemóvel, país e senha.'; return; }
+        try {
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, country, email, password }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
+            enterApp(data.user, data.token);
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+
+    function enterApp(user, token) {
+        APP.user = { name: user.name, phone: user.phone, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
+        APP.token = token;
+        localStorage.setItem('authToken', token);
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
         document.getElementById('headerAvatar').textContent = APP.user.avatar;
         document.getElementById('headerName').textContent = APP.user.name;
+        document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
         initApp();
         APP.chats.forEach(chat => socket.emit('join_room', chat.id));
     }
 
+    // Restaura a sessão se já havia login guardado neste dispositivo
+    (function restoreSession() {
+        const token = localStorage.getItem('authToken');
+        const userRaw = localStorage.getItem('authUser');
+        if (token && userRaw) {
+            try { enterApp(JSON.parse(userRaw), token); } catch (e) { /* ignora sessão corrompida */ }
+        }
+    })();
+
     function logout() {
         if (APP.callStream) endCall();
         stopMusic();
         APP.user = null;
+        APP.token = null;
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('authUser');
         APP.chats = [];
         APP.messages = {};
         APP.currentChatId = null;
         document.getElementById('mainApp').style.display = 'none';
         document.getElementById('loginScreen').classList.remove('hidden');
+        showAuthForm('login');
         document.getElementById('chatArea').classList.remove('active');
         document.getElementById('musicPlayer').classList.remove('active');
+    }
+
+    async function openAdminModal() {
+        if (!APP.user?.isAdmin) return;
+        try {
+            const res = await fetch('/api/admin/users?token=' + encodeURIComponent(APP.token));
+            const data = await res.json();
+            const body = document.getElementById('adminUsersBody');
+            if (!res.ok) { body.innerHTML = `<tr><td colspan="4">${data.error || 'Erro ao carregar.'}</td></tr>`; }
+            else {
+                body.innerHTML = (data.users || []).map(u => `<tr><td>${u.name}${u.isAdmin ? ' 👑' : ''}</td><td>${u.phone}</td><td>${u.country || ''}</td><td>${u.email || ''}</td></tr>`).join('') || '<tr><td colspan="4">Nenhum usuário cadastrado.</td></tr>';
+            }
+        } catch (err) {
+            document.getElementById('adminUsersBody').innerHTML = '<tr><td colspan="4">Não foi possível ligar ao servidor.</td></tr>';
+        }
+        document.getElementById('modalAdmin').classList.add('active');
     }
 
     function initApp() {
@@ -1208,10 +1501,25 @@
         });
         msgDiv.innerHTML = html;
         msgDiv.scrollTop = msgDiv.scrollHeight;
+        renderCallChatMessages();
     }
 
-    function sendMessage() {
-        const input = document.getElementById('messageInput');
+    // Espelho simplificado do chat, mostrado ao lado durante a videochamada
+    function renderCallChatMessages() {
+        const panel = document.getElementById('callChatMessages');
+        if (!panel) return;
+        const msgs = APP.messages[APP.currentChatId] || [];
+        panel.innerHTML = msgs.map(msg => `
+            <div class="message ${msg.type === 'sent' ? 'sent' : 'received'}">
+                ${msg.type !== 'sent' ? `<div class="sender-name">${msg.sender}</div>` : ''}
+                ${msg.text}
+                <div class="time">${msg.time?.split(' ')[1] || msg.time || ''}</div>
+            </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem ainda</p>';
+        panel.scrollTop = panel.scrollHeight;
+    }
+
+    function sendMessage(inputId) {
+        const input = document.getElementById(inputId || 'messageInput');
         const text = input.value.trim();
         if (!text || !APP.currentChatId) return;
         const now = new Date();
@@ -1384,6 +1692,7 @@
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         if (chat?.type === 'ai') return alert('Não é possível ligar para a IA. Use o chat de texto!');
         APP.callType = type;
+        APP.callActive = true;
         document.getElementById('callTitle').textContent = chat?.name || 'Chamada';
         document.getElementById('callStatus').textContent = type === 'video' ? 'Chamando...' : 'Chamada de voz...';
         document.getElementById('callScreen').classList.add('active');
@@ -1420,6 +1729,7 @@
         }
         APP.currentChatId = data.targetRoomId;
         APP.callType = data.callType;
+        APP.callActive = true;
         document.getElementById('callTitle').textContent = data.callerName;
         document.getElementById('callStatus').textContent = 'Conectando...';
         document.getElementById('callScreen').classList.add('active');
@@ -1453,7 +1763,7 @@
     });
 
     socket.on('call_ended', () => {
-        endCall();
+        endCall(true); // encerrado pelo outro lado — não reenviar 'end_call' de volta
     });
 
     function startConference() {
@@ -1506,14 +1816,21 @@
         timerEl.textContent = '00:00';
     }
 
-    function endCall() {
-        if (APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
+    // remoteInitiated=true quando chega via socket 'call_ended' (o outro lado encerrou) —
+    // nesse caso NÃO reenviamos 'end_call', senão os dois lados ficam ecoando o evento um
+    // para o outro para sempre e a sala fica "presa", impedindo novas chamadas depois.
+    function endCall(remoteInitiated) {
+        if (!APP.callActive) return; // já foi encerrada — ignora chamadas duplicadas do evento
+        APP.callActive = false;
+        if (!remoteInitiated && APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         if (APP.callStream) { APP.callStream.getTracks().forEach(track => track.stop()); APP.callStream = null; }
         stopVideoShare();
+        stopMusicShareOnly();
         stopCallTimer();
         document.getElementById('callScreen').classList.remove('active');
+        document.getElementById('callChatPanel').classList.remove('active');
         const mainVideo = document.getElementById('mainVideo');
         mainVideo.srcObject = null;
         mainVideo.src = '';
@@ -1524,8 +1841,41 @@
         closeWhiteboard();
     }
 
+    // ==================== CHAT AO LADO DA CHAMADA + EMOJIS ====================
+    function toggleCallChat() {
+        const panel = document.getElementById('callChatPanel');
+        panel.classList.toggle('active');
+        if (panel.classList.contains('active')) {
+            renderCallChatMessages();
+            setTimeout(() => document.getElementById('callMessageInput').focus(), 250);
+        } else {
+            document.getElementById('emojiPicker').classList.remove('active');
+        }
+    }
+
+    let emojiTargetInputId = 'messageInput';
+    function toggleEmojiPicker(inputId) {
+        emojiTargetInputId = inputId || (document.getElementById('callChatPanel').classList.contains('active') ? 'callMessageInput' : 'messageInput');
+        const pickerId = emojiTargetInputId === 'callMessageInput' ? 'emojiPicker' : 'emojiPickerMain';
+        const picker = document.getElementById(pickerId);
+        if (!picker.innerHTML) {
+            picker.innerHTML = COMMON_EMOJIS.map(e => `<span onclick="insertEmoji('${e}')">${e}</span>`).join('');
+        }
+        picker.classList.toggle('active');
+    }
+
+    function insertEmoji(emoji) {
+        const input = document.getElementById(emojiTargetInputId);
+        if (input) { input.value += emoji; input.focus(); }
+    }
+
     function toggleMusicPlayer() {
         document.getElementById('musicPlayer').classList.toggle('active');
+    }
+
+    function closeMusicPlayer() {
+        stopMusic();
+        document.getElementById('musicPlayer').classList.remove('active');
     }
 
     function loadMusicFromUrl() {
@@ -1533,6 +1883,7 @@
         if (url) {
             APP.musicAudio.src = url;
             playMusicWithFallback();
+            if (APP.musicShare.active) applyMusicShareMix(); // trocou de música com o compartilhamento ligado: remistura
         }
     }
 
@@ -1542,6 +1893,7 @@
             const url = URL.createObjectURL(file);
             APP.musicAudio.src = url;
             playMusicWithFallback();
+            if (APP.musicShare.active) applyMusicShareMix();
         }
     }
 
@@ -1571,6 +1923,73 @@
         APP.musicAudio.src = '';
         const fallbackBtn = document.getElementById('musicPlayFallback');
         if (fallbackBtn) fallbackBtn.style.display = 'none';
+        if (APP.musicShare.active) stopMusicShareOnly();
+    }
+
+    // ==================== MÚSICA COMPARTILHADA NA CHAMADA ====================
+    // Mesma técnica do vídeo compartilhado: mistura o áudio da música de fundo
+    // com o microfone (Web Audio API) e substitui a faixa de áudio enviada na
+    // chamada, para que a outra pessoa também ouça a música que já está a tocar.
+    // IMPORTANTE: createMediaElementSource só pode ser chamado UMA VEZ por elemento
+    // <audio> durante toda a vida da página — por isso mantemos um único AudioContext
+    // "vivo" (APP._musicMix) e só ligamos/desligamos o microfone nele a cada toggle,
+    // em vez de recriar tudo (o que quebraria ao ligar/desligar mais de uma vez).
+    function getMusicMix() {
+        if (!APP._musicMix) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = ctx.createMediaElementSource(APP.musicAudio);
+            const dest = ctx.createMediaStreamDestination();
+            source.connect(dest);
+            source.connect(ctx.destination); // quem partilha continua a ouvir localmente
+            APP._musicMix = { ctx, source, dest, micSource: null };
+        }
+        return APP._musicMix;
+    }
+
+    function toggleMusicShare() {
+        if (!document.getElementById('callScreen').classList.contains('active')) {
+            return alert('Isto só funciona durante uma chamada — inicie uma chamada primeiro.');
+        }
+        if (!APP.musicAudio.src) return alert('Toque uma música primeiro (URL ou arquivo) antes de partilhar.');
+        if (APP.musicShare.active) stopMusicShareOnly();
+        else applyMusicShareMix();
+    }
+
+    function applyMusicShareMix() {
+        if (!peerConnection || !APP.callStream) return;
+        try {
+            const mix = getMusicMix();
+            if (mix.micSource) { try { mix.micSource.disconnect(); } catch (e) {} }
+            const micTrack = APP.callStream.getAudioTracks()[0];
+            if (micTrack) {
+                const micStream = new MediaStream([micTrack]);
+                mix.micSource = mix.ctx.createMediaStreamSource(micStream);
+                mix.micSource.connect(mix.dest);
+            }
+            const mixedTrack = mix.dest.stream.getAudioTracks()[0];
+            const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+            if (audioSender && mixedTrack) audioSender.replaceTrack(mixedTrack);
+
+            APP.musicShare.active = true;
+            const btn = document.getElementById('musicShareBtn');
+            if (btn) { btn.classList.add('btn-accept'); btn.title = 'A outra pessoa já está a ouvir esta música — toque para parar de partilhar'; }
+        } catch (err) {
+            alert('Não foi possível partilhar a música na chamada: ' + err.message);
+        }
+    }
+
+    function stopMusicShareOnly() {
+        const mix = APP._musicMix;
+        if (mix && mix.micSource) { try { mix.micSource.disconnect(); } catch (e) {} mix.micSource = null; }
+        // Restaura o áudio original (só microfone) na chamada
+        if (peerConnection && APP.callStream) {
+            const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+            const camMic = APP.callStream.getAudioTracks()[0];
+            if (audioSender && camMic) audioSender.replaceTrack(camMic);
+        }
+        APP.musicShare.active = false;
+        const btn = document.getElementById('musicShareBtn');
+        if (btn) { btn.classList.remove('btn-accept'); btn.title = 'Deixar a outra pessoa ouvir esta música na chamada'; }
     }
 
     function shareVideo() {
@@ -1700,11 +2119,55 @@
         vs.gainNode = null;
         vs.camVideoTrack = null;
         vs.camAudioTrack = null;
-        document.getElementById('videoSharePanel').style.display = 'none';
+        const panel = document.getElementById('videoSharePanel');
+        panel.style.display = 'none';
+        panel.classList.remove('minimized');
+        APP.videoShare.minimized = false;
+        document.getElementById('vspMinBtn').textContent = '🔽';
         if (document.getElementById('callScreen').classList.contains('active')) {
             document.getElementById('callStatus').textContent = 'Conectado ✅';
         }
     }
+
+    function toggleMinimizeVideoShare() {
+        const panel = document.getElementById('videoSharePanel');
+        APP.videoShare.minimized = !APP.videoShare.minimized;
+        panel.classList.toggle('minimized', APP.videoShare.minimized);
+        document.getElementById('vspMinBtn').textContent = APP.videoShare.minimized ? '🔼' : '🔽';
+    }
+
+    // Arrastar o painel do vídeo compartilhado pela sua barra de título
+    (function enableVideoSharePanelDrag() {
+        const panel = document.getElementById('videoSharePanel');
+        const handle = document.getElementById('vspDragHandle');
+        let dragging = false, offsetX = 0, offsetY = 0;
+        function startDrag(clientX, clientY) {
+            dragging = true;
+            const rect = panel.getBoundingClientRect();
+            const containerRect = document.getElementById('callVideoContainer').getBoundingClientRect();
+            offsetX = clientX - rect.left;
+            offsetY = clientY - rect.top;
+            panel.style.left = (rect.left - containerRect.left) + 'px';
+            panel.style.top = (rect.top - containerRect.top) + 'px';
+            panel.style.right = 'auto';
+        }
+        function moveDrag(clientX, clientY) {
+            if (!dragging) return;
+            const containerRect = document.getElementById('callVideoContainer').getBoundingClientRect();
+            let x = clientX - containerRect.left - offsetX;
+            let y = clientY - containerRect.top - offsetY;
+            x = Math.max(0, Math.min(x, containerRect.width - 40));
+            y = Math.max(0, Math.min(y, containerRect.height - 30));
+            panel.style.left = x + 'px';
+            panel.style.top = y + 'px';
+        }
+        handle.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        document.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
+        document.addEventListener('mouseup', () => dragging = false);
+        handle.addEventListener('touchstart', (e) => { const t = e.touches[0]; startDrag(t.clientX, t.clientY); }, { passive: true });
+        document.addEventListener('touchmove', (e) => { if (dragging) { const t = e.touches[0]; moveDrag(t.clientX, t.clientY); } }, { passive: true });
+        document.addEventListener('touchend', () => dragging = false);
+    })();
 
     function shareScreen() {
         if (!document.getElementById('callScreen').classList.contains('active')) return alert('Inicie uma chamada primeiro!');
@@ -1712,21 +2175,34 @@
             return alert('Compartilhamento de tela não é suportado neste navegador/dispositivo. Essa função funciona apenas em computadores — a maioria dos navegadores móveis (Android/iOS) não permite capturar a tela via navegador.');
         }
         if (APP.videoShare.active) stopVideoShare();
-        navigator.mediaDevices.getDisplayMedia({ video: true }).then(stream => {
+        // audio:true pede também o áudio do sistema/aba — o navegador só entrega isso se o
+        // usuário marcar "Compartilhar áudio" na caixa de seleção nativa (mais comum de
+        // funcionar no Chrome desktop ao compartilhar uma aba específica).
+        navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(stream => {
             if (APP.sharedStream) APP.sharedStream.getTracks().forEach(t => t.stop());
             APP.sharedStream = stream;
             if (peerConnection) {
-                const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-                if (sender) sender.replaceTrack(stream.getVideoTracks()[0]);
+                const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (videoSender) videoSender.replaceTrack(stream.getVideoTracks()[0]);
+                const screenAudioTrack = stream.getAudioTracks()[0];
+                if (screenAudioTrack) {
+                    const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (audioSender) audioSender.replaceTrack(screenAudioTrack);
+                } else {
+                    console.warn('O navegador não forneceu áudio do sistema — o outro lado ouvirá só o microfone.');
+                }
             }
             const pipVideo = document.getElementById('pipVideo');
             if (APP.callStream) { pipVideo.srcObject = APP.callStream; document.getElementById('callPip').style.display = 'block'; }
             document.getElementById('callStatus').textContent = '🖥️ Compartilhando tela';
             stream.getVideoTracks()[0].onended = () => {
                 if (peerConnection && APP.callStream) {
-                    const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                    const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
                     const camTrack = APP.callStream.getVideoTracks()[0];
-                    if (sender && camTrack) sender.replaceTrack(camTrack);
+                    if (videoSender && camTrack) videoSender.replaceTrack(camTrack);
+                    const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    const micTrack = APP.callStream.getAudioTracks()[0];
+                    if (audioSender && micTrack) audioSender.replaceTrack(micTrack);
                 }
                 document.getElementById('callPip').style.display = 'none';
                 document.getElementById('callStatus').textContent = 'Conectado ✅';
@@ -1734,9 +2210,41 @@
         }).catch(err => alert('Erro ao compartilhar tela: ' + err.message));
     }
 
+    // ==================== QUADRO BRANCO SINCRONIZADO ====================
+    // Cada traço é enviado pelo socket como coordenadas NORMALIZADAS (0 a 1),
+    // assim funciona igual mesmo que o canvas tenha tamanho diferente nos dois lados.
+    function drawSegment(x0, y0, x1, y1, color, size) {
+        const ctx = APP.whiteboard.ctx;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    function emitWhiteboardSegment(x0, y0, x1, y1, color, size) {
+        if (!APP.currentChatId) return;
+        const canvas = APP.whiteboard.canvas;
+        socket.emit('whiteboard_draw', {
+            roomId: APP.currentChatId,
+            x0: x0 / canvas.width, y0: y0 / canvas.height,
+            x1: x1 / canvas.width, y1: y1 / canvas.height,
+            color, size
+        });
+    }
+
+    socket.on('whiteboard_draw_received', (data) => {
+        const canvas = APP.whiteboard.canvas;
+        drawSegment(data.x0 * canvas.width, data.y0 * canvas.height, data.x1 * canvas.width, data.y1 * canvas.height, data.color, data.size);
+    });
+    socket.on('whiteboard_clear_received', () => {
+        APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
+    });
+
     function initWhiteboard() {
         const canvas = APP.whiteboard.canvas;
-        const ctx = APP.whiteboard.ctx;
         canvas.addEventListener('mousedown', startDraw);
         canvas.addEventListener('mousemove', draw);
         canvas.addEventListener('mouseup', stopDraw);
@@ -1756,13 +2264,10 @@
             const rect = canvas.getBoundingClientRect();
             const x = touch.clientX - rect.left;
             const y = touch.clientY - rect.top;
-            ctx.beginPath();
-            ctx.moveTo(APP.whiteboard.lastX, APP.whiteboard.lastY);
-            ctx.lineTo(x, y);
-            ctx.strokeStyle = document.getElementById('drawColor').value;
-            ctx.lineWidth = document.getElementById('drawSize').value;
-            ctx.lineCap = 'round';
-            ctx.stroke();
+            const color = document.getElementById('drawColor').value;
+            const size = document.getElementById('drawSize').value;
+            drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
+            emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
             APP.whiteboard.lastX = x;
             APP.whiteboard.lastY = y;
         });
@@ -1781,14 +2286,10 @@
         const rect = APP.whiteboard.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        const ctx = APP.whiteboard.ctx;
-        ctx.beginPath();
-        ctx.moveTo(APP.whiteboard.lastX, APP.whiteboard.lastY);
-        ctx.lineTo(x, y);
-        ctx.strokeStyle = document.getElementById('drawColor').value;
-        ctx.lineWidth = document.getElementById('drawSize').value;
-        ctx.lineCap = 'round';
-        ctx.stroke();
+        const color = document.getElementById('drawColor').value;
+        const size = document.getElementById('drawSize').value;
+        drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
+        emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
         APP.whiteboard.lastX = x;
         APP.whiteboard.lastY = y;
     }
@@ -1796,7 +2297,10 @@
     function stopDraw() { APP.whiteboard.drawing = false; }
     function openWhiteboard() { document.getElementById('whiteboardContainer').classList.add('active'); }
     function closeWhiteboard() { document.getElementById('whiteboardContainer').classList.remove('active'); }
-    function clearWhiteboard() { APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height); }
+    function clearWhiteboard() {
+        APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
+        if (APP.currentChatId) socket.emit('whiteboard_clear', { roomId: APP.currentChatId });
+    }
 
     function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
     document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
