@@ -8,6 +8,29 @@ const path = require('path');
 const app = express();
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
 
+// ==================== TRADUTOR (proxy server-side) ====================
+// Usa o endpoint público do Google Translate (o mesmo usado pela extensão
+// "Google Tradutor" no navegador). Rodar isso no servidor evita problemas de
+// CORS e não expõe nenhuma chave — não requer conta nem chave de API.
+// Não é uma API oficial suportada, então em produção séria o ideal seria
+// trocar por uma conta oficial do Google Cloud Translation ou pelo LibreTranslate.
+app.get('/api/translate', async (req, res) => {
+  const { text, target } = req.query;
+  if (!text || !target) return res.status(400).json({ error: 'Parâmetros "text" e "target" são obrigatórios.' });
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Resposta não OK do serviço de tradução: ' + r.status);
+    const data = await r.json();
+    // data[0] é um array de pedaços [ [traduzido, original, ...], ... ]
+    const translated = (data[0] || []).map(chunk => chunk[0]).join('');
+    res.json({ translated });
+  } catch (err) {
+    console.error('Erro ao traduzir:', err.message);
+    res.status(500).json({ error: 'Falha ao traduzir. Tente novamente.' });
+  }
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },

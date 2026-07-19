@@ -534,6 +534,36 @@
             color: #fff;
             text-align: center;
         }
+        .video-share-panel {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: rgba(0,0,0,0.55);
+            border-radius: 12px;
+            padding: 8px;
+            width: 150px;
+        }
+        .video-share-panel video {
+            width: 100%;
+            border-radius: 8px;
+            background: #000;
+        }
+        .video-share-panel .vsp-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .video-share-panel .vsp-controls input[type="range"] {
+            flex: 1;
+            width: 100%;
+        }
+        .video-share-panel .vsp-row {
+            display: flex;
+            gap: 6px;
+        }
         .call-info h2 {
             font-size: 20px;
         }
@@ -781,6 +811,7 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button class="btn-icon" onclick="openTranslatorModal()" title="Idioma do tradutor">🌐</button>
                 <button class="btn-icon" onclick="toggleMusicPlayer()" title="Música de fundo">🎵</button>
                 <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
@@ -821,10 +852,22 @@
                 <div class="call-pip" id="callPip" style="display:none;">
                     <video id="pipVideo" autoplay playsinline muted></video>
                 </div>
+                <div class="video-share-panel" id="videoSharePanel" style="display:none;">
+                    <video id="sharedVideoPreview" playsinline muted></video>
+                    <div class="vsp-row">
+                        <button class="btn-small" id="vspPlayBtn" onclick="toggleSharedVideoPlay()" title="Pausar/continuar para todos">⏸️</button>
+                        <button class="btn-small btn-danger" onclick="stopVideoShare()" title="Parar compartilhamento">⏹️</button>
+                    </div>
+                    <div class="vsp-controls">
+                        <span style="color:#fff;font-size:12px;">🔊</span>
+                        <input type="range" id="vspVolume" min="0" max="100" value="100" oninput="setSharedVideoVolume(this.value)">
+                    </div>
+                </div>
             </div>
             <div class="call-info">
                 <h2 id="callTitle">Chamada</h2>
                 <p id="callStatus">Conectando...</p>
+                <p id="callTimer" style="display:none;font-variant-numeric:tabular-nums;font-size:13px;color:#8696a0;margin-top:2px;">00:00</p>
             </div>
             <div class="call-actions">
                 <button class="call-btn call-btn-action" onclick="toggleMute()">🔇</button>
@@ -843,13 +886,14 @@
             <button class="btn-small" onclick="document.getElementById('musicFileInput').click()">📁</button>
             <button class="btn-small btn-accept" onclick="loadMusicFromUrl()">▶️</button>
             <button class="btn-small btn-danger" onclick="stopMusic()">⏹️</button>
+            <button class="btn-small btn-accept" id="musicPlayFallback" style="display:none;" onclick="retryPlayMusic()" title="O navegador bloqueou a reprodução automática — toque para reproduzir">🔈 Toque p/ tocar</button>
             <audio id="bgMusic" loop></audio>
         </div>
         <div class="modal-overlay" id="modalShareVideo">
             <div class="modal">
                 <h3>🎬 Compartilhar Vídeo</h3>
-                <p style="color:#8696a0;font-size:13px;">Escolha um arquivo ou cole uma URL de vídeo</p>
-                <input type="text" id="videoUrlInput" placeholder="URL do vídeo (YouTube, MP4...)">
+                <p style="color:#8696a0;font-size:13px;">Escolha um arquivo ou cole um link direto de vídeo (.mp4, .webm). O vídeo é transmitido ao vivo para quem está na chamada — links do YouTube não funcionam para transmissão real.</p>
+                <input type="text" id="videoUrlInput" placeholder="Link direto do vídeo (.mp4, .webm...)">
                 <input type="file" id="videoFileInput" accept="video/*" style="display:none;" onchange="loadVideoFile(this)">
                 <button class="btn-small" onclick="document.getElementById('videoFileInput').click()">📁 Selecionar arquivo</button>
                 <div class="modal-actions">
@@ -889,6 +933,16 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalTranslator">
+            <div class="modal">
+                <h3>🌐 Idioma do Tradutor</h3>
+                <p style="color:#8696a0;font-size:13px;">Escolha para qual idioma as mensagens devem ser traduzidas ao tocar no 🌐 de cada mensagem.</p>
+                <div id="translatorLangList" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalTranslator')">Fechar</button>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -920,6 +974,17 @@
         isCameraOn: true,
         callType: null,
         sharedStream: null,
+        callTimerInterval: null,
+        callStartTime: null,
+        videoShare: {
+            active: false,
+            videoEl: null,
+            audioCtx: null,
+            gainNode: null,
+            camVideoTrack: null,
+            camAudioTrack: null
+        },
+        translatorLang: localStorage.getItem('translatorLang') || '',
         musicAudio: document.getElementById('bgMusic'),
         whiteboard: {
             canvas: document.getElementById('whiteboardCanvas'),
@@ -1048,6 +1113,71 @@
         renderChatList();
     }
 
+    // ==================== TRADUTOR ====================
+    // Mais de 6 dos idiomas mais falados do mundo. Cada código é o
+    // parâmetro "target" aceito pelo endpoint /api/translate do servidor.
+    const TRANSLATE_LANGUAGES = [
+        { code: 'pt', label: '🇧🇷 Português' },
+        { code: 'en', label: '🇺🇸 Inglês' },
+        { code: 'es', label: '🇪🇸 Espanhol' },
+        { code: 'zh-CN', label: '🇨🇳 Chinês (Mandarim)' },
+        { code: 'hi', label: '🇮🇳 Hindi' },
+        { code: 'ar', label: '🇸🇦 Árabe' },
+        { code: 'fr', label: '🇫🇷 Francês' },
+        { code: 'ru', label: '🇷🇺 Russo' },
+        { code: 'de', label: '🇩🇪 Alemão' },
+        { code: 'ja', label: '🇯🇵 Japonês' },
+        { code: 'it', label: '🇮🇹 Italiano' },
+    ];
+
+    function openTranslatorModal() {
+        const list = document.getElementById('translatorLangList');
+        list.innerHTML = TRANSLATE_LANGUAGES.map(l => `
+            <button class="btn-small ${APP.translatorLang === l.code ? 'btn-accept' : ''}" style="text-align:left;justify-content:flex-start;" onclick="selectTranslatorLang('${l.code}')">${l.label}${APP.translatorLang === l.code ? ' ✓' : ''}</button>
+        `).join('');
+        document.getElementById('modalTranslator').classList.add('active');
+    }
+
+    function selectTranslatorLang(code) {
+        APP.translatorLang = code;
+        localStorage.setItem('translatorLang', code);
+        openTranslatorModal(); // re-renderiza para marcar o selecionado
+    }
+
+    async function translateMsg(msgId, btnEl) {
+        const msgs = APP.messages[APP.currentChatId];
+        if (!msgs) return;
+        const msg = msgs.find(m => m.id === msgId);
+        if (!msg) return;
+
+        if (!APP.translatorLang) {
+            openTranslatorModal();
+            return;
+        }
+
+        // Se já traduzido para o idioma atual, apenas alterna mostrar/ocultar
+        const container = document.getElementById('trans_' + msgId);
+        if (msg.translatedLang === APP.translatorLang && msg.translatedText) {
+            if (container) {
+                container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            }
+            return;
+        }
+
+        btnEl.textContent = '⏳';
+        try {
+            const res = await fetch(`/api/translate?text=${encodeURIComponent(msg.text)}&target=${encodeURIComponent(APP.translatorLang)}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha na tradução');
+            msg.translatedText = data.translated;
+            msg.translatedLang = APP.translatorLang;
+            renderMessages();
+        } catch (err) {
+            btnEl.textContent = '🌐';
+            alert('Não foi possível traduzir: ' + err.message);
+        }
+    }
+
     function renderMessages() {
         const msgDiv = document.getElementById('chatMessages');
         if (!APP.currentChatId || !APP.messages[APP.currentChatId]) {
@@ -1069,7 +1199,11 @@
             <div class="message ${isSent ? 'sent' : 'received'}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${msg.text}
-                <div class="time">${msg.time?.split(' ')[1] || msg.time} ${isSent ? '<span class="msg-status">✓✓</span>' : ''}</div>
+                <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
+                <div class="time">
+                    <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 4px;vertical-align:middle;">🌐</button>
+                    ${msg.time?.split(' ')[1] || msg.time} ${isSent ? '<span class="msg-status">✓✓</span>' : ''}
+                </div>
             </div>`;
         });
         msgDiv.innerHTML = html;
@@ -1240,6 +1374,7 @@
             mainVideo.srcObject = e.streams[0];
             mainVideo.style.display = 'block';
             document.getElementById('callStatus').textContent = 'Conectado ✅';
+            startCallTimer();
         };
         return peerConnection;
     }
@@ -1346,11 +1481,38 @@
         }
     }
 
+    function startCallTimer() {
+        if (APP.callTimerInterval) return; // já rodando, evita duplicar
+        APP.callStartTime = Date.now();
+        const timerEl = document.getElementById('callTimer');
+        timerEl.style.display = 'block';
+        timerEl.textContent = '00:00';
+        APP.callTimerInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - APP.callStartTime) / 1000);
+            const h = Math.floor(elapsed / 3600);
+            const m = Math.floor((elapsed % 3600) / 60);
+            const s = elapsed % 60;
+            const pad = (n) => String(n).padStart(2, '0');
+            timerEl.textContent = h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+        }, 1000);
+    }
+
+    function stopCallTimer() {
+        clearInterval(APP.callTimerInterval);
+        APP.callTimerInterval = null;
+        APP.callStartTime = null;
+        const timerEl = document.getElementById('callTimer');
+        timerEl.style.display = 'none';
+        timerEl.textContent = '00:00';
+    }
+
     function endCall() {
         if (APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         if (APP.callStream) { APP.callStream.getTracks().forEach(track => track.stop()); APP.callStream = null; }
+        stopVideoShare();
+        stopCallTimer();
         document.getElementById('callScreen').classList.remove('active');
         const mainVideo = document.getElementById('mainVideo');
         mainVideo.srcObject = null;
@@ -1370,7 +1532,7 @@
         const url = document.getElementById('musicUrlInput').value.trim();
         if (url) {
             APP.musicAudio.src = url;
-            APP.musicAudio.play().catch(e => alert('Erro ao reproduzir áudio: ' + e.message));
+            playMusicWithFallback();
         }
     }
 
@@ -1379,13 +1541,36 @@
         if (file) {
             const url = URL.createObjectURL(file);
             APP.musicAudio.src = url;
-            APP.musicAudio.play();
+            playMusicWithFallback();
         }
+    }
+
+    function playMusicWithFallback() {
+        const fallbackBtn = document.getElementById('musicPlayFallback');
+        const playPromise = APP.musicAudio.play();
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => { if (fallbackBtn) fallbackBtn.style.display = 'none'; })
+                .catch((err) => {
+                    // Autoplay bloqueado pelo navegador (política padrão de autoplay).
+                    // Mostra um botão para o usuário confirmar a reprodução com um toque/clique.
+                    console.warn('Autoplay de áudio bloqueado:', err.message);
+                    if (fallbackBtn) fallbackBtn.style.display = 'inline-flex';
+                });
+        }
+    }
+
+    function retryPlayMusic() {
+        APP.musicAudio.play()
+            .then(() => { document.getElementById('musicPlayFallback').style.display = 'none'; })
+            .catch((err) => alert('Ainda não foi possível reproduzir: ' + err.message));
     }
 
     function stopMusic() {
         APP.musicAudio.pause();
         APP.musicAudio.src = '';
+        const fallbackBtn = document.getElementById('musicPlayFallback');
+        if (fallbackBtn) fallbackBtn.style.display = 'none';
     }
 
     function shareVideo() {
@@ -1409,19 +1594,124 @@
         closeModal('modalShareVideo');
     }
 
-    function loadVideoFile(input) { /* placeholder */ }
+    function loadVideoFile(input) { /* placeholder, mantido por compatibilidade */ }
 
+    // Toca um vídeo (arquivo local ou URL direta de mp4/webm) e TRANSMITE de
+    // verdade pela chamada: capturamos o próprio elemento <video> com
+    // captureStream() e substituímos as faixas de vídeo/áudio que estão
+    // sendo enviadas pela peerConnection (mesma técnica já usada em
+    // shareScreen). Assim o outro lado recebe o vídeo ao vivo, sincronizado,
+    // e pausar/continuar/ajustar volume aqui reflete para quem está assistindo.
+    // Observação: URLs de YouTube não funcionam com essa técnica (o YouTube
+    // não expõe o elemento <video> para captura); funciona com arquivos
+    // locais ou links diretos para .mp4/.webm/.ogg.
     function playSharedVideo(src) {
-        const mainVideo = document.getElementById('mainVideo');
-        mainVideo.srcObject = null;
-        mainVideo.src = src;
-        mainVideo.controls = true;
-        mainVideo.play();
-        document.getElementById('callStatus').textContent = '🎬 Assistindo vídeo compartilhado (local nesta versão)';
+        if (!peerConnection) return alert('Inicie uma chamada primeiro!');
+        if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; document.getElementById('callPip').style.display = 'none'; }
+
+        const preview = document.getElementById('sharedVideoPreview');
+        preview.src = src;
+        preview.loop = false;
+        preview.muted = false; // o áudio real vai pelo Web Audio graph abaixo
+
+        preview.onloadedmetadata = () => {
+            try {
+                // Guarda as faixas originais da câmera/microfone para restaurar depois
+                if (APP.callStream) {
+                    APP.videoShare.camVideoTrack = APP.callStream.getVideoTracks()[0] || null;
+                    APP.videoShare.camAudioTrack = APP.callStream.getAudioTracks()[0] || null;
+                }
+
+                // Roteia o áudio do vídeo por um GainNode para que o slider de
+                // volume realmente altere o que é transmitido (captureStream
+                // sozinho ignora o volume do elemento).
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioCtx.createMediaElementSource(preview);
+                const gainNode = audioCtx.createGain();
+                const dest = audioCtx.createMediaStreamDestination();
+                source.connect(gainNode);
+                gainNode.connect(dest);
+                gainNode.connect(audioCtx.destination); // para quem compartilha também ouvir localmente
+                APP.videoShare.audioCtx = audioCtx;
+                APP.videoShare.gainNode = gainNode;
+
+                const capturedStream = preview.captureStream ? preview.captureStream() : preview.mozCaptureStream();
+                const videoTrack = capturedStream.getVideoTracks()[0];
+                const audioTrack = dest.stream.getAudioTracks()[0];
+
+                const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+                if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
+                if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+
+                APP.videoShare.active = true;
+                APP.videoShare.videoEl = preview;
+                document.getElementById('videoSharePanel').style.display = 'flex';
+                document.getElementById('vspPlayBtn').textContent = '⏸️';
+                document.getElementById('vspVolume').value = 100;
+                document.getElementById('callStatus').textContent = '🎬 Compartilhando vídeo em tempo real';
+
+                preview.play().catch(err => {
+                    console.warn('Autoplay do vídeo compartilhado bloqueado:', err.message);
+                    alert('Toque em ▶️ no painel do vídeo para iniciar (o navegador bloqueou a reprodução automática).');
+                });
+
+                preview.onended = () => stopVideoShare();
+            } catch (err) {
+                alert('Erro ao transmitir o vídeo: ' + err.message);
+            }
+        };
+    }
+
+    function toggleSharedVideoPlay() {
+        const preview = APP.videoShare.videoEl;
+        if (!preview) return;
+        const btn = document.getElementById('vspPlayBtn');
+        if (preview.paused) {
+            preview.play();
+            btn.textContent = '⏸️';
+            document.getElementById('callStatus').textContent = '🎬 Compartilhando vídeo em tempo real';
+        } else {
+            preview.pause();
+            btn.textContent = '▶️';
+            document.getElementById('callStatus').textContent = '⏸️ Vídeo pausado para todos';
+        }
+    }
+
+    function setSharedVideoVolume(value) {
+        if (APP.videoShare.gainNode) APP.videoShare.gainNode.gain.value = value / 100;
+    }
+
+    function stopVideoShare() {
+        const vs = APP.videoShare;
+        if (!vs.active) return;
+        if (vs.videoEl) { vs.videoEl.pause(); vs.videoEl.src = ''; vs.videoEl.onended = null; }
+        if (vs.audioCtx) { vs.audioCtx.close().catch(() => {}); }
+        // Restaura a câmera/microfone originais na chamada
+        if (peerConnection) {
+            const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+            const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+            if (videoSender && vs.camVideoTrack) videoSender.replaceTrack(vs.camVideoTrack);
+            if (audioSender && vs.camAudioTrack) audioSender.replaceTrack(vs.camAudioTrack);
+        }
+        vs.active = false;
+        vs.videoEl = null;
+        vs.audioCtx = null;
+        vs.gainNode = null;
+        vs.camVideoTrack = null;
+        vs.camAudioTrack = null;
+        document.getElementById('videoSharePanel').style.display = 'none';
+        if (document.getElementById('callScreen').classList.contains('active')) {
+            document.getElementById('callStatus').textContent = 'Conectado ✅';
+        }
     }
 
     function shareScreen() {
         if (!document.getElementById('callScreen').classList.contains('active')) return alert('Inicie uma chamada primeiro!');
+        if (!navigator.mediaDevices.getDisplayMedia) {
+            return alert('Compartilhamento de tela não é suportado neste navegador/dispositivo. Essa função funciona apenas em computadores — a maioria dos navegadores móveis (Android/iOS) não permite capturar a tela via navegador.');
+        }
+        if (APP.videoShare.active) stopVideoShare();
         navigator.mediaDevices.getDisplayMedia({ video: true }).then(stream => {
             if (APP.sharedStream) APP.sharedStream.getTracks().forEach(t => t.stop());
             APP.sharedStream = stream;
