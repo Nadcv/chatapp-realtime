@@ -1,0 +1,13 @@
+{
+  "name": "chatapp-realtime",
+  "version": "1.0.0",
+  "description": "ChatApp em tempo real com Express + Socket.IO (mensagens e sinalização WebRTC)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
