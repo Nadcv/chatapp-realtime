@@ -98,6 +98,64 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: Object.values(accounts).map(publicUser) });
 });
 
+// ==================== TRANSPORTES (autocarros, aviões, metro/comboio) ====================
+// Cache simples em memória para não martelar as APIs externas gratuitas a
+// cada pedido de cada usuário — todos os clientes partilham a mesma cache.
+const transportCache = {};
+async function cachedFetch(key, url, ttlMs, options) {
+  const now = Date.now();
+  if (transportCache[key] && (now - transportCache[key].t) < ttlMs) return transportCache[key].data;
+  const r = await fetch(url, options);
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' ao consultar ' + url);
+  const data = await r.json();
+  transportCache[key] = { t: now, data };
+  return data;
+}
+
+// Autocarros da Carris Metropolitana (Área Metropolitana de Lisboa) — API oficial,
+// gratuita, sem chave: https://api.carrismetropolitana.pt
+app.get('/api/transport/buses', async (req, res) => {
+  try {
+    const data = await cachedFetch('buses', 'https://api.carrismetropolitana.pt/v2/vehicles', 10000);
+    res.json(data);
+  } catch (err) {
+    console.error('Erro autocarros:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter os autocarros agora.' });
+  }
+});
+
+// Estações de Metro e Comboio (localização estática) — vêm do mesmo dataset aberto
+app.get('/api/transport/metro-stations', async (req, res) => {
+  try {
+    const data = await cachedFetch('metro', 'https://api.carrismetropolitana.pt/v2/facilities/subway_stations', 3600000);
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'Não foi possível obter as estações de metro.' });
+  }
+});
+app.get('/api/transport/train-stations', async (req, res) => {
+  try {
+    const data = await cachedFetch('train', 'https://api.carrismetropolitana.pt/v2/facilities/train_stations', 3600000);
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'Não foi possível obter as estações de comboio.' });
+  }
+});
+
+// Aviões em tempo real sobre Portugal e Espanha — OpenSky Network, gratuita,
+// sem chave (uso anónimo tem limite de pedidos, por isso a cache é maior).
+app.get('/api/transport/flights', async (req, res) => {
+  try {
+    // Caixa delimitadora aproximada da Península Ibérica
+    const bbox = 'lamin=35.8&lomin=-9.7&lamax=43.9&lomax=4.4';
+    const data = await cachedFetch('flights', `https://opensky-network.org/api/states/all?${bbox}`, 15000);
+    res.json(data);
+  } catch (err) {
+    console.error('Erro voos:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter os voos agora (o serviço gratuito às vezes tem limite de pedidos).' });
+  }
+});
+
 // ==================== ASSISTENTE DE IA (GitHub Models) ====================
 // Usa a API gratuita de "GitHub Models" (a mesma infraestrutura por trás do
 // Copilot Chat). Precisa de um Personal Access Token do GitHub, definido na
@@ -288,6 +346,46 @@ io.on('connection', (socket) => {
     saveMessages();
     socket.to(data.chatId).emit('receive_message', data);
     log(`📩 ${data.sender} (${data.chatId}): ${(data.text || '').substring(0, 30)}`, 'MSG');
+  });
+
+  // "a escrever..." — não é guardado, é só um aviso momentâneo para a sala
+  socket.on('typing', (data) => {
+    if (!data?.roomId) return;
+    socket.to(data.roomId).emit('typing_received', { roomId: data.roomId, name: users[socket.id]?.name });
+  });
+
+  // Apagar mensagem para todos — atualiza o histórico guardado e avisa a sala
+  socket.on('delete_message', (data) => {
+    if (!data?.chatId || !data?.messageId) return;
+    const msgs = messagesByRoom[data.chatId];
+    if (msgs) {
+      const msg = msgs.find(m => m.id === data.messageId);
+      if (msg) { msg.text = 'Mensagem apagada'; msg.deleted = true; msg.fileData = null; saveMessages(); }
+    }
+    socket.to(data.chatId).emit('message_deleted_received', data);
+  });
+
+  // Reagir a uma mensagem com emoji (👍❤️😂 etc.)
+  socket.on('react_message', (data) => {
+    if (!data?.chatId || !data?.messageId || !data?.emoji) return;
+    const msgs = messagesByRoom[data.chatId];
+    if (msgs) {
+      const msg = msgs.find(m => m.id === data.messageId);
+      if (msg) {
+        if (!msg.reactions) msg.reactions = {};
+        const who = users[socket.id]?.phone || socket.id;
+        if (!msg.reactions[data.emoji]) msg.reactions[data.emoji] = [];
+        if (!msg.reactions[data.emoji].includes(who)) msg.reactions[data.emoji].push(who);
+        saveMessages();
+      }
+    }
+    socket.to(data.chatId).emit('reaction_received', { ...data, who: users[socket.id]?.phone || socket.id });
+  });
+
+  // Confirmação de leitura (✓✓)
+  socket.on('message_read', (data) => {
+    if (!data?.chatId) return;
+    socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: users[socket.id]?.phone });
   });
 
   // Sinalização WebRTC (chamadas de voz/vídeo/conferência)

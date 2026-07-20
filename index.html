@@ -114,6 +114,49 @@
             color: var(--text-secondary);
             font-weight: 600;
         }
+        .reply-quote {
+            background: rgba(0,0,0,0.15);
+            border-left: 3px solid var(--green, #00a884);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-bottom: 4px;
+            opacity: 0.85;
+        }
+        .reaction-badges {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+        }
+        .reaction-badge {
+            background: rgba(0,0,0,0.25);
+            border-radius: 10px;
+            padding: 1px 6px;
+            font-size: 11px;
+        }
+        .reaction-picker {
+            position: absolute;
+            bottom: 100%;
+            background: var(--bg-tertiary);
+            border-radius: 20px;
+            padding: 6px 8px;
+            display: flex;
+            gap: 6px;
+            box-shadow: var(--shadow);
+            z-index: 20;
+        }
+        .reaction-picker span { font-size: 18px; cursor: pointer; }
+        .reply-preview-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-tertiary);
+            padding: 8px 14px;
+            border-left: 3px solid var(--green, #00a884);
+            color: var(--text-primary);
+            font-size: 12px;
+        }
         .location-screen {
             position: fixed;
             inset: 0;
@@ -139,6 +182,11 @@
             cursor: pointer;
         }
         #liveMap { flex: 1; width: 100%; }
+        #transportMap { flex: 1; width: 100%; }
+        .transport-tab.active {
+            background: var(--green, #00a884);
+            color: #fff;
+        }
         .location-footer {
             padding: 10px 14px;
             background: var(--bg-secondary);
@@ -537,6 +585,7 @@
             color: #8696a0;
             text-align: right;
             margin-top: 4px;
+            position: relative;
         }
         .message .msg-status {
             font-size: 10px;
@@ -1034,6 +1083,7 @@
                 <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
+                <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -1060,13 +1110,30 @@
                     </div>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
+                <div class="reply-preview-bar" id="replyPreviewBar" style="display:none;">
+                    <div class="reply-preview-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                    <button onclick="cancelReply()" style="background:none;border:none;color:var(--text-secondary);font-size:16px;cursor:pointer;">✖️</button>
+                </div>
                 <div class="chat-input-area" style="position:relative;">
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
-                    <input type="text" id="messageInput" placeholder="Digite uma mensagem..." onkeypress="if(event.key==='Enter')sendMessage()">
+                    <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
                 </div>
             </div>
+        </div>
+        <div class="location-screen" id="transportScreen">
+            <div class="location-header">
+                <strong>🚌 Transportes em tempo real</strong>
+                <button onclick="closeTransportScreen()">✖️</button>
+            </div>
+            <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <button class="btn-small transport-tab active" data-tab="bus" onclick="switchTransportTab('bus')" style="flex:1;">🚌 Autocarros</button>
+                <button class="btn-small transport-tab" data-tab="rail" onclick="switchTransportTab('rail')" style="flex:1;">🚇 Metro/Comboio</button>
+                <button class="btn-small transport-tab" data-tab="flight" onclick="switchTransportTab('flight')" style="flex:1;">✈️ Aviões</button>
+            </div>
+            <div id="transportMap"></div>
+            <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
         </div>
         <div class="location-screen" id="locationScreen">
             <div class="location-header">
@@ -1487,6 +1554,7 @@
         const chat = APP.chats.find(c => c.id === chatId);
         if (!chat) return;
         if (!APP.joinedRooms.has(chatId)) { socket.emit('join_room', chatId); APP.joinedRooms.add(chatId); }
+        if (chat.type !== 'ai') socket.emit('message_read', { chatId });
         document.getElementById('chatArea').classList.add('active');
         document.getElementById('sidebar').classList.add('chat-open');
         document.getElementById('chatName').textContent = chat.name;
@@ -1502,6 +1570,111 @@
         document.getElementById('messageInput').focus();
         renderChatList();
         setTimeout(() => { const msgDiv = document.getElementById('chatMessages'); msgDiv.scrollTop = msgDiv.scrollHeight; }, 100);
+    }
+
+    // ==================== TRANSPORTES (autocarros, metro/comboio, aviões) ====================
+    const TRANSPORT = {
+        map: null,
+        activeTab: 'bus',
+        layers: { bus: null, rail: null, flight: null },
+        pollInterval: null
+    };
+
+    function openTransportScreen() {
+        document.getElementById('transportScreen').classList.add('active');
+        if (!TRANSPORT.map) {
+            TRANSPORT.map = L.map('transportMap').setView([39.5, -6.5], 6); // centrado em Portugal/Espanha
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(TRANSPORT.map);
+            TRANSPORT.layers.bus = L.layerGroup().addTo(TRANSPORT.map);
+            TRANSPORT.layers.rail = L.layerGroup();
+            TRANSPORT.layers.flight = L.layerGroup();
+        }
+        setTimeout(() => TRANSPORT.map.invalidateSize(), 200);
+        switchTransportTab('bus');
+    }
+
+    function closeTransportScreen() {
+        document.getElementById('transportScreen').classList.remove('active');
+        if (TRANSPORT.pollInterval) { clearInterval(TRANSPORT.pollInterval); TRANSPORT.pollInterval = null; }
+    }
+
+    function switchTransportTab(tab) {
+        TRANSPORT.activeTab = tab;
+        document.querySelectorAll('.transport-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+        Object.values(TRANSPORT.layers).forEach(layer => TRANSPORT.map.removeLayer(layer));
+        TRANSPORT.layers[tab].addTo(TRANSPORT.map);
+        if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
+        if (tab === 'bus') {
+            TRANSPORT.map.setView([38.75, -9.15], 11);
+            loadBuses();
+            TRANSPORT.pollInterval = setInterval(loadBuses, 15000);
+        } else if (tab === 'flight') {
+            TRANSPORT.map.setView([39.5, -6.5], 6);
+            loadFlights();
+            TRANSPORT.pollInterval = setInterval(loadFlights, 15000);
+        } else if (tab === 'rail') {
+            TRANSPORT.map.setView([38.75, -9.15], 11);
+            loadRailStations();
+        }
+    }
+
+    function loadBuses() {
+        document.getElementById('transportStatus').textContent = 'A atualizar autocarros...';
+        fetch('/api/transport/buses').then(r => r.json()).then(data => {
+            if (!Array.isArray(data)) throw new Error(data.error || 'Erro');
+            TRANSPORT.layers.bus.clearLayers();
+            data.forEach(v => {
+                if (!v.lat || !v.lon) return;
+                L.circleMarker([v.lat, v.lon], { radius: 5, color: '#00a884', fillColor: '#00a884', fillOpacity: 0.9, weight: 1 })
+                    .bindPopup(`🚌 Linha <strong>${v.line_id || '?'}</strong><br>Velocidade: ${v.speed != null ? Math.round(v.speed * 3.6) + ' km/h' : '—'}`)
+                    .addTo(TRANSPORT.layers.bus);
+            });
+            document.getElementById('transportStatus').textContent = `${data.length} autocarros da Carris Metropolitana (Área Metropolitana de Lisboa) — atualizado agora`;
+        }).catch(err => {
+            document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar os autocarros: ' + err.message;
+        });
+    }
+
+    function loadFlights() {
+        document.getElementById('transportStatus').textContent = 'A atualizar voos...';
+        fetch('/api/transport/flights').then(r => r.json()).then(data => {
+            if (data.error) throw new Error(data.error);
+            const states = data.states || [];
+            TRANSPORT.layers.flight.clearLayers();
+            states.forEach(s => {
+                // formato OpenSky: [icao24, callsign, origin_country, ..., lon(5), lat(6), baro_altitude(7), ..., velocity(9), true_track(10), ...]
+                const lon = s[5], lat = s[6], altitude = s[7], velocity = s[9], heading = s[10] || 0, callsign = (s[1] || '').trim();
+                if (lat == null || lon == null) return;
+                const icon = L.divIcon({ html: `<div style="transform:rotate(${heading}deg);font-size:16px;">✈️</div>`, className: '', iconSize: [20, 20] });
+                L.marker([lat, lon], { icon })
+                    .bindPopup(`✈️ <strong>${callsign || 'Desconhecido'}</strong><br>Altitude: ${altitude != null ? Math.round(altitude) + ' m' : '—'}<br>Velocidade: ${velocity != null ? Math.round(velocity * 3.6) + ' km/h' : '—'}`)
+                    .addTo(TRANSPORT.layers.flight);
+            });
+            document.getElementById('transportStatus').textContent = `${states.length} voos sobre Portugal/Espanha (OpenSky Network) — atualizado agora`;
+        }).catch(err => {
+            document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar os voos: ' + err.message;
+        });
+    }
+
+    function loadRailStations() {
+        document.getElementById('transportStatus').textContent = 'A carregar estações...';
+        Promise.all([
+            fetch('/api/transport/metro-stations').then(r => r.json()).catch(() => []),
+            fetch('/api/transport/train-stations').then(r => r.json()).catch(() => [])
+        ]).then(([metro, train]) => {
+            TRANSPORT.layers.rail.clearLayers();
+            (Array.isArray(metro) ? metro : []).forEach(s => {
+                L.circleMarker([s.lat, s.lon], { radius: 6, color: '#6c5ce7', fillColor: '#6c5ce7', fillOpacity: 0.9, weight: 1 })
+                    .bindPopup(`🚇 <strong>${s.name}</strong> (Metro de Lisboa)`)
+                    .addTo(TRANSPORT.layers.rail);
+            });
+            (Array.isArray(train) ? train : []).forEach(s => {
+                L.circleMarker([s.lat, s.lon], { radius: 6, color: '#e17055', fillColor: '#e17055', fillOpacity: 0.9, weight: 1 })
+                    .bindPopup(`🚆 <strong>${s.name}</strong> (Estação de comboio)`)
+                    .addTo(TRANSPORT.layers.rail);
+            });
+            document.getElementById('transportStatus').textContent = `Estações de metro e comboio (localização) · Sem posição ao vivo dos comboios — ver cp.pt / metrolisboa.pt`;
+        });
     }
 
     function closeChat() {
@@ -1732,14 +1905,24 @@
             const isSent = msg.type === 'sent';
             const currentChat = APP.chats.find(c => c.id === APP.currentChatId);
             const showSender = !isSent && currentChat && (currentChat.type === 'group' || currentChat.type === 'ai');
+            const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
+            const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
+            const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             html += `
-            <div class="message ${isSent ? 'sent' : 'received'}">
+            <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
-                ${msg.text}
+                ${replyHtml}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : msg.text}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
+                ${reactionsHtml}
                 <div class="time">
-                    <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 4px;vertical-align:middle;">🌐</button>
-                    ${msg.time?.split(' ')[1] || msg.time} ${isSent ? '<span class="msg-status">✓✓</span>' : ''}
+                    ${!msg.deleted ? `
+                    <button onclick="replyToMessage('${msg.id}')" title="Responder" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↩️</button>
+                    <button onclick="toggleReactionPicker('${msg.id}', this)" title="Reagir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">😀</button>
+                    <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🌐</button>
+                    ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Apagar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🗑️</button>` : ''}
+                    ` : ''}
+                    ${msg.time?.split(' ')[1] || msg.time} ${tick}
                 </div>
             </div>`;
         });
@@ -1768,9 +1951,12 @@
         if (!text || !APP.currentChatId) return;
         const now = new Date();
         const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const replyTo = APP.replyingTo ? { id: APP.replyingTo.id, sender: APP.replyingTo.sender, text: APP.replyingTo.text } : null;
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
-        APP.messages[APP.currentChatId].push({ id: 'm' + Date.now(), sender: 'Você', text, time, type: 'sent' });
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', replyTo, read: false });
         input.value = '';
+        cancelReply();
         renderMessages();
         renderChatList();
 
@@ -1805,10 +1991,13 @@
                 });
         } else {
             socket.emit('send_message', {
+                id: msgId,
                 chatId: APP.currentChatId,
                 sender: APP.user.name,
+                senderPhone: APP.user.phone,
                 text,
-                time
+                time,
+                replyTo
             });
         }
     }
@@ -1818,11 +2007,14 @@
         if (!data || !data.chatId || !Array.isArray(data.messages) || data.messages.length === 0) return;
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
         const historyEntries = data.messages.map((m, i) => ({
-            id: 'h' + i + '_' + (m.time || ''),
+            id: m.id || ('h' + i + '_' + (m.time || '')),
             sender: m.sender || 'Contato',
             text: m.text,
             time: m.time || '',
-            type: m.sender === APP.user?.name ? 'sent' : 'received'
+            type: m.senderPhone === APP.user?.phone || m.sender === APP.user?.name ? 'sent' : 'received',
+            replyTo: m.replyTo || null,
+            reactions: m.reactions || null,
+            deleted: !!m.deleted
         }));
         APP.messages[data.chatId] = APP.messages[data.chatId].concat(historyEntries);
         if (APP.currentChatId === data.chatId) renderMessages();
@@ -1833,15 +2025,116 @@
         if (!data || !data.chatId) return;
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
         APP.messages[data.chatId].push({
-            id: 'm' + Date.now(),
+            id: data.id || ('m' + Date.now()),
             sender: data.sender || 'Contato',
             text: data.text,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            type: 'received'
+            type: 'received',
+            replyTo: data.replyTo || null
         });
-        if (APP.currentChatId === data.chatId) renderMessages();
+        if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();
     });
+
+    // "a escrever..." — mostra por 3s no subtítulo da conversa aberta
+    let typingTimeout = null;
+    socket.on('typing_received', (data) => {
+        if (data.roomId !== APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (chat?.type === 'ai') return;
+        document.getElementById('chatSubtitle').textContent = `${data.name || 'Alguém'} está a escrever...`;
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            document.getElementById('chatSubtitle').textContent = chat?.type === 'group' ? `Grupo · ${chat.memberCount} membros` : (chat?.online ? 'Online' : 'Offline');
+        }, 3000);
+    });
+
+    let ownTypingTimeout = null;
+    function notifyTyping() {
+        if (!APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (chat?.type === 'ai') return;
+        clearTimeout(ownTypingTimeout);
+        ownTypingTimeout = setTimeout(() => socket.emit('typing', { roomId: APP.currentChatId }), 200);
+    }
+
+    socket.on('message_deleted_received', (data) => {
+        const msgs = APP.messages[data.chatId];
+        if (!msgs) return;
+        const msg = msgs.find(m => m.id === data.messageId);
+        if (msg) { msg.text = 'Mensagem apagada'; msg.deleted = true; }
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
+
+    socket.on('reaction_received', (data) => {
+        const msgs = APP.messages[data.chatId];
+        if (!msgs) return;
+        const msg = msgs.find(m => m.id === data.messageId);
+        if (msg) {
+            if (!msg.reactions) msg.reactions = {};
+            if (!msg.reactions[data.emoji]) msg.reactions[data.emoji] = [];
+            if (!msg.reactions[data.emoji].includes(data.who)) msg.reactions[data.emoji].push(data.who);
+        }
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
+
+    // Confirmação de leitura — marca as MINHAS mensagens enviadas como lidas (✓✓ azul)
+    socket.on('message_read_received', (data) => {
+        const msgs = APP.messages[data.chatId];
+        if (!msgs) return;
+        msgs.forEach(m => { if (m.type === 'sent') m.read = true; });
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
+
+    // ==================== RESPONDER / APAGAR / REAGIR ====================
+    function replyToMessage(msgId) {
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        if (!msg || msg.deleted) return;
+        APP.replyingTo = { id: msg.id, sender: msg.type === 'sent' ? 'Você' : msg.sender, text: msg.text };
+        const bar = document.getElementById('replyPreviewBar');
+        bar.style.display = 'flex';
+        bar.querySelector('.reply-preview-text').textContent = `${APP.replyingTo.sender}: ${APP.replyingTo.text}`;
+        document.getElementById('messageInput').focus();
+    }
+
+    function cancelReply() {
+        APP.replyingTo = null;
+        const bar = document.getElementById('replyPreviewBar');
+        if (bar) bar.style.display = 'none';
+    }
+
+    function deleteMessage(msgId) {
+        if (!confirm('Apagar esta mensagem para todos?')) return;
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        if (!msg) return;
+        msg.text = 'Mensagem apagada';
+        msg.deleted = true;
+        renderMessages();
+        socket.emit('delete_message', { chatId: APP.currentChatId, messageId: msgId });
+    }
+
+    const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+    function toggleReactionPicker(msgId, btnEl) {
+        document.querySelectorAll('.reaction-picker').forEach(el => el.remove());
+        const picker = document.createElement('div');
+        picker.className = 'reaction-picker';
+        picker.innerHTML = QUICK_REACTIONS.map(e => `<span onclick="reactToMessage('${msgId}','${e}')">${e}</span>`).join('');
+        btnEl.parentElement.appendChild(picker);
+        setTimeout(() => document.addEventListener('click', function closeOnce(e) {
+            if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', closeOnce); }
+        }), 10);
+    }
+
+    function reactToMessage(msgId, emoji) {
+        document.querySelectorAll('.reaction-picker').forEach(el => el.remove());
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        if (!msg) return;
+        if (!msg.reactions) msg.reactions = {};
+        if (!msg.reactions[emoji]) msg.reactions[emoji] = [];
+        if (!msg.reactions[emoji].includes(APP.user.phone)) msg.reactions[emoji].push(APP.user.phone);
+        renderMessages();
+        socket.emit('react_message', { chatId: APP.currentChatId, messageId: msgId, emoji });
+    }
 
     function openCreateGroupModal() {
         document.getElementById('modalCreateGroup').classList.add('active');

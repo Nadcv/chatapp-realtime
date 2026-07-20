@@ -85,7 +85,29 @@ banda. Vale migrar para:
 
 ### Sobre o visual "estilo WhatsApp"
 
-As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram desenhadas a partir da paleta oficial do WhatsApp Web no modo escuro — não foi preciso mudar a estrutura para isso. As funcionalidades extra (tradutor, quadro branco em tempo real, chat ao lado da videochamada, música partilhada na chamada, localização com trajeto, assistente de IA real, admin) já vão além do que o WhatsApp oferece.
+As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram desenhadas a partir da paleta oficial do WhatsApp Web no modo escuro — não foi preciso mudar a estrutura para isso. As funcionalidades extra (tradutor, quadro branco em tempo real, chat ao lado da videochamada, música partilhada na chamada, localização com trajeto, assistente de IA real, admin, transportes em tempo real) já vão além do que o WhatsApp oferece.
+
+## Transportes em tempo real (🚌, no cabeçalho)
+
+Três separadores num mapa (Leaflet + OpenStreetMap, gratuito, sem chave):
+- **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave.
+- **✈️ Aviões** — tráfego aéreo ao vivo sobre Portugal e Espanha, via OpenSky Network (gratuita, sem chave, uso razoável).
+- **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para isso — ver nota abaixo).
+
+### Se quiseres dados ao vivo do Metro de Lisboa
+O Metro de Lisboa tem uma API oficial pública (`api.metrolisboa.pt`), mas exige registo próprio (é um portal de API, tipo "API Store"). Se quiseres, posso integrar assim que tiveres uma chave — o processo seria parecido com o que fizeste para o `GITHUB_TOKEN`. Comboios (CP) e Renfe (Espanha) não têm API pública fiável, gratuita ou paga, disponível para uso comunitário — nesses casos o mais realista é linkar para os sites oficiais (cp.pt / renfe.com) em vez de simular dados.
+
+## Novidades nas mensagens
+
+- **Responder a uma mensagem (↩️)** — toca no ícone por baixo de qualquer mensagem para responder a ela; aparece uma citação da mensagem original.
+- **Apagar mensagem (🗑️)** — apaga para todos (só nas tuas próprias mensagens); fica um aviso "Mensagem apagada" no lugar.
+- **Reações (😀)** — reage com 👍❤️😂😮😢🙏, aparecem como selos por baixo da mensagem.
+- **"a escrever..."** — aparece no subtítulo da conversa quando a outra pessoa está a digitar.
+- **Confirmação de leitura (✓/✓✓)** — ✓ cinzento quando enviada, ✓✓ azul quando a outra pessoa abre a conversa e lê.
+
+### Ainda por vir (próxima entrega)
+Áudios (mensagens de voz), fotos/documentos no chat, PWA (instalar como app + notificações), foto de perfil, bloquear utilizadores.
+
 
 ### Como ativar o Assistente de IA (GitHub Models)
 
