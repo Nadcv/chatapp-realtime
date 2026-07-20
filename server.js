@@ -98,6 +98,46 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: Object.values(accounts).map(publicUser) });
 });
 
+// ==================== ASSISTENTE DE IA (GitHub Models) ====================
+// Usa a API gratuita de "GitHub Models" (a mesma infraestrutura por trás do
+// Copilot Chat). Precisa de um Personal Access Token do GitHub, definido na
+// variável de ambiente GITHUB_TOKEN (Settings → Variables no Railway/Render).
+// Como gerar o token: https://github.com/settings/tokens → "Generate new token"
+// → não precisa marcar nenhum scope especial para uso básico dos modelos.
+app.post('/api/ai-chat', async (req, res) => {
+  const { messages } = req.body || {};
+  if (!process.env.GITHUB_TOKEN) {
+    return res.status(500).json({ error: 'Assistente de IA não configurado: falta a variável de ambiente GITHUB_TOKEN no servidor.' });
+  }
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'Mensagem vazia.' });
+  }
+  try {
+    const r = await fetch('https://models.github.ai/inference/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN
+      },
+      body: JSON.stringify({
+        model: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
+        messages,
+        temperature: 1
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      console.error('Erro GitHub Models:', JSON.stringify(data).substring(0, 300));
+      return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu (verifique o GITHUB_TOKEN).' });
+    }
+    const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar uma resposta agora.';
+    res.json({ reply });
+  } catch (err) {
+    console.error('Erro ao consultar IA:', err.message);
+    res.status(500).json({ error: 'Falha ao contactar o serviço de IA. Tente novamente.' });
+  }
+});
+
 // ==================== TRADUTOR (proxy server-side) ====================
 // Usa o endpoint público do Google Translate (o mesmo usado pela extensão
 // "Google Tradutor" no navegador). Rodar isso no servidor evita problemas de
@@ -166,17 +206,65 @@ loadMessages();
 
 const MAX_HISTORY_PER_ROOM = 200; // evita crescer sem limite
 
+// ==================== GRUPOS (visíveis a TODOS os utilizadores) ====================
+// Neste app, um grupo funciona como um canal público: qualquer usuário
+// cadastrado vê e participa de todos os grupos automaticamente (sem convite).
+const GROUPS_FILE = path.join(__dirname, 'groups.json');
+let groups = {}; // id -> { id, name, createdBy, createdAt }
+
+function loadGroups() {
+  try {
+    if (fs.existsSync(GROUPS_FILE)) groups = JSON.parse(fs.readFileSync(GROUPS_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar grupos:', err.message);
+  }
+}
+function saveGroups() {
+  fs.writeFile(GROUPS_FILE, JSON.stringify(groups), (err) => {
+    if (err) console.error('Erro ao salvar grupos:', err.message);
+  });
+}
+loadGroups();
+
+// ==================== CONTATOS ONLINE/OFFLINE ====================
+// Todo usuário CADASTRADO (não só quem está online agora) aparece na lista de
+// conversas de todo mundo, para se poder falar com ele mesmo offline — com uma
+// bolinha indicando se está online ou desligado neste momento.
+const onlinePhones = new Set();
+function broadcastContacts() {
+  const list = Object.values(accounts).map(u => ({
+    name: u.name, phone: u.phone, country: u.country, online: onlinePhones.has(u.phone)
+  }));
+  io.emit('contacts_update', list);
+}
+
 const log = (msg, type = 'INFO') =>
   console.log(`[${new Date().toLocaleTimeString('pt-BR')}] [${type}] ${msg}`);
 
 io.on('connection', (socket) => {
   log(`Novo utilizador conectado: ${socket.id}`, 'SOCKET');
-  users[socket.id] = { name: 'Anônimo', rooms: new Set() };
+  users[socket.id] = { name: 'Anônimo', phone: null, rooms: new Set() };
+  // Assim que conecta, já recebe a lista atual de grupos e contatos (mesmo antes do login)
+  socket.emit('groups_update', Object.values(groups));
+  broadcastContacts();
 
   socket.on('user_login', (userData) => {
     users[socket.id].name = userData?.name || 'Anônimo';
+    users[socket.id].phone = userData?.phone || null;
+    if (users[socket.id].phone) onlinePhones.add(users[socket.id].phone);
     socket.broadcast.emit('user_online', { id: socket.id, name: users[socket.id].name });
+    broadcastContacts();
     log(`✅ ${users[socket.id].name} está online.`, 'USER');
+  });
+
+  socket.on('create_group', (data) => {
+    const name = (data?.name || '').trim();
+    if (!name) return;
+    const id = 'group_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    groups[id] = { id, name, createdBy: users[socket.id]?.name || 'Alguém', createdAt: new Date().toISOString() };
+    saveGroups();
+    io.emit('groups_update', Object.values(groups));
+    log(`👥 Grupo criado: "${name}" por ${groups[id].createdBy}`, 'GROUP');
   });
 
   // Um usuário pode participar de VÁRIAS salas ao mesmo tempo (uma por conversa/grupo)
@@ -228,12 +316,38 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('music_state_received', data);
   });
 
+  // Localização em tempo real (GPS): apenas retransmite para a sala — não fica
+  // guardado em disco, é só "ao vivo" (como a localização em tempo real do WhatsApp).
+  socket.on('location_update', (data) => {
+    if (!data?.roomId) return;
+    socket.to(data.roomId).emit('location_update_received', data);
+  });
+  socket.on('location_stop', (data) => {
+    if (!data?.roomId) return;
+    socket.to(data.roomId).emit('location_stop_received', { phone: users[socket.id]?.phone });
+  });
+
+  socket.on('user_logout', () => {
+    const user = users[socket.id];
+    if (user?.phone) {
+      const stillConnected = Object.entries(users).some(([id, u]) => id !== socket.id && u.phone === user.phone);
+      if (!stillConnected) { onlinePhones.delete(user.phone); broadcastContacts(); }
+      user.phone = null;
+      user.name = 'Anônimo';
+    }
+  });
+
   socket.on('disconnect', () => {
     const user = users[socket.id];
     if (user) {
       log(`🔌 ${user.name} desconectou.`, 'SOCKET');
       user.rooms.forEach((room) => socket.to(room).emit('user_left', user.name));
       delete users[socket.id];
+      if (user.phone) {
+        // só marca offline se não houver OUTRA aba/dispositivo ainda ligado com o mesmo telefone
+        const stillConnected = Object.values(users).some(u => u.phone === user.phone);
+        if (!stillConnected) { onlinePhones.delete(user.phone); broadcastContacts(); }
+      }
     }
   });
 });

@@ -77,8 +77,25 @@ banda. Vale migrar para:
 - **Correção do bug de rechamada** — antes, ao terminar uma chamada, os dois lados entravam num loop de eventos que impedia iniciar uma nova chamada depois. Corrigido com uma verificação de estado (`callActive`).
 - **Autenticação de usuários** — tela de login/criar conta com nome, telemóvel, país, email e senha. As senhas são guardadas com hash `scrypt` (nunca em texto puro), num arquivo `users.json` no servidor (mesmo padrão de persistência do histórico de mensagens — ver aviso sobre deploys abaixo).
 - **Painel de administrador (⚙️)** — visível apenas para o administrador, lista todos os usuários cadastrados (nome, telemóvel, país, email). Por padrão, o **primeiro usuário a se cadastrar** no servidor vira administrador automaticamente. Para escolher um telemóvel específico como admin, defina a variável de ambiente `ADMIN_PHONE` no Railway/Render (Settings → Variables) com o número exato usado no cadastro.
+- **Contatos reais, com online/offline (🟢/⚪)** — todo usuário cadastrado no servidor aparece automaticamente na lista de conversas de todo mundo (não é preciso adicionar manualmente), com uma bolinha indicando se está ligado agora. As mensagens ficam salvas mesmo enviadas para quem está offline.
+- **Grupos visíveis a todos** — qualquer grupo criado (botão 👥) aparece automaticamente para **todos os usuários cadastrados**, sem precisar de convite — funciona como um canal público. É guardado no servidor (`groups.json`), sobrevive a reinícios (mas não a redeploys — ver aviso abaixo).
+- **Assistente de IA real (GitHub Models)** — a resposta automática do 🤖 Assistente IA deixou de ser um robô de palavras-chave e passou a usar a API gratuita da GitHub Models (a mesma infraestrutura do Copilot Chat). **Precisa de configuração** — ver secção abaixo.
+- **Correção de chamadas/câmera no iPhone** — o Safari/iOS bloqueia por padrão a reprodução automática de áudio e vídeo que não seja resultado direto de um toque do usuário. Como isso acontecia bem depois do clique (só depois da negociação da chamada terminar), a chamada conectava mas ficava muda e com o vídeo preto no iPhone — parecia que "não funcionava". Agora, se isso acontecer, aparece um aviso "🔊 Toque para ativar o áudio e o vídeo" na tela da chamada — um toque resolve. Também adicionámos `webkit-playsinline` (compatibilidade com iOS mais antigo) e um aviso claro para quando o iPhone não suporta a transmissão de vídeo compartilhado em tempo real (limitação do Safari, não do app — nesse caso o vídeo compartilhado ainda toca localmente).
+- **Localização em tempo real (📍, no cabeçalho da conversa)** — usa o GPS do próprio dispositivo (funciona em qualquer telemóvel ou computador) e mostra num mapa (OpenStreetMap, gratuito, sem chave) a posição de quem estiver a partilhar na conversa, com o **trajeto (rota)** desenhado no mapa e uma estimativa do **meio de transporte** (a pé, bicicleta/trânsito, veículo) calculada pela velocidade entre os pontos. Não fica gravado no servidor — é só "ao vivo", como a localização em tempo real do WhatsApp.
 
-### Sobre os arquivos `messages.json` e `users.json`
+### Sobre o visual "estilo WhatsApp"
 
-Ambos são criados automaticamente pelo servidor e **não devem ser enviados ao GitHub** (já estão no `.gitignore`). Como nos serviços gratuitos o disco é recriado a cada novo deploy, um `git push` novo apaga o histórico de conversas e a lista de usuários cadastrados. Para persistência permanente entre deploys, o próximo passo é trocar por um banco de dados real (ex: Postgres, oferecido como plugin no Railway).
+As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram desenhadas a partir da paleta oficial do WhatsApp Web no modo escuro — não foi preciso mudar a estrutura para isso. As funcionalidades extra (tradutor, quadro branco em tempo real, chat ao lado da videochamada, música partilhada na chamada, localização com trajeto, assistente de IA real, admin) já vão além do que o WhatsApp oferece.
+
+### Como ativar o Assistente de IA (GitHub Models)
+
+1. Cria um Personal Access Token em https://github.com/settings/tokens (não precisa marcar nenhum scope especial para uso básico dos modelos).
+2. No Railway/Render, vai a Settings → Variables e adiciona `GITHUB_TOKEN` com o valor do token.
+3. (Opcional) Define `GITHUB_MODEL` para escolher outro modelo — o padrão é `openai/gpt-4o-mini`. Lista de modelos disponíveis: https://github.com/marketplace/models
+4. Sem o `GITHUB_TOKEN` configurado, o chat da IA continua a funcionar mas mostra um aviso a pedir a configuração, em vez de travar.
+
+### Sobre os arquivos `messages.json`, `users.json` e `groups.json`
+
+Todos são criados automaticamente pelo servidor e **não devem ser enviados ao GitHub** (já estão no `.gitignore`). Como nos serviços gratuitos o disco é recriado a cada novo deploy, um `git push` novo apaga o histórico de conversas, a lista de usuários cadastrados e os grupos criados. Para persistência permanente entre deploys, o próximo passo é trocar por um banco de dados real (ex: Postgres, oferecido como plugin no Railway).
+
 

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChatApp Completo - Mensageiro + IA + Multimídia</title>
     <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <style>
         :root {
             --bg-primary: #111b21;
@@ -111,6 +113,52 @@
         .admin-table th {
             color: var(--text-secondary);
             font-weight: 600;
+        }
+        .location-screen {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-primary);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+        }
+        .location-screen.active { display: flex; }
+        .location-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        .location-header button {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 20px;
+            cursor: pointer;
+        }
+        #liveMap { flex: 1; width: 100%; }
+        .location-footer {
+            padding: 10px 14px;
+            background: var(--bg-secondary);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+        }
+        .leaflet-marker-icon.user-location-icon {
+            background: #6c5ce7;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            width: 34px !important;
+            height: 34px !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: bold;
+            font-size: 14px;
         }
         .login-avatar {
             width: 100px;
@@ -1005,6 +1053,7 @@
                         <span id="chatSubtitle"></span>
                     </div>
                     <div style="margin-left:auto;display:flex;gap:6px;">
+                        <button class="btn-icon" onclick="openLocationScreen()" title="Localização em tempo real" style="width:36px;height:36px;font-size:16px;">📍</button>
                         <button class="btn-icon" onclick="startCall('voice')" title="Chamada de voz" style="width:36px;height:36px;font-size:16px;">📞</button>
                         <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;">📹</button>
                         <button class="btn-icon" onclick="startConference()" title="Conferência" style="width:36px;height:36px;font-size:16px;">🎥</button>
@@ -1019,11 +1068,25 @@
                 </div>
             </div>
         </div>
+        <div class="location-screen" id="locationScreen">
+            <div class="location-header">
+                <strong id="locationTitle">📍 Localização em tempo real</strong>
+                <button onclick="closeLocationScreen()">✖️</button>
+            </div>
+            <div id="liveMap"></div>
+            <div class="location-footer">
+                <button class="btn btn-primary" id="shareLocationBtn" onclick="toggleShareLocation()" style="width:auto;padding:12px 24px;">📡 Partilhar minha localização</button>
+            </div>
+        </div>
         <div class="call-screen" id="callScreen">
             <div class="call-video-container" id="callVideoContainer">
-                <video id="mainVideo" autoplay playsinline></video>
+                <video id="mainVideo" autoplay playsinline webkit-playsinline></video>
+                <div id="callUnlockOverlay" onclick="unlockCallMedia()" style="display:none;position:absolute;inset:0;z-index:40;background:rgba(0,0,0,0.6);color:#fff;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;text-align:center;">
+                    <div style="font-size:40px;">🔊</div>
+                    <div style="font-size:15px;padding:0 20px;">Toque para ativar o áudio e o vídeo<br><span style="font-size:12px;color:#ccc;">(o iPhone bloqueia isso automaticamente)</span></div>
+                </div>
                 <div class="call-pip" id="callPip" style="display:none;">
-                    <video id="pipVideo" autoplay playsinline muted></video>
+                    <video id="pipVideo" autoplay playsinline webkit-playsinline muted></video>
                 </div>
                 <div class="video-share-panel" id="videoSharePanel" style="display:none;">
                     <div class="vsp-header" id="vspDragHandle">
@@ -1033,7 +1096,7 @@
                             <button onclick="stopVideoShare()" title="Fechar">✖️</button>
                         </div>
                     </div>
-                    <video id="sharedVideoPreview" playsinline muted></video>
+                    <video id="sharedVideoPreview" playsinline webkit-playsinline muted></video>
                     <div class="vsp-row">
                         <button class="btn-small" id="vspPlayBtn" onclick="toggleSharedVideoPlay()" title="Pausar/continuar para todos">⏸️</button>
                     </div>
@@ -1110,9 +1173,7 @@
             <div class="modal">
                 <h3>👥 Criar Novo Grupo</h3>
                 <input type="text" id="groupName" placeholder="Nome do grupo">
-                <textarea id="groupMembers" placeholder="Nomes dos membros (separados por vírgula)&#10;Ex: Ana, Carlos, Maria..."></textarea>
-                <p class="member-count">👤 Capacidade: <strong>até 500 membros</strong></p>
-                <div class="member-tags" id="memberTagsPreview"></div>
+                <p class="member-count">ℹ️ Este grupo aparecerá automaticamente para <strong>todos os utilizadores cadastrados</strong> — não é preciso convidar ninguém.</p>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalCreateGroup')">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="createGroup()">Criar Grupo</button>
@@ -1203,6 +1264,9 @@
         _musicMix: null, // AudioContext/nodes persistentes p/ partilhar música na chamada (ver getMusicMix)
         translatorLang: localStorage.getItem('translatorLang') || '',
         musicAudio: document.getElementById('bgMusic'),
+        onlineContacts: [], // vem do servidor: todos os usuários cadastrados + status online/offline
+        groupsList: [], // vem do servidor: grupos visíveis a todos os usuários
+        joinedRooms: new Set(), // salas já ligadas (join_room) para receber mensagens em segundo plano
         whiteboard: {
             canvas: document.getElementById('whiteboardCanvas'),
             ctx: document.getElementById('whiteboardCanvas').getContext('2d'),
@@ -1215,15 +1279,63 @@
 
     const DEFAULT_CONTACTS = [
         { id: 'ai_assistant', name: '🤖 Assistente IA', phone: '', avatar: '🤖', type: 'ai', memberCount: 1 },
-        { id: 'contact1', name: 'Ana Silva', phone: '+55 11 98888-1111', avatar: 'A', type: 'user' },
-        { id: 'contact2', name: 'Carlos Oliveira', phone: '+55 21 97777-2222', avatar: 'C', type: 'user' },
-        { id: 'contact3', name: 'Maria Santos', phone: '+55 31 96666-3333', avatar: 'M', type: 'user' },
-        { id: 'contact4', name: 'João Pereira', phone: '+55 41 95555-4444', avatar: 'J', type: 'user' },
-        { id: 'contact5', name: 'Família & Amigos', phone: '', avatar: '👪', type: 'group', members: [
-            'Ana Silva', 'Carlos Oliveira', 'Maria Santos', 'João Pereira', 'Pedro', 'Lucas',
-            'Fernanda', 'Rafael', 'Juliana', 'Bruno'
-        ], memberCount: 120 },
     ];
+
+    // Gera o mesmo id de sala para os dois lados de uma conversa 1-para-1,
+    // não importa quem abriu a conversa primeiro.
+    function dmRoomId(phoneA, phoneB) {
+        return 'dm_' + [phoneA, phoneB].sort().join('_').replace(/[^a-zA-Z0-9_]/g, '');
+    }
+
+    // ==================== CONTATOS E GRUPOS EM TEMPO REAL (vindos do servidor) ====================
+    // Toda pessoa cadastrada aparece automaticamente na lista de conversas de
+    // todo mundo (com bolinha online/offline), e todo grupo criado aparece
+    // para todos os usuários — sem precisar de convite.
+    function rebuildChatsFromServer() {
+        if (!APP.user) return;
+        const contactChats = APP.onlineContacts
+            .filter(c => c.phone !== APP.user.phone)
+            .map(c => ({
+                id: dmRoomId(APP.user.phone, c.phone),
+                name: c.name, phone: c.phone, avatar: c.name.charAt(0).toUpperCase(),
+                type: 'user', online: c.online
+            }));
+        const groupChats = APP.groupsList.map(g => ({
+            id: g.id, name: g.name, phone: '', avatar: '👥', type: 'group',
+            memberCount: APP.onlineContacts.length, createdBy: g.createdBy
+        }));
+        const aiChat = DEFAULT_CONTACTS[0];
+        APP.chats = [aiChat, ...groupChats, ...contactChats];
+        APP.chats.forEach(chat => {
+            if (!APP.messages[chat.id]) APP.messages[chat.id] = chat.type === 'ai' ? [
+                { id: 'm1', sender: 'Assistente IA', text: 'Olá! Sou a assistente de IA do ChatApp (GitHub Models). Pergunte o que quiser! 😊', time: '10:30', type: 'received' }
+            ] : [];
+            // Entra automaticamente na sala para receber mensagens mesmo com a conversa fechada
+            if (chat.type !== 'ai' && !APP.joinedRooms.has(chat.id)) {
+                socket.emit('join_room', chat.id);
+                APP.joinedRooms.add(chat.id);
+            }
+        });
+        renderChatList();
+        updateCallContactList();
+        // Se a conversa aberta agora é de um contato, atualiza o "Online/Offline" no cabeçalho
+        if (APP.currentChatId) {
+            const openChatData = APP.chats.find(c => c.id === APP.currentChatId);
+            if (openChatData && openChatData.type === 'user') {
+                document.getElementById('chatSubtitle').textContent = openChatData.online ? 'Online' : 'Offline';
+            }
+        }
+    }
+
+    socket.on('contacts_update', (list) => {
+        APP.onlineContacts = list || [];
+        rebuildChatsFromServer();
+    });
+
+    socket.on('groups_update', (list) => {
+        APP.groupsList = list || [];
+        rebuildChatsFromServer();
+    });
 
     function showAuthForm(which) {
         document.getElementById('loginFormBox').style.display = which === 'login' ? 'flex' : 'none';
@@ -1294,6 +1406,7 @@
     function logout() {
         if (APP.callStream) endCall();
         stopMusic();
+        socket.emit('user_logout');
         APP.user = null;
         APP.token = null;
         localStorage.removeItem('authToken');
@@ -1301,6 +1414,9 @@
         APP.chats = [];
         APP.messages = {};
         APP.currentChatId = null;
+        APP.onlineContacts = [];
+        APP.groupsList = [];
+        APP.joinedRooms = new Set();
         document.getElementById('mainApp').style.display = 'none';
         document.getElementById('loginScreen').classList.remove('hidden');
         showAuthForm('login');
@@ -1326,26 +1442,14 @@
 
     function initApp() {
         APP.chats = JSON.parse(JSON.stringify(DEFAULT_CONTACTS));
-        APP.messages = {};
-        APP.chats.forEach(chat => {
-            const msgId = chat.id;
-            if (chat.type === 'ai') {
-                APP.messages[msgId] = [
-                    { id: 'm1', sender: 'Assistente IA', text: 'Olá! Sou sua assistente virtual gratuita. Pergunte o que quiser! 😊', time: '10:30', type: 'received' },
-                    { id: 'm2', sender: 'Você', text: 'Que legal! Me conte uma curiosidade.', time: '10:32', type: 'sent' },
-                    { id: 'm3', sender: 'Assistente IA', text: 'Sabia que o coração de um camarão está localizado em sua cabeça? 🦐', time: '10:33', type: 'received' },
-                ];
-            } else {
-                APP.messages[msgId] = [
-                    { id: 'm1', sender: chat.type === 'group' ? chat.members[0] : chat.name, text: 'Olá! Bem-vindo ao grupo 👋', time: '10:30', type: 'received' },
-                    { id: 'm2', sender: 'Você', text: 'Obrigado! Este app suporta grupos enormes!', time: '10:32', type: 'sent' },
-                    { id: 'm3', sender: chat.type === 'group' ? chat.members[1] : chat.name, text: 'E também videochamadas e conferências! 🎥', time: '10:33', type: 'received' },
-                ];
-            }
-        });
+        APP.messages = { ai_assistant: [
+            { id: 'm1', sender: 'Assistente IA', text: 'Olá! Sou a assistente de IA do ChatApp (GitHub Models). Pergunte o que quiser! 😊', time: '10:30', type: 'received' }
+        ] };
         renderChatList();
         updateCallContactList();
         initWhiteboard();
+        // A lista real de contatos (online/offline) e de grupos chega pelo socket
+        // ('contacts_update' / 'groups_update') e é montada em rebuildChatsFromServer().
     }
 
     function renderChatList(filter = '') {
@@ -1359,16 +1463,17 @@
             const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
             const avatarClass = isAI ? 'avatar-ai' : (isGroup ? 'avatar-group' : 'avatar-user');
             const badgeClass = isAI ? 'badge badge-ai' : 'badge';
+            const onlineDot = (!isAI && !isGroup) ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:${chat.online ? '#25d366' : '#8696a0'};"></span>` : '';
             return `
             <div class="chat-item ${APP.currentChatId === chat.id ? 'active' : ''}" onclick="openChat('${chat.id}')">
                 <div class="chat-item-avatar ${avatarClass}">${avatarContent}</div>
                 <div class="chat-item-info">
-                    <h4>${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
+                    <h4>${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
                     <p>${lastText}</p>
                 </div>
                 <div class="chat-item-meta">
                     <span>${lastMsg?.time || ''}</span>
-                    ${isAI ? '<br><span class="'+badgeClass+'">IA</span>' : (isGroup ? '<br><span class="badge">grupo</span>' : '')}
+                    ${isAI ? '<br><span class="'+badgeClass+'">IA</span>' : (isGroup ? '<br><span class="badge">grupo</span>' : (chat.online ? '<br><span style="font-size:10px;color:#25d366;">online</span>' : ''))}
                 </div>
             </div>`;
         }).join('');
@@ -1381,13 +1486,13 @@
         APP.currentChatId = chatId;
         const chat = APP.chats.find(c => c.id === chatId);
         if (!chat) return;
-        socket.emit('join_room', chatId);
+        if (!APP.joinedRooms.has(chatId)) { socket.emit('join_room', chatId); APP.joinedRooms.add(chatId); }
         document.getElementById('chatArea').classList.add('active');
         document.getElementById('sidebar').classList.add('chat-open');
         document.getElementById('chatName').textContent = chat.name;
         const isGroup = chat.type === 'group';
         const isAI = chat.type === 'ai';
-        document.getElementById('chatSubtitle').textContent = isAI ? 'Inteligência Artificial · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : 'Online · visto por último hoje');
+        document.getElementById('chatSubtitle').textContent = isAI ? 'Inteligência Artificial · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
         const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
         document.getElementById('chatAvatar').textContent = avatarContent;
         const avatarEl = document.getElementById('chatAvatar');
@@ -1405,6 +1510,145 @@
         document.getElementById('sidebar').classList.remove('chat-open');
         renderChatList();
     }
+
+    // ==================== LOCALIZAÇÃO EM TEMPO REAL (GPS + mapa + trajeto) ====================
+    // Usa a Geolocation API (GPS do satélite) do navegador — funciona em qualquer
+    // dispositivo (Android, iPhone, computador), desde que o usuário autorize o
+    // acesso à localização e o site esteja em HTTPS (obrigatório em iOS/Android
+    // fora do localhost). O mapa usa Leaflet + OpenStreetMap, gratuito e sem chave.
+    const LOCATION = {
+        map: null,
+        markers: {},   // phone -> L.marker
+        trails: {},    // phone -> [ {lat,lng} ] usado para desenhar o trajeto (polyline)
+        polylines: {}, // phone -> L.polyline
+        watchId: null,
+        sharing: false,
+        lastPoint: null // { lat, lng, t } do próprio usuário, para calcular velocidade/meio de transporte
+    };
+
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const toRad = (d) => d * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Estima o meio de transporte pela velocidade (km/h) — heurística simples,
+    // não é um sensor de atividade real, mas dá uma boa ideia.
+    function inferTransportMode(speedKmh) {
+        if (speedKmh == null || isNaN(speedKmh)) return '📍';
+        if (speedKmh < 1.5) return '⏸️ Parado';
+        if (speedKmh < 7) return '🚶 A pé';
+        if (speedKmh < 25) return '🚴 Bicicleta / trânsito';
+        if (speedKmh < 130) return '🚗 Veículo';
+        return '✈️ Alta velocidade';
+    }
+
+    function openLocationScreen() {
+        if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
+        if (!navigator.geolocation) return alert('Este navegador não suporta geolocalização.');
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        document.getElementById('locationTitle').textContent = '📍 Localização · ' + (chat?.name || '');
+        document.getElementById('locationScreen').classList.add('active');
+        if (!LOCATION.map) {
+            LOCATION.map = L.map('liveMap').setView([38.72, -9.14], 13); // Lisboa como ponto inicial padrão
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(LOCATION.map);
+        }
+        setTimeout(() => LOCATION.map.invalidateSize(), 200);
+        updateShareLocationBtn();
+    }
+
+    function closeLocationScreen() {
+        document.getElementById('locationScreen').classList.remove('active');
+        if (LOCATION.sharing) toggleShareLocation(); // para de partilhar ao sair, para poupar bateria
+    }
+
+    function updateShareLocationBtn() {
+        const btn = document.getElementById('shareLocationBtn');
+        btn.textContent = LOCATION.sharing ? '⏹️ Parar de partilhar' : '📡 Partilhar minha localização';
+        btn.classList.toggle('btn-danger', LOCATION.sharing);
+    }
+
+    function toggleShareLocation() {
+        if (LOCATION.sharing) {
+            if (LOCATION.watchId != null) navigator.geolocation.clearWatch(LOCATION.watchId);
+            LOCATION.watchId = null;
+            LOCATION.sharing = false;
+            LOCATION.lastPoint = null;
+            socket.emit('location_stop', { roomId: APP.currentChatId });
+            updateShareLocationBtn();
+            return;
+        }
+        LOCATION.watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const { latitude: lat, longitude: lng, speed } = pos.coords;
+                const now = Date.now();
+                let speedKmh = speed != null && !isNaN(speed) ? speed * 3.6 : null;
+                if (speedKmh == null && LOCATION.lastPoint) {
+                    // Nem todo dispositivo fornece "speed" — calcula pela distância/tempo entre pontos
+                    const meters = haversineMeters(LOCATION.lastPoint.lat, LOCATION.lastPoint.lng, lat, lng);
+                    const seconds = (now - LOCATION.lastPoint.t) / 1000;
+                    if (seconds > 0) speedKmh = (meters / seconds) * 3.6;
+                }
+                LOCATION.lastPoint = { lat, lng, t: now };
+                socket.emit('location_update', {
+                    roomId: APP.currentChatId,
+                    lat, lng, speedKmh,
+                    name: APP.user.name, phone: APP.user.phone
+                });
+                plotLocation(APP.user.phone, APP.user.name, lat, lng, speedKmh, true);
+            },
+            (err) => {
+                alert('Não foi possível obter a localização: ' + err.message + ' (verifique se autorizou o GPS)');
+                LOCATION.sharing = false;
+                updateShareLocationBtn();
+            },
+            { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+        );
+        LOCATION.sharing = true;
+        updateShareLocationBtn();
+    }
+
+    // Desenha/atualiza o marcador e o trajeto (polyline) de uma pessoa no mapa
+    function plotLocation(phone, name, lat, lng, speedKmh, isMe) {
+        if (!LOCATION.map) return;
+        if (!LOCATION.trails[phone]) LOCATION.trails[phone] = [];
+        LOCATION.trails[phone].push([lat, lng]);
+        if (LOCATION.trails[phone].length > 300) LOCATION.trails[phone].shift(); // limita o histórico do trajeto
+
+        const label = (isMe ? 'Você' : name).charAt(0).toUpperCase();
+        const modeText = inferTransportMode(speedKmh);
+        const popupText = `<strong>${isMe ? 'Você' : name}</strong><br>${modeText}${speedKmh != null ? ' · ' + speedKmh.toFixed(1) + ' km/h' : ''}`;
+
+        if (!LOCATION.markers[phone]) {
+            const icon = L.divIcon({ className: 'user-location-icon', html: label, iconSize: [34, 34] });
+            LOCATION.markers[phone] = L.marker([lat, lng], { icon }).addTo(LOCATION.map).bindPopup(popupText);
+            LOCATION.polylines[phone] = L.polyline(LOCATION.trails[phone], { color: isMe ? '#25d366' : '#6c5ce7', weight: 4, opacity: 0.7 }).addTo(LOCATION.map);
+        } else {
+            LOCATION.markers[phone].setLatLng([lat, lng]).setPopupContent(popupText);
+            LOCATION.polylines[phone].setLatLngs(LOCATION.trails[phone]);
+        }
+        LOCATION.map.panTo([lat, lng], { animate: true });
+    }
+
+    function removeLocationMarker(phone) {
+        if (LOCATION.markers[phone]) { LOCATION.map.removeLayer(LOCATION.markers[phone]); delete LOCATION.markers[phone]; }
+        if (LOCATION.polylines[phone]) { LOCATION.map.removeLayer(LOCATION.polylines[phone]); delete LOCATION.polylines[phone]; }
+        delete LOCATION.trails[phone];
+    }
+
+    socket.on('location_update_received', (data) => {
+        if (!data || data.phone === APP.user?.phone) return; // ignora eco da própria localização
+        plotLocation(data.phone, data.name, data.lat, data.lng, data.speedKmh, false);
+    });
+    socket.on('location_stop_received', (data) => {
+        if (!data?.phone) return;
+        removeLocationMarker(data.phone);
+    });
 
     // ==================== TRADUTOR ====================
     // Mais de 6 dos idiomas mais falados do mundo. Cada código é o
@@ -1534,12 +1778,31 @@
         if (!chat) return;
 
         if (chat.type === 'ai') {
-            setTimeout(() => {
-                const aiReply = generateAIReply(text);
-                APP.messages[APP.currentChatId].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: aiReply, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
-                if (APP.currentChatId === chat.id) renderMessages();
-                renderChatList();
-            }, 600 + Math.random() * 800);
+            const chatIdAtSend = APP.currentChatId;
+            document.getElementById('chatSubtitle').textContent = chatIdAtSend === APP.currentChatId ? 'Inteligência Artificial · digitando...' : document.getElementById('chatSubtitle').textContent;
+            const history = APP.messages[chatIdAtSend].slice(-12).map(m => ({ role: m.type === 'sent' ? 'user' : 'assistant', content: m.text }));
+            fetch('/api/ai-chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: [
+                        { role: 'system', content: 'Você é uma assistente de IA simpática e útil, integrada num app de chat chamado ChatApp. Responda em português, de forma breve e natural.' },
+                        ...history
+                    ]
+                })
+            })
+                .then(r => r.json().then(data => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    const replyText = ok ? (data.reply || 'Desculpe, não consegui responder agora.') : ('⚠️ ' + (data.error || 'A IA não está disponível agora.'));
+                    APP.messages[chatIdAtSend].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: replyText, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
+                    if (APP.currentChatId === chatIdAtSend) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
+                    renderChatList();
+                })
+                .catch(() => {
+                    APP.messages[chatIdAtSend].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: '⚠️ Não foi possível ligar ao servidor da IA. Tente novamente.', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
+                    if (APP.currentChatId === chatIdAtSend) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
+                    renderChatList();
+                });
         } else {
             socket.emit('send_message', {
                 chatId: APP.currentChatId,
@@ -1580,72 +1843,18 @@
         renderChatList();
     });
 
-    function generateAIReply(userMessage) {
-        const msg = userMessage.toLowerCase().trim();
-        if (msg.includes('oi') || msg.includes('olá') || msg.includes('hey') || msg === 'bom dia' || msg === 'boa tarde' || msg === 'boa noite') {
-            const saudacoes = ['Olá! Como posso ajudar? 😊', 'Oi! Em que posso ser útil?', 'Olá! É um prazer conversar com você.', 'Oi! Estou aqui para o que precisar.'];
-            return saudacoes[Math.floor(Math.random() * saudacoes.length)];
-        }
-        if (msg.includes('tudo bem') || msg.includes('como vai') || msg.includes('como você está')) return 'Estou muito bem, obrigado por perguntar! E você? 😄';
-        if (msg.includes('seu nome') || msg.includes('quem é você')) return 'Sou a Assistente IA do ChatApp, uma inteligência artificial gratuita integrada para ajudar você! 🤖';
-        if (msg.includes('obrigado') || msg.includes('valeu') || msg.includes('brigado')) return 'De nada! Sempre que precisar, estou aqui. 😊';
-        if (msg.includes('piada') || msg.includes('engraçado') || msg.includes('rir')) {
-            const piadas = ['Por que o livro de matemática se suicidou? Porque tinha muitos problemas! 📚😂', 'O que o zero disse para o oito? Belo cinto!', 'Qual é o cúmulo da paciência? Assistir a um filme de ação e esperar o final feliz.'];
-            return piadas[Math.floor(Math.random() * piadas.length)];
-        }
-        if (msg.includes('curiosidade') || msg.includes('fato interessante')) {
-            const curiosidades = ['Você sabia que as bananas são tecnicamente bagas, mas os morangos não? 🍌🍓', 'O olho de uma avestruz é maior que o seu cérebro.', 'Existem mais estrelas no universo do que grãos de areia em todas as praias da Terra.'];
-            return curiosidades[Math.floor(Math.random() * curiosidades.length)];
-        }
-        if (msg.includes('tempo') || msg.includes('clima')) return 'Não tenho acesso à previsão do tempo agora, mas posso sugerir: olhe pela janela! ☀️🌧️';
-        if (msg.includes('idade') || msg.includes('quantos anos')) return 'Fui criada recentemente, então tenho apenas alguns instantes de existência digital! ⏳';
-        if (msg.includes('tecnologia') || msg.includes('ia') || msg.includes('inteligência artificial')) return 'A inteligência artificial está mudando o mundo! Este app é um exemplo simples, mas o potencial é imenso.';
-        if (msg.includes('grupo') || msg.includes('500')) return 'Agora você pode criar grupos com até 500 membros! É muito espaço para reunir todo mundo. 👥';
-        const respostasGenericas = ['Interessante! Conte-me mais sobre isso.', 'Entendo. Como você se sente a respeito?', 'Hmm, isso merece uma reflexão. Vamos explorar esse assunto?', 'Legal! Às vezes as coisas mais simples são as mais fascinantes.', 'Não tenho uma opinião formada sobre isso, mas estou aprendendo com você.', 'Obrigado por compartilhar. Estou sempre aqui para conversar.'];
-        return respostasGenericas[Math.floor(Math.random() * respostasGenericas.length)];
-    }
-
     function openCreateGroupModal() {
         document.getElementById('modalCreateGroup').classList.add('active');
         document.getElementById('groupName').value = '';
-        document.getElementById('groupMembers').value = '';
-        document.getElementById('memberTagsPreview').innerHTML = '';
-        document.getElementById('groupMembers').addEventListener('input', updateMemberPreview);
-    }
-
-    function updateMemberPreview() {
-        const input = document.getElementById('groupMembers').value;
-        const members = input.split(',').map(m => m.trim()).filter(m => m);
-        const preview = document.getElementById('memberTagsPreview');
-        preview.innerHTML = members.map((m, i) => `<span class="member-tag">${m} <span class="remove" onclick="removeMemberTag(${i})">×</span></span>`).join('');
-        if (members.length > 500) preview.innerHTML += '<span style="color:#ef4444;font-size:12px;">⚠️ Máximo 500 membros</span>';
-    }
-
-    function removeMemberTag(index) {
-        const input = document.getElementById('groupMembers');
-        const members = input.value.split(',').map(m => m.trim()).filter(m => m);
-        members.splice(index, 1);
-        input.value = members.join(', ');
-        updateMemberPreview();
     }
 
     function createGroup() {
         const name = document.getElementById('groupName').value.trim();
-        const membersRaw = document.getElementById('groupMembers').value;
-        const members = membersRaw.split(',').map(m => m.trim()).filter(m => m);
         if (!name) return alert('Digite o nome do grupo!');
-        if (members.length < 2) return alert('Adicione pelo menos 2 membros!');
-        if (members.length > 500) return alert('Máximo de 500 membros permitido!');
-        const groupId = 'group_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-        const newGroup = { id: groupId, name, phone: '', avatar: '👥', type: 'group', members, memberCount: members.length };
-        APP.chats.unshift(newGroup);
-        APP.messages[groupId] = [{ id: 'm_init', sender: 'Sistema', text: `Grupo "${name}" criado com ${members.length} membros. Capacidade máxima: 500 pessoas. ID da sala: ${groupId}`, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' }];
-        socket.emit('join_room', groupId);
+        socket.emit('create_group', { name });
         closeModal('modalCreateGroup');
-        renderChatList();
-        updateCallContactList();
-        openChat(groupId);
-        document.getElementById('groupMembers').removeEventListener('input', updateMemberPreview);
+        // A lista de conversas é atualizada assim que o servidor confirmar via 'groups_update'
+        // (chega para todos os usuários cadastrados, não só para quem criou).
     }
 
     function openNewCallModal() {
@@ -1670,6 +1879,17 @@
         setTimeout(() => startCall(type), 300);
     }
 
+    function unlockCallMedia() {
+        const mainVideo = document.getElementById('mainVideo');
+        mainVideo.muted = false;
+        mainVideo.play().catch(err => console.warn('Ainda bloqueado:', err.message));
+        document.getElementById('callUnlockOverlay').style.display = 'none';
+        // Aproveita este toque (gesto real do usuário) para também "acordar" o
+        // Web Audio API no iOS, necessário para o vídeo/música compartilhados.
+        if (APP._musicMix?.ctx?.state === 'suspended') APP._musicMix.ctx.resume().catch(() => {});
+        if (APP.videoShare.audioCtx?.state === 'suspended') APP.videoShare.audioCtx.resume().catch(() => {});
+    }
+
     function createPeerConnection() {
         peerConnection = new RTCPeerConnection(ICE_SERVERS);
         peerConnection.onicecandidate = (e) => {
@@ -1683,6 +1903,17 @@
             mainVideo.style.display = 'block';
             document.getElementById('callStatus').textContent = 'Conectado ✅';
             startCallTimer();
+            // No iPhone/Safari, o navegador bloqueia por padrão o autoplay de
+            // áudio/vídeo com som quando não é resultado direto de um toque do
+            // usuário (o que é o caso aqui, pois isto ocorre depois da negociação
+            // WebRTC, não no clique do botão). Sem isto, a chamada conecta mas
+            // fica muda e com o vídeo preto — parecendo que "não funciona".
+            const playPromise = mainVideo.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(() => {
+                    document.getElementById('callUnlockOverlay').style.display = 'flex';
+                });
+            }
         };
         return peerConnection;
     }
@@ -1831,6 +2062,7 @@
         stopCallTimer();
         document.getElementById('callScreen').classList.remove('active');
         document.getElementById('callChatPanel').classList.remove('active');
+        document.getElementById('callUnlockOverlay').style.display = 'none';
         const mainVideo = document.getElementById('mainVideo');
         mainVideo.srcObject = null;
         mainVideo.src = '';
@@ -2026,6 +2258,10 @@
     // locais ou links diretos para .mp4/.webm/.ogg.
     function playSharedVideo(src) {
         if (!peerConnection) return alert('Inicie uma chamada primeiro!');
+        const testEl = document.createElement('video');
+        if (!testEl.captureStream && !testEl.mozCaptureStream) {
+            return alert('O Safari/iPhone ainda não suporta transmitir vídeo em tempo real desta forma. Esta função funciona no Chrome/Android e no computador — no iPhone, o vídeo compartilhado toca só localmente por enquanto.');
+        }
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; document.getElementById('callPip').style.display = 'none'; }
 
         const preview = document.getElementById('sharedVideoPreview');
