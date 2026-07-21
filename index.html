@@ -182,6 +182,29 @@
             cursor: pointer;
         }
         #liveMap { flex: 1; width: 100%; }
+        .grid-tile {
+            position: relative;
+            width: calc(50% - 2px);
+            aspect-ratio: 1/1;
+            background: #1a1a1a;
+            overflow: hidden;
+            border-radius: 6px;
+        }
+        .grid-tile video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .grid-tile .grid-tile-label {
+            position: absolute;
+            bottom: 4px;
+            left: 6px;
+            color: #fff;
+            font-size: 11px;
+            background: rgba(0,0,0,0.5);
+            padding: 1px 6px;
+            border-radius: 8px;
+        }
         #transportMap { flex: 1; width: 100%; }
         .transport-tab.active {
             background: var(--green, #00a884);
@@ -1116,7 +1139,10 @@
                 </div>
                 <div class="chat-input-area" style="position:relative;">
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
+                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
+                    <input type="file" id="attachFileInput" style="display:none;" accept="image/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
+                    <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
                 </div>
@@ -1145,9 +1171,21 @@
                 <button class="btn btn-primary" id="shareLocationBtn" onclick="toggleShareLocation()" style="width:auto;padding:12px 24px;">📡 Partilhar minha localização</button>
             </div>
         </div>
+        <div class="modal-overlay" id="modalIncomingCall" style="z-index:200;">
+            <div class="modal" style="text-align:center;">
+                <div style="font-size:50px;">📞</div>
+                <h3 id="incomingCallerName">Alguém</h3>
+                <p style="color:#8696a0;" id="incomingCallType">está a ligar...</p>
+                <div class="modal-actions" style="justify-content:center;gap:24px;">
+                    <button class="call-btn call-btn-end" onclick="declineIncomingCall()" style="width:60px;height:60px;font-size:24px;">❌</button>
+                    <button class="call-btn" style="background:var(--green);width:60px;height:60px;font-size:24px;" onclick="acceptIncomingCall()">✅</button>
+                </div>
+            </div>
+        </div>
         <div class="call-screen" id="callScreen">
             <div class="call-video-container" id="callVideoContainer">
                 <video id="mainVideo" autoplay playsinline webkit-playsinline></video>
+                <div id="groupCallGrid" style="display:none;position:absolute;inset:0;flex-wrap:wrap;align-content:flex-start;gap:2px;overflow-y:auto;background:#000;"></div>
                 <div id="callUnlockOverlay" onclick="unlockCallMedia()" style="display:none;position:absolute;inset:0;z-index:40;background:rgba(0,0,0,0.6);color:#fff;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;text-align:center;">
                     <div style="font-size:40px;">🔊</div>
                     <div style="font-size:15px;padding:0 20px;">Toque para ativar o áudio e o vídeo<br><span style="font-size:12px;color:#ccc;">(o iPhone bloqueia isso automaticamente)</span></div>
@@ -1287,6 +1325,8 @@
 <script>
     const socket = io();
     let peerConnection = null;
+    let pendingIceCandidates = []; // candidatos ICE (1-para-1) chegados antes de existir peerConnection/remoteDescription
+    let incomingCallData = null; // dados da chamada 1-para-1 a chegar, à espera de Aceitar/Recusar
     // STUN resolve a maioria dos casos na mesma rede. TURN (OpenRelay, gratuito para testes)
     // é necessário quando os dois lados estão atrás de NAT/roteadores restritivos —
     // ele retransmite a mídia quando a conexão direta P2P não é possível.
@@ -1912,7 +1952,7 @@
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : msg.text}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 <div class="time">
@@ -1943,6 +1983,105 @@
                 <div class="time">${msg.time?.split(' ')[1] || msg.time || ''}</div>
             </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem ainda</p>';
         panel.scrollTop = panel.scrollHeight;
+    }
+
+    // ==================== FOTOS, DOCUMENTOS E MENSAGENS DE VOZ ====================
+    const MAX_ATTACHMENT_MB = 10;
+
+    function handleFileAttach(input) {
+        const file = input.files[0];
+        input.value = ''; // permite escolher o mesmo ficheiro outra vez depois
+        if (!file || !APP.currentChatId) return;
+        if (file.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
+            return alert(`Este ficheiro tem ${(file.size / 1024 / 1024).toFixed(1)}MB — o limite é ${MAX_ATTACHMENT_MB}MB.`);
+        }
+        const reader = new FileReader();
+        reader.onload = () => sendAttachmentMessage(reader.result, file.name, file.type);
+        reader.onerror = () => alert('Não foi possível ler o ficheiro.');
+        reader.readAsDataURL(file);
+    }
+
+    function sendAttachmentMessage(dataUrl, fileName, fileType) {
+        const now = new Date();
+        const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const isImage = (fileType || '').startsWith('image/');
+        const isAudio = (fileType || '').startsWith('audio/');
+        const text = isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`);
+        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType };
+        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
+        APP.messages[APP.currentChatId].push(payload);
+        renderMessages();
+        renderChatList();
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (chat?.type === 'ai') return; // a IA (texto) ignora anexos por agora
+        socket.emit('send_message', {
+            id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
+            text, time, fileData: dataUrl, fileName, fileType
+        });
+    }
+
+    function renderAttachment(msg) {
+        if (!msg.fileData) return '';
+        const type = msg.fileType || '';
+        if (type.startsWith('image/')) {
+            return `<img src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">`;
+        }
+        if (type.startsWith('audio/')) {
+            return `<audio controls src="${msg.fileData}" style="max-width:220px;margin-top:4px;"></audio>`;
+        }
+        return `<a href="${msg.fileData}" download="${msg.fileName || 'ficheiro'}" style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.15);padding:8px;border-radius:8px;margin-top:4px;color:inherit;text-decoration:none;">📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${msg.fileName || 'ficheiro'}</span></a>`;
+    }
+
+    function openImageFullscreen(msgId) {
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        if (!msg || !msg.fileData) return;
+        const win = window.open();
+        if (win) win.document.write(`<title>Foto</title><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${msg.fileData}" style="max-width:100%;max-height:100%;"></body>`);
+    }
+
+    // Gravação de mensagens de voz (MediaRecorder) — funciona em qualquer navegador
+    // moderno, incluindo iPhone (Safari 14.3+).
+    let voiceRecorder = null, voiceChunks = [], voiceStream = null, voiceStartTime = 0, voiceTimerInterval = null;
+
+    function toggleVoiceRecording() {
+        if (voiceRecorder && voiceRecorder.state === 'recording') { stopVoiceRecording(true); return; }
+        if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            voiceStream = stream;
+            voiceChunks = [];
+            voiceRecorder = new MediaRecorder(stream);
+            voiceRecorder.ondataavailable = (e) => { if (e.data.size > 0) voiceChunks.push(e.data); };
+            voiceRecorder.onstop = () => {
+                voiceStream.getTracks().forEach(t => t.stop());
+                clearInterval(voiceTimerInterval);
+                const btn = document.getElementById('voiceRecordBtn');
+                btn.textContent = '🎤';
+                btn.style.color = '';
+                if (voiceChunks.length === 0) return;
+                const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
+                if (blob.size > MAX_ATTACHMENT_MB * 1024 * 1024) return alert('Áudio muito longo (acima de ' + MAX_ATTACHMENT_MB + 'MB).');
+                const reader = new FileReader();
+                reader.onload = () => sendAttachmentMessage(reader.result, 'audio.webm', blob.type);
+                reader.readAsDataURL(blob);
+            };
+            voiceRecorder.start();
+            voiceStartTime = Date.now();
+            const btn = document.getElementById('voiceRecordBtn');
+            btn.style.color = '#ef4444';
+            voiceTimerInterval = setInterval(() => {
+                const secs = Math.floor((Date.now() - voiceStartTime) / 1000);
+                btn.textContent = '🔴' + secs + 's';
+                if (secs >= 120) stopVoiceRecording(true); // limite de 2 minutos por mensagem
+            }, 500);
+        }).catch(err => alert('Não foi possível aceder ao microfone: ' + err.message));
+    }
+
+    function stopVoiceRecording(send) {
+        if (voiceRecorder && voiceRecorder.state === 'recording') {
+            if (!send) voiceChunks = []; // cancelar (não usado na UI atual, mas disponível)
+            voiceRecorder.stop();
+        }
     }
 
     function sendMessage(inputId) {
@@ -2014,7 +2153,10 @@
             type: m.senderPhone === APP.user?.phone || m.sender === APP.user?.name ? 'sent' : 'received',
             replyTo: m.replyTo || null,
             reactions: m.reactions || null,
-            deleted: !!m.deleted
+            deleted: !!m.deleted,
+            fileData: m.fileData || null,
+            fileName: m.fileName || null,
+            fileType: m.fileType || null
         }));
         APP.messages[data.chatId] = APP.messages[data.chatId].concat(historyEntries);
         if (APP.currentChatId === data.chatId) renderMessages();
@@ -2030,7 +2172,10 @@
             text: data.text,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
             type: 'received',
-            replyTo: data.replyTo || null
+            replyTo: data.replyTo || null,
+            fileData: data.fileData || null,
+            fileName: data.fileName || null,
+            fileType: data.fileType || null
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();
@@ -2215,13 +2360,17 @@
         if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         if (chat?.type === 'ai') return alert('Não é possível ligar para a IA. Use o chat de texto!');
+        if (chat?.type === 'group') return joinGroupCall(type); // grupos usam a chamada em malha (ver mais abaixo)
         APP.callType = type;
         APP.callActive = true;
+        pendingIceCandidates = [];
         document.getElementById('callTitle').textContent = chat?.name || 'Chamada';
         document.getElementById('callStatus').textContent = type === 'video' ? 'Chamando...' : 'Chamada de voz...';
         document.getElementById('callScreen').classList.add('active');
+        document.getElementById('groupCallGrid').style.display = 'none';
         const mainVideo = document.getElementById('mainVideo');
         const pipVideo = document.getElementById('pipVideo');
+        mainVideo.style.display = 'block';
         mainVideo.srcObject = null;
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         const constraints = { audio: true, video: type === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false };
@@ -2240,24 +2389,44 @@
                 });
             });
         }).catch(err => {
-            alert('Erro ao acessar câmera/microfone: ' + err.message);
+            alert('Erro ao acessar câmera/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
             document.getElementById('callStatus').textContent = 'Falha na conexão';
+            APP.callActive = false;
         });
     }
 
-    socket.on('incoming_call', async (data) => {
-        const accept = confirm(`📞 Chamada de ${data.callerName}. Aceitar?`);
-        if (!accept) {
-            socket.emit('end_call', { targetRoomId: data.targetRoomId });
-            return;
-        }
+    // Chamada 1-para-1 recebida: mostra um ecrã real com Aceitar/Recusar em vez de
+    // usar confirm() — assim, o pedido de câmara/microfone parte diretamente de um
+    // toque genuíno do usuário no botão "Aceitar", o que evita bloqueios de
+    // permissão em navegadores mais rígidos (Safari/iPhone).
+    socket.on('incoming_call', (data) => {
+        incomingCallData = data;
+        document.getElementById('incomingCallerName').textContent = data.callerName;
+        document.getElementById('incomingCallType').textContent = data.callType === 'video' ? '📹 Videochamada a chegar...' : '📞 Chamada de voz a chegar...';
+        document.getElementById('modalIncomingCall').classList.add('active');
+    });
+
+    function declineIncomingCall() {
+        if (incomingCallData) socket.emit('end_call', { targetRoomId: incomingCallData.targetRoomId });
+        document.getElementById('modalIncomingCall').classList.remove('active');
+        incomingCallData = null;
+    }
+
+    async function acceptIncomingCall() {
+        const data = incomingCallData;
+        document.getElementById('modalIncomingCall').classList.remove('active');
+        if (!data) return;
+        incomingCallData = null;
         APP.currentChatId = data.targetRoomId;
         APP.callType = data.callType;
         APP.callActive = true;
+        pendingIceCandidates = [];
         document.getElementById('callTitle').textContent = data.callerName;
         document.getElementById('callStatus').textContent = 'Conectando...';
         document.getElementById('callScreen').classList.add('active');
-        const constraints = { audio: true, video: data.callType === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 } } : false };
+        document.getElementById('groupCallGrid').style.display = 'none';
+        document.getElementById('mainVideo').style.display = 'block';
+        const constraints = { audio: true, video: data.callType === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false };
         try {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             APP.callStream = stream;
@@ -2266,23 +2435,38 @@
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            flushPendingIce(pc);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             socket.emit('answer_call', { targetRoomId: data.targetRoomId, answer: pc.localDescription });
         } catch (err) {
-            alert('Erro ao aceitar chamada: ' + err.message);
+            alert('Erro ao aceder à câmara/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
+            endCall();
         }
-    });
+    }
+
+    function flushPendingIce(pc) {
+        pendingIceCandidates.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+        pendingIceCandidates = [];
+    }
 
     socket.on('call_answered', async (data) => {
         if (peerConnection) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            flushPendingIce(peerConnection);
         }
     });
 
+    // Candidatos ICE que chegassem antes de existir peerConnection (ou antes da
+    // "remote description" estar definida) eram simplesmente perdidos — essa era
+    // a causa mais provável de a chamada ligar de um lado só (muito comum em
+    // redes móveis/4G, incluindo iPhone), por isso agora ficam em fila.
     socket.on('ice_candidate_received', async (data) => {
-        if (peerConnection && data.candidate) {
+        if (!data.candidate) return;
+        if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
             try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { console.warn(e); }
+        } else {
+            pendingIceCandidates.push(data.candidate);
         }
     });
 
@@ -2290,12 +2474,148 @@
         endCall(true); // encerrado pelo outro lado — não reenviar 'end_call' de volta
     });
 
+    // ==================== CHAMADAS EM GRUPO (malha: cada participante liga a todos os outros) ====================
+    // Funciona bem até ~6-8 participantes com câmara ligada (cada pessoa envia/recebe
+    // vídeo de todas as outras diretamente, sem servidor central de vídeo). Com mais
+    // gente que isso, o ideal a prazo é um servidor SFU — fica fora do alcance gratuito.
+    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {} };
+
+    function joinGroupCall(type) {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        APP.callType = type;
+        APP.callActive = true;
+        GROUP_CALL.active = true;
+        GROUP_CALL.peers = {};
+        GROUP_CALL.pendingIce = {};
+        GROUP_CALL.names = {};
+        document.getElementById('callTitle').textContent = '🎥 ' + (chat?.name || 'Grupo');
+        document.getElementById('callStatus').textContent = 'A entrar na chamada em grupo...';
+        document.getElementById('callScreen').classList.add('active');
+        document.getElementById('mainVideo').style.display = 'none';
+        document.getElementById('callPip').style.display = 'none';
+        const grid = document.getElementById('groupCallGrid');
+        grid.style.display = 'flex';
+        grid.innerHTML = '';
+        const constraints = { audio: true, video: type === 'video' ? { width: { ideal: 480 }, height: { ideal: 480 }, facingMode: 'user' } : false };
+        navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+            APP.callStream = stream;
+            addGridTile('me', 'Você', stream, true);
+            socket.emit('join_call', { roomId: APP.currentChatId, callType: type });
+            document.getElementById('callStatus').textContent = 'Conectado ✅';
+            startCallTimer();
+        }).catch(err => {
+            alert('Erro ao aceder à câmara/microfone: ' + err.message);
+            endCall();
+        });
+    }
+
+    function addGridTile(key, name, stream, muted) {
+        let tile = document.getElementById('tile_' + key);
+        if (!tile) {
+            tile = document.createElement('div');
+            tile.className = 'grid-tile';
+            tile.id = 'tile_' + key;
+            tile.innerHTML = `<video autoplay playsinline webkit-playsinline ${muted ? 'muted' : ''}></video><span class="grid-tile-label">${name}</span>`;
+            document.getElementById('groupCallGrid').appendChild(tile);
+        }
+        const video = tile.querySelector('video');
+        video.srcObject = stream;
+        const p = video.play();
+        if (p !== undefined) p.catch(() => { document.getElementById('callUnlockOverlay').style.display = 'flex'; });
+    }
+
+    function removeGridTile(key) {
+        const tile = document.getElementById('tile_' + key);
+        if (tile) tile.remove();
+    }
+
+    function createGroupPeerConnection(remoteSocketId, remoteName) {
+        const pc = new RTCPeerConnection(ICE_SERVERS);
+        GROUP_CALL.peers[remoteSocketId] = pc;
+        GROUP_CALL.names[remoteSocketId] = remoteName;
+        GROUP_CALL.pendingIce[remoteSocketId] = [];
+        pc.onicecandidate = (e) => {
+            if (e.candidate) socket.emit('call_ice', { roomId: APP.currentChatId, toSocketId: remoteSocketId, candidate: e.candidate });
+        };
+        pc.ontrack = (e) => addGridTile(remoteSocketId, remoteName, e.streams[0], false);
+        if (APP.callStream) APP.callStream.getTracks().forEach(track => pc.addTrack(track, APP.callStream));
+        return pc;
+    }
+
+    // Quem entra numa chamada já em curso recebe a lista de quem já está lá, e é ele
+    // quem inicia a ligação (oferta) com cada um deles.
+    socket.on('existing_call_participants', (data) => {
+        (data.participants || []).forEach(p => {
+            const pc = createGroupPeerConnection(p.socketId, p.name);
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+                socket.emit('call_offer', { roomId: APP.currentChatId, toSocketId: p.socketId, offer: pc.localDescription });
+            });
+        });
+    });
+
+    socket.on('peer_joined_call', (data) => {
+        GROUP_CALL.names[data.socketId] = data.name; // guarda o nome já, caso a oferta chegue depois
+    });
+
+    // Alguém que já está na chamada, mas ainda não está no grupo, vê este aviso e pode entrar
+    socket.on('group_call_started', (data) => {
+        if (data.roomId !== APP.currentChatId || GROUP_CALL.active) return;
+        if (confirm(`🎥 ${data.starterName} iniciou uma chamada em grupo. Entrar?`)) joinGroupCall(data.callType);
+    });
+
+    socket.on('call_offer_received', async (data) => {
+        if (!GROUP_CALL.active) return;
+        let pc = GROUP_CALL.peers[data.fromSocketId];
+        if (!pc) pc = createGroupPeerConnection(data.fromSocketId, data.fromName);
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        (GROUP_CALL.pendingIce[data.fromSocketId] || []).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+        GROUP_CALL.pendingIce[data.fromSocketId] = [];
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('call_answer', { roomId: APP.currentChatId, toSocketId: data.fromSocketId, answer: pc.localDescription });
+    });
+
+    socket.on('call_answer_received', async (data) => {
+        const pc = GROUP_CALL.peers[data.fromSocketId];
+        if (!pc) return;
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        (GROUP_CALL.pendingIce[data.fromSocketId] || []).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+        GROUP_CALL.pendingIce[data.fromSocketId] = [];
+    });
+
+    socket.on('call_ice_received', async (data) => {
+        const pc = GROUP_CALL.peers[data.fromSocketId];
+        if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+            try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { console.warn(e); }
+        } else {
+            if (!GROUP_CALL.pendingIce[data.fromSocketId]) GROUP_CALL.pendingIce[data.fromSocketId] = [];
+            GROUP_CALL.pendingIce[data.fromSocketId].push(data.candidate);
+        }
+    });
+
+    socket.on('peer_left_call', (data) => {
+        const pc = GROUP_CALL.peers[data.socketId];
+        if (pc) { pc.close(); delete GROUP_CALL.peers[data.socketId]; }
+        delete GROUP_CALL.pendingIce[data.socketId];
+        removeGridTile(data.socketId);
+    });
+
+    function leaveGroupCall() {
+        if (!GROUP_CALL.active) return;
+        Object.values(GROUP_CALL.peers).forEach(pc => pc.close());
+        GROUP_CALL.peers = {};
+        GROUP_CALL.pendingIce = {};
+        GROUP_CALL.names = {};
+        GROUP_CALL.active = false;
+        socket.emit('leave_call', { roomId: APP.currentChatId });
+        document.getElementById('groupCallGrid').innerHTML = '';
+        document.getElementById('groupCallGrid').style.display = 'none';
+    }
+
     function startConference() {
         if (!APP.currentChatId) return alert('Abra um grupo primeiro!');
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         if (chat?.type !== 'group') return alert('Conferências estão disponíveis apenas para grupos!');
-        document.getElementById('callTitle').textContent = '🎥 Conferência: ' + chat.name;
-        document.getElementById('callStatus').textContent = `Sala de conferência · Até ${chat.memberCount} participantes`;
         startCall('video');
     }
 
@@ -2348,6 +2668,8 @@
         APP.callActive = false;
         if (!remoteInitiated && APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
+        pendingIceCandidates = [];
+        if (GROUP_CALL.active) leaveGroupCall();
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         if (APP.callStream) { APP.callStream.getTracks().forEach(track => track.stop()); APP.callStream = null; }
         stopVideoShare();
@@ -2356,6 +2678,8 @@
         document.getElementById('callScreen').classList.remove('active');
         document.getElementById('callChatPanel').classList.remove('active');
         document.getElementById('callUnlockOverlay').style.display = 'none';
+        document.getElementById('modalIncomingCall').classList.remove('active');
+        incomingCallData = null;
         const mainVideo = document.getElementById('mainVideo');
         mainVideo.srcObject = null;
         mainVideo.src = '';

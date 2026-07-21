@@ -223,7 +223,11 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
   pingTimeout: 60000,
-  pingInterval: 25000
+  pingInterval: 25000,
+  // Fotos/documentos vão embutidos na mensagem como base64 (até 10MB no original,
+  // o que em base64 fica ~33% maior) — por isso o limite do socket.io precisa de
+  // ser bem maior que o padrão (1MB).
+  maxHttpBufferSize: 18 * 1024 * 1024
 });
 
 // socket.id -> { name, rooms: Set<roomId> }
@@ -289,6 +293,8 @@ loadGroups();
 // conversas de todo mundo, para se poder falar com ele mesmo offline — com uma
 // bolinha indicando se está online ou desligado neste momento.
 const onlinePhones = new Set();
+// roomId -> Set de socket.id atualmente na chamada de grupo dessa sala (partilhado por todas as ligações)
+const roomCallParticipants = {};
 function broadcastContacts() {
   const list = Object.values(accounts).map(u => ({
     name: u.name, phone: u.phone, country: u.country, online: onlinePhones.has(u.phone)
@@ -388,7 +394,7 @@ io.on('connection', (socket) => {
     socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: users[socket.id]?.phone });
   });
 
-  // Sinalização WebRTC (chamadas de voz/vídeo/conferência)
+  // Sinalização WebRTC (chamadas de voz/vídeo 1-para-1)
   socket.on('call_user', (data) => {
     log(`📞 Chamada de ${data.callerName} para a sala ${data.targetRoomId}`, 'WEBRTC');
     socket.to(data.targetRoomId).emit('incoming_call', data);
@@ -396,6 +402,48 @@ io.on('connection', (socket) => {
   socket.on('answer_call', (data) => socket.to(data.targetRoomId).emit('call_answered', data));
   socket.on('ice_candidate', (data) => socket.to(data.targetRoomId).emit('ice_candidate_received', data));
   socket.on('end_call', (data) => socket.to(data.targetRoomId).emit('call_ended', data));
+
+  // ==================== CHAMADAS EM GRUPO (malha: cada participante liga a todos os outros) ====================
+
+  socket.on('join_call', (data) => {
+    const { roomId, callType } = data || {};
+    if (!roomId) return;
+    if (!roomCallParticipants[roomId]) roomCallParticipants[roomId] = new Set();
+    const isFirst = roomCallParticipants[roomId].size === 0;
+    const existing = [...roomCallParticipants[roomId]].map(id => ({ socketId: id, name: users[id]?.name || 'Alguém' }));
+    roomCallParticipants[roomId].add(socket.id);
+    if (isFirst) {
+      // Avisa o resto do grupo (que não está na chamada) que uma chamada começou, para poderem entrar
+      socket.to(roomId).emit('group_call_started', { roomId, callType, starterName: users[socket.id]?.name || 'Alguém' });
+    }
+    // Avisa quem já está na chamada de que uma pessoa nova entrou (para atualizar a UI, ex: nome)
+    socket.to(roomId).emit('peer_joined_call', { socketId: socket.id, name: users[socket.id]?.name || 'Alguém', callType });
+    // Devolve a quem entrou a lista de quem já está na chamada, para ele iniciar a ligação com cada um
+    socket.emit('existing_call_participants', { roomId, participants: existing });
+    log(`🎥 ${users[socket.id]?.name || socket.id} entrou na chamada em grupo (${roomId}) — ${roomCallParticipants[roomId].size} participante(s)`, 'WEBRTC');
+  });
+
+  socket.on('call_offer', (data) => {
+    if (!data?.toSocketId) return;
+    io.to(data.toSocketId).emit('call_offer_received', { fromSocketId: socket.id, fromName: users[socket.id]?.name, offer: data.offer, roomId: data.roomId });
+  });
+  socket.on('call_answer', (data) => {
+    if (!data?.toSocketId) return;
+    io.to(data.toSocketId).emit('call_answer_received', { fromSocketId: socket.id, answer: data.answer });
+  });
+  socket.on('call_ice', (data) => {
+    if (!data?.toSocketId) return;
+    io.to(data.toSocketId).emit('call_ice_received', { fromSocketId: socket.id, candidate: data.candidate });
+  });
+
+  function leaveCall(roomId) {
+    if (roomCallParticipants[roomId]) {
+      roomCallParticipants[roomId].delete(socket.id);
+      if (roomCallParticipants[roomId].size === 0) delete roomCallParticipants[roomId];
+    }
+    socket.to(roomId).emit('peer_left_call', { socketId: socket.id });
+  }
+  socket.on('leave_call', (data) => { if (data?.roomId) leaveCall(data.roomId); });
 
   // Quadro branco: retransmite cada traço e o "limpar" para o resto da sala
   socket.on('whiteboard_draw', (data) => {
@@ -447,6 +495,14 @@ io.on('connection', (socket) => {
         if (!stillConnected) { onlinePhones.delete(user.phone); broadcastContacts(); }
       }
     }
+    // Se estava numa chamada em grupo, tira-o de todas as salas de chamada e avisa os outros
+    Object.keys(roomCallParticipants).forEach((roomId) => {
+      if (roomCallParticipants[roomId].has(socket.id)) {
+        roomCallParticipants[roomId].delete(socket.id);
+        if (roomCallParticipants[roomId].size === 0) delete roomCallParticipants[roomId];
+        socket.to(roomId).emit('peer_left_call', { socketId: socket.id });
+      }
+    });
   });
 });
 
