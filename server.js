@@ -57,7 +57,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt };
+  return { id: u.id, name: u.name, phone: u.phone, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null };
 }
 
 app.post('/api/register', (req, res) => {
@@ -96,6 +96,19 @@ app.get('/api/admin/users', (req, res) => {
   const phone = sessions[token];
   if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
   res.json({ users: Object.values(accounts).map(publicUser) });
+});
+
+// Publica a chave pública do usuário (encriptação ponta-a-ponta das conversas
+// 1-para-1) — o servidor só guarda a chave PÚBLICA, nunca a privada; esta
+// nunca sai do dispositivo do usuário.
+app.post('/api/publish-key', (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  if (!phone || !accounts[phone]) return res.status(403).json({ error: 'Sessão inválida.' });
+  accounts[phone].publicKey = req.body?.publicKeyJwk || null;
+  saveUsers();
+  broadcastContacts();
+  res.json({ success: true });
 });
 
 // ==================== TRANSPORTES (autocarros, aviões, metro/comboio) ====================
@@ -297,7 +310,7 @@ const onlinePhones = new Set();
 const roomCallParticipants = {};
 function broadcastContacts() {
   const list = Object.values(accounts).map(u => ({
-    name: u.name, phone: u.phone, country: u.country, online: onlinePhones.has(u.phone)
+    name: u.name, phone: u.phone, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null
   }));
   io.emit('contacts_update', list);
 }
@@ -323,12 +336,68 @@ io.on('connection', (socket) => {
 
   socket.on('create_group', (data) => {
     const name = (data?.name || '').trim();
-    if (!name) return;
+    const creatorPhone = users[socket.id]?.phone;
+    if (!name || !creatorPhone) return;
     const id = 'group_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    groups[id] = { id, name, createdBy: users[socket.id]?.name || 'Alguém', createdAt: new Date().toISOString() };
+    groups[id] = {
+      id, name, createdBy: users[socket.id]?.name || 'Alguém', createdByPhone: creatorPhone, createdAt: new Date().toISOString(),
+      admins: [creatorPhone], moderators: [], mutedPhones: [], bannedPhones: []
+    };
     saveGroups();
     io.emit('groups_update', Object.values(groups));
     log(`👥 Grupo criado: "${name}" por ${groups[id].createdBy}`, 'GROUP');
+  });
+
+  // ==================== MODERAÇÃO DE GRUPOS (cargos, silenciar, remover) ====================
+  function isGroupAdmin(group, phone) { return group?.admins?.includes(phone); }
+  function isGroupModOrAdmin(group, phone) { return group?.admins?.includes(phone) || group?.moderators?.includes(phone); }
+
+  socket.on('group_set_role', (data) => {
+    const { groupId, targetPhone, role } = data || {};
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!group || !myPhone || !isGroupAdmin(group, myPhone) || !targetPhone) return;
+    group.moderators = group.moderators.filter(p => p !== targetPhone);
+    group.admins = group.admins.filter(p => p !== targetPhone);
+    if (role === 'admin') group.admins.push(targetPhone);
+    else if (role === 'moderator') group.moderators.push(targetPhone);
+    saveGroups();
+    io.emit('groups_update', Object.values(groups));
+    log(`👑 ${targetPhone} passou a ${role} em "${group.name}"`, 'GROUP');
+  });
+
+  socket.on('group_mute', (data) => {
+    const { groupId, targetPhone, muted } = data || {};
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!group || !myPhone || !isGroupModOrAdmin(group, myPhone) || !targetPhone) return;
+    group.mutedPhones = group.mutedPhones.filter(p => p !== targetPhone);
+    if (muted) group.mutedPhones.push(targetPhone);
+    saveGroups();
+    io.emit('groups_update', Object.values(groups));
+  });
+
+  socket.on('group_kick', (data) => {
+    const { groupId, targetPhone } = data || {};
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!group || !myPhone || !isGroupAdmin(group, myPhone) || !targetPhone || targetPhone === group.createdByPhone) return;
+    if (!group.bannedPhones.includes(targetPhone)) group.bannedPhones.push(targetPhone);
+    group.admins = group.admins.filter(p => p !== targetPhone);
+    group.moderators = group.moderators.filter(p => p !== targetPhone);
+    saveGroups();
+    io.emit('groups_update', Object.values(groups));
+    log(`🚫 ${targetPhone} removido de "${group.name}"`, 'GROUP');
+  });
+
+  socket.on('group_unban', (data) => {
+    const { groupId, targetPhone } = data || {};
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!group || !myPhone || !isGroupAdmin(group, myPhone) || !targetPhone) return;
+    group.bannedPhones = group.bannedPhones.filter(p => p !== targetPhone);
+    saveGroups();
+    io.emit('groups_update', Object.values(groups));
   });
 
   // Um usuário pode participar de VÁRIAS salas ao mesmo tempo (uma por conversa/grupo)
@@ -344,6 +413,15 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', (data) => {
     if (!data?.chatId) return;
+    const group = groups[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (group && myPhone) {
+      if (group.bannedPhones?.includes(myPhone)) return; // removido do grupo
+      if (group.mutedPhones?.includes(myPhone)) {
+        socket.emit('message_rejected', { chatId: data.chatId, reason: 'Foste silenciado neste grupo por um administrador.' });
+        return;
+      }
+    }
     if (!messagesByRoom[data.chatId]) messagesByRoom[data.chatId] = [];
     messagesByRoom[data.chatId].push(data);
     if (messagesByRoom[data.chatId].length > MAX_HISTORY_PER_ROOM) {
@@ -471,6 +549,13 @@ io.on('connection', (socket) => {
   socket.on('location_stop', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('location_stop_received', { phone: users[socket.id]?.phone });
+  });
+
+  // Legendas ao vivo nas chamadas: só retransmite o texto reconhecido pelo navegador
+  // de quem está a falar — cada lado traduz para o seu próprio idioma localmente.
+  socket.on('call_caption', (data) => {
+    if (!data?.roomId) return;
+    socket.to(data.roomId).emit('call_caption_received', { text: data.text, name: users[socket.id]?.name || 'Alguém' });
   });
 
   socket.on('user_logout', () => {

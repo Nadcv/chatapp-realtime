@@ -1122,10 +1122,12 @@
                     <button class="btn-back" onclick="closeChat()">←</button>
                     <div class="header-avatar" id="chatAvatar" style="width:38px;height:38px;font-size:16px;">G</div>
                     <div class="header-info">
-                        <h3 id="chatName">Selecione uma conversa</h3>
+                        <h3><span id="chatName">Selecione uma conversa</span> <span id="encryptionBadge" title="Mensagens encriptadas ponta-a-ponta neste dispositivo" style="display:none;font-size:12px;">🔒</span></h3>
                         <span id="chatSubtitle"></span>
                     </div>
                     <div style="margin-left:auto;display:flex;gap:6px;">
+                        <button class="btn-icon" onclick="summarizeChat()" title="Resumir conversa (IA)" style="width:36px;height:36px;font-size:16px;">📝</button>
+                        <button class="btn-icon" id="manageGroupBtn" onclick="openManageGroupModal()" title="Gerir grupo" style="width:36px;height:36px;font-size:16px;display:none;">👑</button>
                         <button class="btn-icon" onclick="openLocationScreen()" title="Localização em tempo real" style="width:36px;height:36px;font-size:16px;">📍</button>
                         <button class="btn-icon" onclick="startCall('voice')" title="Chamada de voz" style="width:36px;height:36px;font-size:16px;">📞</button>
                         <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;">📹</button>
@@ -1167,6 +1169,7 @@
                 <button onclick="closeLocationScreen()">✖️</button>
             </div>
             <div id="liveMap"></div>
+            <div id="etaBox" style="display:none;background:var(--green,#00a884);color:#fff;padding:8px 14px;font-size:13px;text-align:center;"></div>
             <div class="location-footer">
                 <button class="btn btn-primary" id="shareLocationBtn" onclick="toggleShareLocation()" style="width:auto;padding:12px 24px;">📡 Partilhar minha localização</button>
             </div>
@@ -1193,6 +1196,7 @@
                 <div class="call-pip" id="callPip" style="display:none;">
                     <video id="pipVideo" autoplay playsinline webkit-playsinline muted></video>
                 </div>
+                <div id="captionOverlay" style="display:none;position:absolute;left:8px;right:8px;bottom:70px;z-index:35;background:rgba(0,0,0,0.65);color:#fff;padding:8px 12px;border-radius:8px;font-size:13px;text-align:center;max-height:80px;overflow:hidden;"></div>
                 <div class="video-share-panel" id="videoSharePanel" style="display:none;">
                     <div class="vsp-header" id="vspDragHandle">
                         <span>🎬 Vídeo</span>
@@ -1236,6 +1240,7 @@
                 <button class="call-btn call-btn-action" onclick="shareScreen()" title="Compartilhar tela">🖥️</button>
                 <button class="call-btn call-btn-action" onclick="openWhiteboard()" title="Quadro branco">🎨</button>
                 <button class="call-btn call-btn-action" onclick="toggleCallChat()" title="Mensagens">💬</button>
+                <button class="call-btn call-btn-action" onclick="toggleLiveCaptions()" id="captionBtn" title="Legendas ao vivo traduzidas">💬🌐</button>
                 <button class="call-btn call-btn-end" onclick="endCall()">❌</button>
                 <button class="call-btn call-btn-action" onclick="toggleCamera()">📸</button>
             </div>
@@ -1291,6 +1296,25 @@
                 <div id="callContactList" style="max-height:200px;overflow-y:auto;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalNewCall')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalSummary">
+            <div class="modal">
+                <h3>📝 Resumo da conversa (IA)</h3>
+                <div id="summaryContent" style="color:var(--text-primary);font-size:14px;line-height:1.5;max-height:300px;overflow:auto;white-space:pre-wrap;">A gerar resumo...</div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalSummary')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalManageGroup">
+            <div class="modal">
+                <h3>👑 Gerir grupo</h3>
+                <p style="color:#8696a0;font-size:13px;">Silenciar impede a pessoa de escrever; remover tira-a do grupo (pode ser desconvidado depois).</p>
+                <div style="max-height:340px;overflow:auto;" id="manageGroupList"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalManageGroup')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -1405,12 +1429,15 @@
             .map(c => ({
                 id: dmRoomId(APP.user.phone, c.phone),
                 name: c.name, phone: c.phone, avatar: c.name.charAt(0).toUpperCase(),
-                type: 'user', online: c.online
+                type: 'user', online: c.online, publicKey: c.publicKey || null
             }));
-        const groupChats = APP.groupsList.map(g => ({
-            id: g.id, name: g.name, phone: '', avatar: '👥', type: 'group',
-            memberCount: APP.onlineContacts.length, createdBy: g.createdBy
-        }));
+        const groupChats = APP.groupsList
+            .filter(g => !g.bannedPhones?.includes(APP.user.phone))
+            .map(g => ({
+                id: g.id, name: g.name, phone: '', avatar: '👥', type: 'group',
+                memberCount: APP.onlineContacts.length, createdBy: g.createdBy, createdByPhone: g.createdByPhone,
+                admins: g.admins || [], moderators: g.moderators || [], mutedPhones: g.mutedPhones || [], bannedPhones: g.bannedPhones || []
+            }));
         const aiChat = DEFAULT_CONTACTS[0];
         APP.chats = [aiChat, ...groupChats, ...contactChats];
         APP.chats.forEach(chat => {
@@ -1431,8 +1458,17 @@
             if (openChatData && openChatData.type === 'user') {
                 document.getElementById('chatSubtitle').textContent = openChatData.online ? 'Online' : 'Offline';
             }
+            if (openChatData?.type === 'group') {
+                document.getElementById('manageGroupBtn').style.display = openChatData.admins?.includes(APP.user.phone) ? 'flex' : 'none';
+                if (document.getElementById('modalManageGroup').classList.contains('active')) openManageGroupModal();
+            }
+            updateEncryptionBadge();
         }
     }
+
+    socket.on('message_rejected', (data) => {
+        if (data?.reason) alert('⚠️ ' + data.reason);
+    });
 
     socket.on('contacts_update', (list) => {
         APP.onlineContacts = list || [];
@@ -1486,6 +1522,99 @@
         }
     }
 
+    // ==================== ENCRIPTAÇÃO PONTA-A-PONTA (conversas 1-para-1) ====================
+    // Usa a Web Crypto API nativa do navegador (nenhuma biblioteca externa): cada
+    // dispositivo gera o seu próprio par de chaves ECDH (P-256); a chave PRIVADA
+    // nunca sai do aparelho (fica só no localStorage deste navegador) — o servidor
+    // só recebe e guarda a chave PÚBLICA, que é normal e seguro partilhar.
+    // Quando duas pessoas conversam, cada uma combina a sua chave privada com a
+    // chave pública da outra (ECDH) para chegar à MESMA chave secreta partilhada,
+    // sem que essa chave secreta seja jamais transmitida pela rede — é usada para
+    // cifrar/decifrar com AES-GCM. O servidor só vê o texto cifrado.
+    //
+    // Limitações importantes (para seres honesto contigo mesmo sobre o que isto
+    // cobre): só protege chats 1-para-1 (não grupos, nem a IA); a chave fica presa
+    // a ESTE navegador/dispositivo — se entrares noutro telemóvel/computador, gera-se
+    // um par novo e as mensagens antigas encriptadas com a chave antiga deixam de
+    // poder ser lidas nesse novo aparelho; fotos/áudios/documentos NÃO são encriptados
+    // nesta versão, só o texto. Não é ao nível do protocolo Signal (sem "ratcheting"),
+    // mas é encriptação ponta-a-ponta real, não é só "https".
+    const E2EE = { privateKey: null, publicJwk: null, sharedKeys: {} }; // sharedKeys: phone -> CryptoKey (AES) já derivada
+
+    function b64encode(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+    function b64decode(str) { return Uint8Array.from(atob(str), c => c.charCodeAt(0)); }
+
+    async function initE2EE() {
+        if (!window.crypto?.subtle) { console.warn('Web Crypto API não disponível — encriptação ponta-a-ponta desativada.'); return; }
+        const storeKey = 'e2ee_' + APP.user.phone;
+        let stored = null;
+        try { stored = JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch (e) {}
+        try {
+            if (stored?.privateJwk && stored?.publicJwk) {
+                E2EE.privateKey = await crypto.subtle.importKey('jwk', stored.privateJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveKey']);
+                E2EE.publicJwk = stored.publicJwk;
+            } else {
+                const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+                const privateJwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+                const publicJwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
+                localStorage.setItem(storeKey, JSON.stringify({ privateJwk, publicJwk }));
+                E2EE.privateKey = pair.privateKey;
+                E2EE.publicJwk = publicJwk;
+            }
+            await fetch('/api/publish-key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token },
+                body: JSON.stringify({ token: APP.token, publicKeyJwk: E2EE.publicJwk })
+            });
+        } catch (err) {
+            console.warn('Não foi possível preparar a encriptação ponta-a-ponta:', err.message);
+        }
+    }
+
+    async function getSharedKey(peerPhone, peerPublicJwk) {
+        if (!peerPublicJwk || !E2EE.privateKey) return null;
+        if (E2EE.sharedKeys[peerPhone]) return E2EE.sharedKeys[peerPhone];
+        try {
+            const peerPublicKey = await crypto.subtle.importKey('jwk', peerPublicJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+            const aesKey = await crypto.subtle.deriveKey(
+                { name: 'ECDH', public: peerPublicKey }, E2EE.privateKey,
+                { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+            );
+            E2EE.sharedKeys[peerPhone] = aesKey;
+            return aesKey;
+        } catch (err) {
+            console.warn('Falha ao derivar chave partilhada:', err.message);
+            return null;
+        }
+    }
+
+    async function encryptFor(peerPhone, peerPublicJwk, plainText) {
+        const key = await getSharedKey(peerPhone, peerPublicJwk);
+        if (!key) return null;
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(plainText);
+        const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+        return { iv: b64encode(iv), data: b64encode(cipher) };
+    }
+
+    async function decryptFrom(peerPhone, peerPublicJwk, ivB64, dataB64) {
+        const key = await getSharedKey(peerPhone, peerPublicJwk);
+        if (!key) return null;
+        try {
+            const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64decode(ivB64) }, key, b64decode(dataB64));
+            return new TextDecoder().decode(plain);
+        } catch (err) {
+            return null; // provavelmente cifrado com a chave de outro dispositivo
+        }
+    }
+
+    function updateEncryptionBadge() {
+        const badge = document.getElementById('encryptionBadge');
+        if (!badge) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        badge.style.display = (chat?.type === 'user' && chat.publicKey && E2EE.publicJwk) ? 'inline' : 'none';
+    }
+
     function enterApp(user, token) {
         APP.user = { name: user.name, phone: user.phone, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
         APP.token = token;
@@ -1498,6 +1627,7 @@
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
         initApp();
+        initE2EE();
         APP.chats.forEach(chat => socket.emit('join_room', chat.id));
     }
 
@@ -1601,6 +1731,8 @@
         const isGroup = chat.type === 'group';
         const isAI = chat.type === 'ai';
         document.getElementById('chatSubtitle').textContent = isAI ? 'Inteligência Artificial · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
+        document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
+        updateEncryptionBadge();
         const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
         document.getElementById('chatAvatar').textContent = avatarContent;
         const avatarEl = document.getElementById('chatAvatar');
@@ -1717,6 +1849,128 @@
         });
     }
 
+    // ==================== LEGENDAS AO VIVO TRADUZIDAS NA CHAMADA ====================
+    // Usa a Web Speech API do navegador (reconhecimento de fala) — funciona bem no
+    // Chrome/Android; no Safari/iPhone o suporte é limitado ou inexistente, por isso
+    // avisamos em vez de falhar silenciosamente. O texto reconhecido é enviado ao
+    // outro lado da chamada, e CADA lado traduz para o SEU próprio idioma escolhido
+    // no tradutor (🌐 no cabeçalho) — não é preciso combinar o idioma com ninguém.
+    const CAPTIONS = { active: false, recognition: null };
+
+    function toggleLiveCaptions() {
+        if (CAPTIONS.active) { stopLiveCaptions(); return; }
+        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognitionAPI) {
+            return alert('Legendas ao vivo não são suportadas neste navegador. Funcionam bem no Chrome (Android/computador); no iPhone o Safari ainda não suporta isto.');
+        }
+        if (!document.getElementById('callScreen').classList.contains('active')) return alert('Isto só funciona durante uma chamada.');
+        CAPTIONS.recognition = new SpeechRecognitionAPI();
+        CAPTIONS.recognition.continuous = true;
+        CAPTIONS.recognition.interimResults = false;
+        CAPTIONS.recognition.lang = 'pt-PT';
+        CAPTIONS.recognition.onresult = (e) => {
+            const text = e.results[e.results.length - 1][0].transcript;
+            if (text?.trim()) {
+                socket.emit('call_caption', { roomId: APP.currentChatId, text });
+                showCaption('Você: ' + text);
+            }
+        };
+        CAPTIONS.recognition.onerror = (e) => { if (e.error !== 'no-speech') console.warn('Erro no reconhecimento de fala:', e.error); };
+        CAPTIONS.recognition.onend = () => { if (CAPTIONS.active) CAPTIONS.recognition.start(); }; // reinicia sozinho (a API para automaticamente de vez em quando)
+        CAPTIONS.recognition.start();
+        CAPTIONS.active = true;
+        document.getElementById('captionBtn').style.background = 'var(--green)';
+        document.getElementById('captionOverlay').style.display = 'block';
+    }
+
+    function stopLiveCaptions() {
+        CAPTIONS.active = false;
+        if (CAPTIONS.recognition) { CAPTIONS.recognition.onend = null; CAPTIONS.recognition.stop(); CAPTIONS.recognition = null; }
+        document.getElementById('captionBtn').style.background = '';
+        document.getElementById('captionOverlay').style.display = 'none';
+    }
+
+    function showCaption(text) {
+        const overlay = document.getElementById('captionOverlay');
+        overlay.style.display = 'block';
+        overlay.textContent = text;
+    }
+
+    // Legenda recebida do outro lado da chamada — traduz para o MEU idioma escolhido
+    socket.on('call_caption_received', (data) => {
+        const targetLang = APP.translatorLang || 'pt';
+        fetch(`/api/translate?text=${encodeURIComponent(data.text)}&target=${encodeURIComponent(targetLang)}`)
+            .then(r => r.json())
+            .then(res => showCaption(`${data.name}: ${res.translated || data.text}`))
+            .catch(() => showCaption(`${data.name}: ${data.text}`));
+    });
+
+    // ==================== RESUMO DE CONVERSA POR IA ====================
+    function summarizeChat() {
+        if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
+        const msgs = (APP.messages[APP.currentChatId] || []).filter(m => !m.deleted && !m.fileData);
+        if (msgs.length === 0) return alert('Ainda não há mensagens de texto para resumir.');
+        document.getElementById('modalSummary').classList.add('active');
+        document.getElementById('summaryContent').textContent = 'A gerar resumo...';
+        const transcript = msgs.slice(-60).map(m => `${m.type === 'sent' ? 'Você' : m.sender}: ${m.text}`).join('\n');
+        fetch('/api/ai-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: [
+                    { role: 'system', content: 'Resume a conversa a seguir em português, de forma breve (5-8 linhas no máximo), destacando decisões, pedidos ou combinações importantes. Não inventes nada que não esteja na conversa.' },
+                    { role: 'user', content: transcript }
+                ]
+            })
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                document.getElementById('summaryContent').textContent = ok ? (data.reply || 'Não foi possível gerar o resumo.') : ('⚠️ ' + (data.error || 'A IA não está disponível agora.'));
+            })
+            .catch(() => { document.getElementById('summaryContent').textContent = '⚠️ Não foi possível ligar ao servidor da IA.'; });
+    }
+
+    // ==================== GESTÃO DE GRUPOS (cargos, silenciar, remover) ====================
+    function openManageGroupModal() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') return;
+        const myPhone = APP.user.phone;
+        const isAdmin = chat.admins?.includes(myPhone);
+        if (!isAdmin) return alert('Só administradores do grupo podem geri-lo.');
+        const list = document.getElementById('manageGroupList');
+        list.innerHTML = APP.onlineContacts.map(c => {
+            if (c.phone === myPhone) return '';
+            const role = chat.admins?.includes(c.phone) ? 'admin' : (chat.moderators?.includes(c.phone) ? 'moderator' : 'member');
+            const isMuted = chat.mutedPhones?.includes(c.phone);
+            return `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                <div style="flex:1;">
+                    <div style="color:var(--text-primary);font-size:14px;">${c.name} ${role === 'admin' ? '👑' : (role === 'moderator' ? '🛡️' : '')}</div>
+                    <div style="font-size:11px;color:#8696a0;">${isMuted ? 'Silenciado' : role}</div>
+                </div>
+                <select onchange="setGroupRole('${c.phone}', this.value)" style="background:var(--bg-tertiary);color:#fff;border:none;border-radius:6px;padding:4px;font-size:11px;">
+                    <option value="member" ${role === 'member' ? 'selected' : ''}>Membro</option>
+                    <option value="moderator" ${role === 'moderator' ? 'selected' : ''}>Moderador</option>
+                    <option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option>
+                </select>
+                <button class="btn-small" onclick="toggleGroupMute('${c.phone}', ${!isMuted})" title="Silenciar/reativar">${isMuted ? '🔊' : '🔇'}</button>
+                <button class="btn-small btn-danger" onclick="kickFromGroup('${c.phone}', '${c.name.replace(/'/g, '')}')" title="Remover do grupo">🚫</button>
+            </div>`;
+        }).join('') || '<p style="color:#8696a0;">Sem outros utilizadores cadastrados.</p>';
+        document.getElementById('modalManageGroup').classList.add('active');
+    }
+
+    function setGroupRole(targetPhone, role) {
+        socket.emit('group_set_role', { groupId: APP.currentChatId, targetPhone, role });
+    }
+    function toggleGroupMute(targetPhone, muted) {
+        socket.emit('group_mute', { groupId: APP.currentChatId, targetPhone, muted });
+    }
+    function kickFromGroup(targetPhone, name) {
+        if (!confirm(`Remover ${name} do grupo?`)) return;
+        socket.emit('group_kick', { groupId: APP.currentChatId, targetPhone });
+    }
+
     function closeChat() {
         APP.currentChatId = null;
         document.getElementById('chatArea').classList.remove('active');
@@ -1736,7 +1990,9 @@
         polylines: {}, // phone -> L.polyline
         watchId: null,
         sharing: false,
-        lastPoint: null // { lat, lng, t } do próprio usuário, para calcular velocidade/meio de transporte
+        lastPoint: null, // { lat, lng, t } do próprio usuário, para calcular velocidade/meio de transporte
+        myPoint: null, // { lat, lng, speedKmh } — usado para calcular o "a caminho" (ETA)
+        otherPoints: {} // phone -> { lat, lng, speedKmh, name } de quem partilha localização contigo
     };
 
     function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -1792,6 +2048,8 @@
             LOCATION.watchId = null;
             LOCATION.sharing = false;
             LOCATION.lastPoint = null;
+            LOCATION.myPoint = null;
+            updateETA();
             socket.emit('location_stop', { roomId: APP.currentChatId });
             updateShareLocationBtn();
             return;
@@ -1846,12 +2104,35 @@
             LOCATION.polylines[phone].setLatLngs(LOCATION.trails[phone]);
         }
         LOCATION.map.panTo([lat, lng], { animate: true });
+        if (isMe) LOCATION.myPoint = { lat, lng, speedKmh };
+        else LOCATION.otherPoints[phone] = { lat, lng, speedKmh, name };
+        updateETA();
+    }
+
+    // "A caminho": calcula quanto tempo falta para chegares junto de quem está a
+    // partilhar localização contigo, usando a distância real e a tua velocidade
+    // atual (se estiveres parado, usa uma velocidade média a pé como estimativa).
+    function updateETA() {
+        const box = document.getElementById('etaBox');
+        if (!box) return;
+        if (!LOCATION.myPoint || Object.keys(LOCATION.otherPoints).length === 0) { box.style.display = 'none'; return; }
+        const lines = Object.values(LOCATION.otherPoints).map(p => {
+            const meters = haversineMeters(LOCATION.myPoint.lat, LOCATION.myPoint.lng, p.lat, p.lng);
+            const km = meters / 1000;
+            const speed = LOCATION.myPoint.speedKmh > 2 ? LOCATION.myPoint.speedKmh : 5; // 5 km/h = estimativa a pé, se estiveres parado
+            const minutes = Math.round((km / speed) * 60);
+            return `📍 ${p.name}: ${km < 1 ? Math.round(meters) + 'm' : km.toFixed(1) + 'km'} · chegas em ~${minutes < 1 ? '<1' : minutes} min`;
+        });
+        box.textContent = lines.join(' · ');
+        box.style.display = 'block';
     }
 
     function removeLocationMarker(phone) {
         if (LOCATION.markers[phone]) { LOCATION.map.removeLayer(LOCATION.markers[phone]); delete LOCATION.markers[phone]; }
         if (LOCATION.polylines[phone]) { LOCATION.map.removeLayer(LOCATION.polylines[phone]); delete LOCATION.polylines[phone]; }
         delete LOCATION.trails[phone];
+        delete LOCATION.otherPoints[phone];
+        updateETA();
     }
 
     socket.on('location_update_received', (data) => {
@@ -2084,7 +2365,7 @@
         }
     }
 
-    function sendMessage(inputId) {
+    async function sendMessage(inputId) {
         const input = document.getElementById(inputId || 'messageInput');
         const text = input.value.trim();
         if (!text || !APP.currentChatId) return;
@@ -2129,47 +2410,58 @@
                     renderChatList();
                 });
         } else {
-            socket.emit('send_message', {
-                id: msgId,
-                chatId: APP.currentChatId,
-                sender: APP.user.name,
-                senderPhone: APP.user.phone,
-                text,
-                time,
-                replyTo
-            });
+            let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, text, time, replyTo };
+            if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {
+                const enc = await encryptFor(chat.phone, chat.publicKey, text);
+                if (enc) outgoing = { ...outgoing, text: '🔒 Mensagem encriptada', encrypted: true, iv: enc.iv, data: enc.data };
+            }
+            socket.emit('send_message', outgoing);
         }
     }
 
     // Recebe o histórico salvo no servidor quando entra numa sala (persiste entre recarregamentos de página)
-    socket.on('room_history', (data) => {
+    socket.on('room_history', async (data) => {
         if (!data || !data.chatId || !Array.isArray(data.messages) || data.messages.length === 0) return;
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
-        const historyEntries = data.messages.map((m, i) => ({
-            id: m.id || ('h' + i + '_' + (m.time || '')),
-            sender: m.sender || 'Contato',
-            text: m.text,
-            time: m.time || '',
-            type: m.senderPhone === APP.user?.phone || m.sender === APP.user?.name ? 'sent' : 'received',
-            replyTo: m.replyTo || null,
-            reactions: m.reactions || null,
-            deleted: !!m.deleted,
-            fileData: m.fileData || null,
-            fileName: m.fileName || null,
-            fileType: m.fileType || null
+        const chat = APP.chats.find(c => c.id === data.chatId);
+        const historyEntries = await Promise.all(data.messages.map(async (m, i) => {
+            let text = m.text;
+            if (m.encrypted && chat?.type === 'user') {
+                const decrypted = await decryptFrom(chat.phone, chat.publicKey, m.iv, m.data);
+                text = decrypted != null ? decrypted : '🔒 Não foi possível desencriptar (dispositivo diferente)';
+            }
+            return {
+                id: m.id || ('h' + i + '_' + (m.time || '')),
+                sender: m.sender || 'Contato',
+                text,
+                time: m.time || '',
+                type: m.senderPhone === APP.user?.phone || m.sender === APP.user?.name ? 'sent' : 'received',
+                replyTo: m.replyTo || null,
+                reactions: m.reactions || null,
+                deleted: !!m.deleted,
+                fileData: m.fileData || null,
+                fileName: m.fileName || null,
+                fileType: m.fileType || null
+            };
         }));
         APP.messages[data.chatId] = APP.messages[data.chatId].concat(historyEntries);
         if (APP.currentChatId === data.chatId) renderMessages();
         renderChatList();
     });
 
-    socket.on('receive_message', (data) => {
+    socket.on('receive_message', async (data) => {
         if (!data || !data.chatId) return;
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
+        let text = data.text;
+        const chat = APP.chats.find(c => c.id === data.chatId);
+        if (data.encrypted && chat?.type === 'user') {
+            const decrypted = await decryptFrom(chat.phone, chat.publicKey, data.iv, data.data);
+            text = decrypted != null ? decrypted : '🔒 Não foi possível desencriptar (dispositivo diferente)';
+        }
         APP.messages[data.chatId].push({
             id: data.id || ('m' + Date.now()),
             sender: data.sender || 'Contato',
-            text: data.text,
+            text,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
             type: 'received',
             replyTo: data.replyTo || null,
@@ -2670,6 +2962,7 @@
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         pendingIceCandidates = [];
         if (GROUP_CALL.active) leaveGroupCall();
+        if (CAPTIONS.active) stopLiveCaptions();
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         if (APP.callStream) { APP.callStream.getTracks().forEach(track => track.stop()); APP.callStream = null; }
         stopVideoShare();
