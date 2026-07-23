@@ -108,6 +108,27 @@ O Metro de Lisboa tem uma API oficial pública (`api.metrolisboa.pt`), mas exige
 ### Ainda por vir
 Linha de comboios/metro ao vivo — sem solução gratuita e fiável disponível (ver secção de Transportes); PWA (instalar como app + notificações); foto de perfil.
 
+## Correção: chamadas que ligavam mas não davam para falar
+
+Encontrei duas causas distintas para isto:
+
+1. **TURN sobrecarregado.** O app usa um serviço gratuito e partilhado (openrelay) para ajudar duas pessoas a ligarem-se quando ambas estão atrás de router/NAT normal — é o caso mais comum. Esse serviço gratuito é usado por muita gente ao mesmo tempo e pode ficar lento ou recusar ligações em picos de utilização, o que faz a chamada "ligar" na sinalização (por isso o cronómetro arranca) mas o áudio/vídeo nunca chega a fluir de verdade.
+
+   **Correção aplicada:** o app agora deteta quando isto acontece (ligação que cai ou nunca chega a "connected" de verdade) e tenta recuperar sozinho automaticamente. Além disso, se quiseres uma solução bem mais fiável e ainda gratuita (até 1TB/mês), podes ligar o TURN da Cloudflare:
+   1. Cria uma conta grátis em https://dash.cloudflare.com
+   2. Vai a "Calls" no menu → cria uma "TURN key"
+   3. No Railway/Render, define as variáveis de ambiente `CF_TURN_KEY_ID` (o Token ID) e `CF_TURN_API_TOKEN` (o API token)
+   4. Sem essas variáveis, o app continua a funcionar com o TURN gratuito partilhado de sempre — só é menos estável em horas de pico.
+
+2. **Sem deteção de falha.** Antes, se a ligação caísse a meio, o ecrã ficava preso em "Conectado ✅" para sempre, sem nenhum aviso. Agora mostra "⚠️ Ligação instável" ou "🔄 A tentar reconectar..." e tenta recuperar sozinho.
+
+## Correção: algumas conversas "não conseguiam desencriptar"
+
+Esta era uma falha de tempo (race condition), não uma perda de dados real. A chave de encriptação do dispositivo demorava uns instantes a ficar pronta depois do login, mas o pedido do histórico das conversas podia chegar antes disso — nesses casos a mensagem aparecia como "não foi possível desencriptar" mesmo sendo perfeitamente decifrável, só porque a chave ainda não estava pronta no momento exato em que a mensagem chegou. Corrigido: agora qualquer tentativa de desencriptar espera sempre a chave estar pronta primeiro.
+
+Isto não cobre o outro cenário (documentado desde o início): se abrires a conversa num dispositivo ou navegador diferente, esse aparelho gera uma chave nova, e mensagens antigas cifradas com a chave anterior continuam ilegíveis nesse aparelho novo — isso é esperado, não é bug.
+
+
 ## IA que trabalha por ti
 
 - **📝 Resumir conversa** — botão no cabeçalho da conversa; pede à IA (GitHub Models) um resumo das últimas mensagens.

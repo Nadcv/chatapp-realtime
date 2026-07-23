@@ -1355,7 +1355,7 @@
     // é necessário quando os dois lados estão atrás de NAT/roteadores restritivos —
     // ele retransmite a mídia quando a conexão direta P2P não é possível.
     // Para produção séria, troque pelo seu próprio servidor TURN (ex: coturn ou metered.ca pago).
-    const ICE_SERVERS = {
+    const ICE_SERVERS_FALLBACK = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:openrelay.metered.ca:80' },
@@ -1364,6 +1364,25 @@
             { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
         ]
     };
+    let cachedIceServers = null;
+    let cachedIceServersAt = 0;
+    // Busca servidores TURN/STUN atualizados no servidor (ver /api/turn-credentials).
+    // Guardados em cache por 20 minutos para não pedir de novo a cada chamada.
+    async function getIceServers() {
+        if (cachedIceServers && (Date.now() - cachedIceServersAt) < 20 * 60 * 1000) return cachedIceServers;
+        try {
+            const r = await fetch('/api/turn-credentials');
+            const data = await r.json();
+            cachedIceServers = (data && data.iceServers && data.iceServers.length) ? data : ICE_SERVERS_FALLBACK;
+        } catch (e) {
+            cachedIceServers = ICE_SERVERS_FALLBACK;
+        }
+        cachedIceServersAt = Date.now();
+        return cachedIceServers;
+    }
+    // Já começa a pedir assim que o script carrega, para estar pronto quando a
+    // primeira chamada acontecer (sem atrasar o "Chamando...").
+    getIceServers();
 
     const APP = {
         user: null,
@@ -1540,12 +1559,17 @@
     // nesta versão, só o texto. Não é ao nível do protocolo Signal (sem "ratcheting"),
     // mas é encriptação ponta-a-ponta real, não é só "https".
     const E2EE = { privateKey: null, publicJwk: null, sharedKeys: {} }; // sharedKeys: phone -> CryptoKey (AES) já derivada
+    // Promessa que só resolve quando a chave de encriptação estiver pronta. Usada
+    // pelos pontos que desencriptam mensagens, para nunca tentarem decifrar antes
+    // da chave existir (o que antes causava falsos "não foi possível desencriptar").
+    let resolveE2eeReady;
+    const e2eeReadyPromise = new Promise((res) => { resolveE2eeReady = res; });
 
     function b64encode(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
     function b64decode(str) { return Uint8Array.from(atob(str), c => c.charCodeAt(0)); }
 
     async function initE2EE() {
-        if (!window.crypto?.subtle) { console.warn('Web Crypto API não disponível — encriptação ponta-a-ponta desativada.'); return; }
+        if (!window.crypto?.subtle) { console.warn('Web Crypto API não disponível — encriptação ponta-a-ponta desativada.'); resolveE2eeReady(); return; }
         const storeKey = 'e2ee_' + APP.user.phone;
         let stored = null;
         try { stored = JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch (e) {}
@@ -1569,6 +1593,7 @@
         } catch (err) {
             console.warn('Não foi possível preparar a encriptação ponta-a-ponta:', err.message);
         }
+        resolveE2eeReady(); // liberta quem estava à espera da chave, mesmo que tenha falhado (fica sem E2EE, mas não fica preso à espera para sempre)
     }
 
     async function getSharedKey(peerPhone, peerPublicJwk) {
@@ -1615,7 +1640,7 @@
         badge.style.display = (chat?.type === 'user' && chat.publicKey && E2EE.publicJwk) ? 'inline' : 'none';
     }
 
-    function enterApp(user, token) {
+    async function enterApp(user, token) {
         APP.user = { name: user.name, phone: user.phone, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
         APP.token = token;
         localStorage.setItem('authToken', token);
@@ -1627,7 +1652,11 @@
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
         initApp();
-        initE2EE();
+        // Importante: espera a chave de encriptação ficar pronta ANTES de pedir o
+        // histórico das conversas — caso contrário, mensagens podiam chegar
+        // enquanto a chave ainda não existia e apareciam como "não foi possível
+        // desencriptar", mesmo sendo perfeitamente decifráveis.
+        await initE2EE();
         APP.chats.forEach(chat => socket.emit('join_room', chat.id));
     }
 
@@ -2412,6 +2441,7 @@
         } else {
             let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, text, time, replyTo };
             if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {
+                await e2eeReadyPromise;
                 const enc = await encryptFor(chat.phone, chat.publicKey, text);
                 if (enc) outgoing = { ...outgoing, text: '🔒 Mensagem encriptada', encrypted: true, iv: enc.iv, data: enc.data };
             }
@@ -2424,6 +2454,7 @@
         if (!data || !data.chatId || !Array.isArray(data.messages) || data.messages.length === 0) return;
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
         const chat = APP.chats.find(c => c.id === data.chatId);
+        if (data.messages.some(m => m.encrypted)) await e2eeReadyPromise;
         const historyEntries = await Promise.all(data.messages.map(async (m, i) => {
             let text = m.text;
             if (m.encrypted && chat?.type === 'user') {
@@ -2455,6 +2486,7 @@
         let text = data.text;
         const chat = APP.chats.find(c => c.id === data.chatId);
         if (data.encrypted && chat?.type === 'user') {
+            await e2eeReadyPromise;
             const decrypted = await decryptFrom(chat.phone, chat.publicKey, data.iv, data.data);
             text = decrypted != null ? decrypted : '🔒 Não foi possível desencriptar (dispositivo diferente)';
         }
@@ -2620,8 +2652,9 @@
         if (APP.videoShare.audioCtx?.state === 'suspended') APP.videoShare.audioCtx.resume().catch(() => {});
     }
 
-    function createPeerConnection() {
-        peerConnection = new RTCPeerConnection(ICE_SERVERS);
+    async function createPeerConnection() {
+        const iceServers = await getIceServers();
+        peerConnection = new RTCPeerConnection(iceServers);
         peerConnection.onicecandidate = (e) => {
             if (e.candidate) {
                 socket.emit('ice_candidate', { targetRoomId: APP.currentChatId, candidate: e.candidate });
@@ -2645,6 +2678,22 @@
                 });
             }
         };
+        // Deteta quando a ligação "conecta" na sinalização mas depois cai (ex: TURN
+        // sobrecarregado) — sem isto, o ecrã ficava preso em "Conectado" para sempre
+        // mesmo sem áudio/vídeo a fluir de verdade. Tenta recuperar sozinho primeiro.
+        peerConnection.oniceconnectionstatechange = () => {
+            if (!peerConnection) return;
+            const state = peerConnection.iceConnectionState;
+            const statusEl = document.getElementById('callStatus');
+            if (state === 'disconnected') {
+                if (statusEl) statusEl.textContent = '⚠️ Ligação instável — a tentar recuperar...';
+            } else if (state === 'failed') {
+                if (statusEl) statusEl.textContent = '🔄 A tentar reconectar...';
+                try { peerConnection.restartIce(); } catch (e) { console.warn('restartIce falhou:', e.message); }
+            } else if (state === 'connected') {
+                if (statusEl && statusEl.textContent !== 'Conectado ✅') statusEl.textContent = 'Conectado ✅';
+            }
+        };
         return peerConnection;
     }
 
@@ -2666,11 +2715,11 @@
         mainVideo.srcObject = null;
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         const constraints = { audio: true, video: type === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false };
-        navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+        navigator.mediaDevices.getUserMedia(constraints).then(async stream => {
             APP.callStream = stream;
             pipVideo.srcObject = stream;
             document.getElementById('callPip').style.display = type === 'video' ? 'block' : 'none';
-            const pc = createPeerConnection();
+            const pc = await createPeerConnection();
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
                 socket.emit('call_user', {
@@ -2724,7 +2773,7 @@
             APP.callStream = stream;
             document.getElementById('pipVideo').srcObject = stream;
             document.getElementById('callPip').style.display = data.callType === 'video' ? 'block' : 'none';
-            const pc = createPeerConnection();
+            const pc = await createPeerConnection();
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
             flushPendingIce(pc);
@@ -2821,8 +2870,9 @@
         if (tile) tile.remove();
     }
 
-    function createGroupPeerConnection(remoteSocketId, remoteName) {
-        const pc = new RTCPeerConnection(ICE_SERVERS);
+    async function createGroupPeerConnection(remoteSocketId, remoteName) {
+        const iceServers = await getIceServers();
+        const pc = new RTCPeerConnection(iceServers);
         GROUP_CALL.peers[remoteSocketId] = pc;
         GROUP_CALL.names[remoteSocketId] = remoteName;
         GROUP_CALL.pendingIce[remoteSocketId] = [];
@@ -2830,6 +2880,9 @@
             if (e.candidate) socket.emit('call_ice', { roomId: APP.currentChatId, toSocketId: remoteSocketId, candidate: e.candidate });
         };
         pc.ontrack = (e) => addGridTile(remoteSocketId, remoteName, e.streams[0], false);
+        pc.oniceconnectionstatechange = () => {
+            if (pc.iceConnectionState === 'failed') { try { pc.restartIce(); } catch (e) {} }
+        };
         if (APP.callStream) APP.callStream.getTracks().forEach(track => pc.addTrack(track, APP.callStream));
         return pc;
     }
@@ -2837,8 +2890,8 @@
     // Quem entra numa chamada já em curso recebe a lista de quem já está lá, e é ele
     // quem inicia a ligação (oferta) com cada um deles.
     socket.on('existing_call_participants', (data) => {
-        (data.participants || []).forEach(p => {
-            const pc = createGroupPeerConnection(p.socketId, p.name);
+        (data.participants || []).forEach(async (p) => {
+            const pc = await createGroupPeerConnection(p.socketId, p.name);
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
                 socket.emit('call_offer', { roomId: APP.currentChatId, toSocketId: p.socketId, offer: pc.localDescription });
             });
@@ -2858,7 +2911,7 @@
     socket.on('call_offer_received', async (data) => {
         if (!GROUP_CALL.active) return;
         let pc = GROUP_CALL.peers[data.fromSocketId];
-        if (!pc) pc = createGroupPeerConnection(data.fromSocketId, data.fromName);
+        if (!pc) pc = await createGroupPeerConnection(data.fromSocketId, data.fromName);
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         (GROUP_CALL.pendingIce[data.fromSocketId] || []).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
         GROUP_CALL.pendingIce[data.fromSocketId] = [];
