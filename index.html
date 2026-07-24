@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChatApp Completo - Mensageiro + IA + Multimídia</title>
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
@@ -37,7 +37,6 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
-            height: 100dvh; /* dvh = altura real visível no telemóvel, sem contar a barra de endereço do navegador */
             overflow: hidden;
             user-select: none;
         }
@@ -45,7 +44,6 @@
             width: 100%;
             max-width: 480px;
             height: 95vh;
-            height: 95dvh;
             max-height: 900px;
             background: var(--bg-primary);
             border-radius: 20px;
@@ -1016,8 +1014,7 @@
         @media (max-width: 500px) {
             .app-container {
                 height: 100vh;
-                height: 100dvh;
-                max-height: 100dvh;
+                max-height: 100vh;
                 border-radius: 0;
                 max-width: 100%;
             }
@@ -1110,7 +1107,6 @@
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
-                <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -1166,27 +1162,6 @@
             </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
-        </div>
-        <div class="location-screen" id="driveListenScreen">
-            <div class="location-header">
-                <strong>🚗 Conduzir e Ouvir</strong>
-                <button onclick="closeDriveListenScreen()">✖️</button>
-            </div>
-            <div id="driveListenCityBar" style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);overflow-x:auto;"></div>
-            <div id="driveListenVideoWrap" style="flex:1;position:relative;background:#000;overflow:hidden;">
-                <div id="driveListenPlayer" style="position:absolute;inset:0;"></div>
-                <div id="driveListenOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px;background:rgba(0,0,0,0.5);">
-                    Escolhe uma cidade para começar o passeio 🌍
-                </div>
-            </div>
-            <div class="location-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
-                <div id="driveListenRadioStatus" style="font-size:12px;color:var(--text-secondary);text-align:center;">Sem rádio a tocar</div>
-                <div style="display:flex;gap:10px;align-items:center;">
-                    <button class="btn-small" id="driveListenPlayBtn" onclick="toggleDriveListenPlay()" style="flex:0 0 auto;">⏸️</button>
-                    <span style="color:var(--text-secondary);font-size:12px;">🔊</span>
-                    <input type="range" id="driveListenVolume" min="0" max="100" value="70" oninput="setDriveListenVolume(this.value)" style="flex:1;">
-                </div>
-            </div>
         </div>
         <div class="location-screen" id="locationScreen">
             <div class="location-header">
@@ -1824,131 +1799,6 @@
         if (TRANSPORT.pollInterval) { clearInterval(TRANSPORT.pollInterval); TRANSPORT.pollInterval = null; }
     }
 
-    function closeTransportScreen() {
-        document.getElementById('transportScreen').classList.remove('active');
-        if (TRANSPORT.pollInterval) { clearInterval(TRANSPORT.pollInterval); TRANSPORT.pollInterval = null; }
-    }
-
-    // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
-    // Vídeo de condução (YouTube, sem som) + rádio local a tocar por cima —
-    // a mesma técnica do driveandlisten.app. O YouTube fornece só a imagem;
-    // o som vem de uma rádio real do país obtida pela Radio Browser.
-    const DRIVE_LISTEN = {
-        cities: [],
-        currentCity: null,
-        ytPlayer: null,
-        ytReady: false,
-        radioAudio: new Audio(),
-        playing: false
-    };
-    DRIVE_LISTEN.radioAudio.volume = 0.7;
-    DRIVE_LISTEN.radioAudio.crossOrigin = 'anonymous';
-
-    function loadYouTubeIframeAPI() {
-        if (window.YT && window.YT.Player) { DRIVE_LISTEN.ytReady = true; return; }
-        if (document.getElementById('ytIframeApiScript')) return;
-        const tag = document.createElement('script');
-        tag.id = 'ytIframeApiScript';
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
-    }
-    // Chamado automaticamente pelo script do YouTube quando está pronto
-    window.onYouTubeIframeAPIReady = function () { DRIVE_LISTEN.ytReady = true; };
-
-    function openDriveListenScreen() {
-        document.getElementById('driveListenScreen').classList.add('active');
-        loadYouTubeIframeAPI();
-        if (!DRIVE_LISTEN.cities.length) {
-            fetch('/api/drivelisten/cities').then(r => r.json()).then(cities => {
-                DRIVE_LISTEN.cities = cities;
-                renderDriveListenCityBar();
-            }).catch(() => {
-                document.getElementById('driveListenCityBar').innerHTML = '<span style="color:var(--text-secondary);font-size:12px;">⚠️ Não foi possível carregar a lista de cidades.</span>';
-            });
-        } else {
-            renderDriveListenCityBar();
-        }
-    }
-
-    function closeDriveListenScreen() {
-        document.getElementById('driveListenScreen').classList.remove('active');
-        DRIVE_LISTEN.radioAudio.pause();
-        if (DRIVE_LISTEN.ytPlayer && DRIVE_LISTEN.ytPlayer.pauseVideo) DRIVE_LISTEN.ytPlayer.pauseVideo();
-        DRIVE_LISTEN.playing = false;
-    }
-
-    function renderDriveListenCityBar() {
-        const bar = document.getElementById('driveListenCityBar');
-        bar.innerHTML = DRIVE_LISTEN.cities.map(c => `
-            <button class="btn-small ${DRIVE_LISTEN.currentCity === c.id ? 'btn-accept' : ''}" style="flex:0 0 auto;" onclick="selectDriveListenCity('${c.id}')">${c.flag} ${c.name}</button>
-        `).join('');
-    }
-
-    function selectDriveListenCity(cityId) {
-        const city = DRIVE_LISTEN.cities.find(c => c.id === cityId);
-        if (!city) return;
-        DRIVE_LISTEN.currentCity = cityId;
-        renderDriveListenCityBar();
-        document.getElementById('driveListenOverlay').style.display = 'none';
-        document.getElementById('driveListenRadioStatus').textContent = 'A procurar uma rádio de ' + city.country + '...';
-
-        // Vídeo (imagem, sem som — o som vem da rádio)
-        const startVideo = () => {
-            if (!DRIVE_LISTEN.ytPlayer) {
-                DRIVE_LISTEN.ytPlayer = new YT.Player('driveListenPlayer', {
-                    videoId: city.videoId,
-                    playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, modestbranding: 1, rel: 0, loop: 1, playlist: city.videoId },
-                    events: {
-                        onReady: (e) => { e.target.mute(); e.target.playVideo(); }
-                    }
-                });
-            } else {
-                DRIVE_LISTEN.ytPlayer.loadVideoById(city.videoId);
-                DRIVE_LISTEN.ytPlayer.mute();
-            }
-        };
-        if (DRIVE_LISTEN.ytReady) startVideo();
-        else { const wait = setInterval(() => { if (DRIVE_LISTEN.ytReady) { clearInterval(wait); startVideo(); } }, 300); }
-
-        // Rádio local (o som real da sala)
-        fetch('/api/drivelisten/radio?country=' + encodeURIComponent(city.country)).then(r => r.json()).then(data => {
-            if (data.error) throw new Error(data.error);
-            DRIVE_LISTEN.radioAudio.src = data.url;
-            DRIVE_LISTEN.radioAudio.play()
-                .then(() => {
-                    DRIVE_LISTEN.playing = true;
-                    document.getElementById('driveListenPlayBtn').textContent = '⏸️';
-                    document.getElementById('driveListenRadioStatus').textContent = '📻 ' + data.name;
-                })
-                .catch(() => {
-                    document.getElementById('driveListenRadioStatus').textContent = '📻 ' + data.name + ' — toque em ▶️ para ouvir (o navegador bloqueou o som automático)';
-                    document.getElementById('driveListenPlayBtn').textContent = '▶️';
-                    DRIVE_LISTEN.playing = false;
-                });
-        }).catch(err => {
-            document.getElementById('driveListenRadioStatus').textContent = '⚠️ Não encontrei uma rádio para ' + city.country + ' agora: ' + err.message;
-        });
-    }
-
-    function toggleDriveListenPlay() {
-        const btn = document.getElementById('driveListenPlayBtn');
-        if (DRIVE_LISTEN.playing) {
-            DRIVE_LISTEN.radioAudio.pause();
-            if (DRIVE_LISTEN.ytPlayer && DRIVE_LISTEN.ytPlayer.pauseVideo) DRIVE_LISTEN.ytPlayer.pauseVideo();
-            DRIVE_LISTEN.playing = false;
-            btn.textContent = '▶️';
-        } else {
-            DRIVE_LISTEN.radioAudio.play().catch(() => {});
-            if (DRIVE_LISTEN.ytPlayer && DRIVE_LISTEN.ytPlayer.playVideo) DRIVE_LISTEN.ytPlayer.playVideo();
-            DRIVE_LISTEN.playing = true;
-            btn.textContent = '⏸️';
-        }
-    }
-
-    function setDriveListenVolume(value) {
-        DRIVE_LISTEN.radioAudio.volume = value / 100;
-    }
-
     function switchTransportTab(tab) {
         TRANSPORT.activeTab = tab;
         document.querySelectorAll('.transport-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
@@ -1988,17 +1838,7 @@
 
     function loadFlights() {
         document.getElementById('transportStatus').textContent = 'A atualizar voos...';
-        // Usa a área do mapa que está visível agora — assim funciona em
-        // qualquer parte do mundo (não só Ibéria), sem gastar a cota gratuita
-        // da OpenSky a pedir o mundo inteiro de cada vez.
-        const bounds = TRANSPORT.map.getBounds();
-        const params = new URLSearchParams({
-            lamin: bounds.getSouth().toFixed(2),
-            lomin: bounds.getWest().toFixed(2),
-            lamax: bounds.getNorth().toFixed(2),
-            lomax: bounds.getEast().toFixed(2)
-        });
-        fetch('/api/transport/flights?' + params.toString()).then(r => r.json()).then(data => {
+        fetch('/api/transport/flights').then(r => r.json()).then(data => {
             if (data.error) throw new Error(data.error);
             const states = data.states || [];
             TRANSPORT.layers.flight.clearLayers();
@@ -2011,7 +1851,7 @@
                     .bindPopup(`✈️ <strong>${callsign || 'Desconhecido'}</strong><br>Altitude: ${altitude != null ? Math.round(altitude) + ' m' : '—'}<br>Velocidade: ${velocity != null ? Math.round(velocity * 3.6) + ' km/h' : '—'}`)
                     .addTo(TRANSPORT.layers.flight);
             });
-            document.getElementById('transportStatus').textContent = `${states.length} voos na área visível do mapa (OpenSky Network) — mova/afaste o mapa e toque em 🔄 para atualizar`;
+            document.getElementById('transportStatus').textContent = `${states.length} voos sobre Portugal/Espanha (OpenSky Network) — atualizado agora`;
         }).catch(err => {
             document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar os voos: ' + err.message;
         });
@@ -3602,19 +3442,6 @@
         APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
     });
 
-    // Converte a posição do rato/dedo (em pixels do ecrã) para a posição
-    // correspondente na resolução interna do canvas — sem isto, o traço
-    // desenhado ficava desalinhado sempre que o quadro era exibido menor
-    // que 600x400 (o que acontece em quase todos os telemóveis).
-    function whiteboardEventPos(clientX, clientY) {
-        const canvas = APP.whiteboard.canvas;
-        const rect = canvas.getBoundingClientRect();
-        return {
-            x: (clientX - rect.left) * (canvas.width / rect.width),
-            y: (clientY - rect.top) * (canvas.height / rect.height)
-        };
-    }
-
     function initWhiteboard() {
         const canvas = APP.whiteboard.canvas;
         canvas.addEventListener('mousedown', startDraw);
@@ -3624,42 +3451,46 @@
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
-            const pos = whiteboardEventPos(touch.clientX, touch.clientY);
-            APP.whiteboard.lastX = pos.x;
-            APP.whiteboard.lastY = pos.y;
+            const rect = canvas.getBoundingClientRect();
+            APP.whiteboard.lastX = touch.clientX - rect.left;
+            APP.whiteboard.lastY = touch.clientY - rect.top;
             APP.whiteboard.drawing = true;
         });
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             if (!APP.whiteboard.drawing) return;
             const touch = e.touches[0];
-            const pos = whiteboardEventPos(touch.clientX, touch.clientY);
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
             const color = document.getElementById('drawColor').value;
             const size = document.getElementById('drawSize').value;
-            drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
-            emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
-            APP.whiteboard.lastX = pos.x;
-            APP.whiteboard.lastY = pos.y;
+            drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
+            emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
+            APP.whiteboard.lastX = x;
+            APP.whiteboard.lastY = y;
         });
         canvas.addEventListener('touchend', () => APP.whiteboard.drawing = false);
     }
 
     function startDraw(e) {
         APP.whiteboard.drawing = true;
-        const pos = whiteboardEventPos(e.clientX, e.clientY);
-        APP.whiteboard.lastX = pos.x;
-        APP.whiteboard.lastY = pos.y;
+        const rect = APP.whiteboard.canvas.getBoundingClientRect();
+        APP.whiteboard.lastX = e.clientX - rect.left;
+        APP.whiteboard.lastY = e.clientY - rect.top;
     }
 
     function draw(e) {
         if (!APP.whiteboard.drawing) return;
-        const pos = whiteboardEventPos(e.clientX, e.clientY);
+        const rect = APP.whiteboard.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
         const color = document.getElementById('drawColor').value;
         const size = document.getElementById('drawSize').value;
-        drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
-        emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
-        APP.whiteboard.lastX = pos.x;
-        APP.whiteboard.lastY = pos.y;
+        drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
+        emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
+        APP.whiteboard.lastX = x;
+        APP.whiteboard.lastY = y;
     }
 
     function stopDraw() { APP.whiteboard.drawing = false; }
