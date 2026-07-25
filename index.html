@@ -7,6 +7,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         :root {
             --bg-primary: #111b21;
@@ -367,7 +368,12 @@
         .header-actions {
             display: flex;
             gap: 6px;
+            overflow-x: auto;
+            scrollbar-width: none; /* Firefox */
+            -webkit-overflow-scrolling: touch;
         }
+        .header-actions::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+        .header-actions .btn-icon { flex: 0 0 auto; }
         .main-content {
             display: flex;
             flex: 1;
@@ -1131,13 +1137,14 @@
                         <h3><span id="chatName">Selecione uma conversa</span> <span id="encryptionBadge" title="Mensagens encriptadas ponta-a-ponta neste dispositivo" style="display:none;font-size:12px;">🔒</span></h3>
                         <span id="chatSubtitle"></span>
                     </div>
-                    <div style="margin-left:auto;display:flex;gap:6px;">
-                        <button class="btn-icon" onclick="summarizeChat()" title="Resumir conversa (IA)" style="width:36px;height:36px;font-size:16px;">📝</button>
-                        <button class="btn-icon" id="manageGroupBtn" onclick="openManageGroupModal()" title="Gerir grupo" style="width:36px;height:36px;font-size:16px;display:none;">👑</button>
-                        <button class="btn-icon" onclick="openLocationScreen()" title="Localização em tempo real" style="width:36px;height:36px;font-size:16px;">📍</button>
-                        <button class="btn-icon" onclick="startCall('voice')" title="Chamada de voz" style="width:36px;height:36px;font-size:16px;">📞</button>
-                        <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;">📹</button>
-                        <button class="btn-icon" onclick="startConference()" title="Conferência" style="width:36px;height:36px;font-size:16px;">🎥</button>
+                    <div style="margin-left:auto;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:60vw;">
+                        <button class="btn-icon" onclick="summarizeChat()" title="Resumir conversa (IA)" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📝</button>
+                        <button class="btn-icon" id="manageGroupBtn" onclick="openManageGroupModal()" title="Gerir grupo" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">👑</button>
+                        <button class="btn-icon" onclick="openLocationScreen()" title="Localização em tempo real" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📍</button>
+                        <button class="btn-icon" onclick="startCall('voice')" title="Chamada de voz" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📞</button>
+                        <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📹</button>
+                        <button class="btn-icon" onclick="startConference()" title="Conferência" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🎥</button>
+                        <button class="btn-icon" id="vrRoomBtn" onclick="openVrRoom()" title="Sala de Realidade Virtual" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">🕶️</button>
                     </div>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
@@ -1154,6 +1161,18 @@
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
                 </div>
+            </div>
+        </div>
+        <div class="location-screen" id="vrRoomScreen">
+            <div class="location-header">
+                <strong id="vrRoomTitle">🕶️ Sala Virtual</strong>
+                <button onclick="closeVrRoom()">✖️</button>
+            </div>
+            <div id="vrCanvasWrap" style="flex:1;position:relative;background:#0d1117;overflow:hidden;">
+                <div id="vrJoystickZone" style="position:absolute;left:16px;bottom:16px;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,0.08);touch-action:none;z-index:5;">
+                    <div id="vrJoystickStick" style="position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.35);"></div>
+                </div>
+                <div style="position:absolute;right:12px;bottom:12px;z-index:5;color:#fff;font-size:11px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:8px;">🖱️ Arrasta para olhar à volta · 🕹️ move-te</div>
             </div>
         </div>
         <div class="location-screen" id="transportScreen">
@@ -1716,6 +1735,7 @@
 
     function logout() {
         if (APP.callStream) endCall();
+        if (VR.active) closeVrRoom();
         stopMusic();
         socket.emit('user_logout');
         APP.user = null;
@@ -1847,6 +1867,7 @@
         const isAI = chat.type === 'ai';
         document.getElementById('chatSubtitle').textContent = isAI ? 'Inteligência Artificial · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
+        document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         updateEncryptionBadge();
         const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
         document.getElementById('chatAvatar').textContent = avatarContent;
@@ -1954,22 +1975,35 @@
         document.getElementById('driveListenRadioStatus').textContent = 'A procurar uma rádio de ' + city.country + '...';
 
         // Vídeo (imagem, sem som — o som vem da rádio)
-        const startVideo = () => {
+        const showVideoError = () => {
+            document.getElementById('driveListenOverlay').innerHTML = `⚠️ O vídeo de ${city.name} está indisponível agora (o dono do vídeo pode tê-lo removido ou desativado a partilha).<br><br>Escolhe outra cidade na barra acima — o áudio da rádio continua a funcionar normalmente.`;
+            document.getElementById('driveListenOverlay').style.display = 'flex';
+        };
+        const startVideo = (useFallback) => {
+            const vid = useFallback && city.videoId2 ? city.videoId2 : city.videoId;
+            // O player é reaproveitado entre trocas de cidade, mas o "onError" só é
+            // registado UMA VEZ na criação — por isso guardamos aqui qual função deve
+            // correr agora, e o handler fixo (mais abaixo) vai sempre buscar a mais recente.
+            DRIVE_LISTEN.currentOnError = () => {
+                if (!useFallback && city.videoId2) startVideo(true); // tenta o vídeo alternativo desta cidade antes de desistir
+                else showVideoError();
+            };
             if (!DRIVE_LISTEN.ytPlayer) {
                 DRIVE_LISTEN.ytPlayer = new YT.Player('driveListenPlayer', {
-                    videoId: city.videoId,
-                    playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, modestbranding: 1, rel: 0, loop: 1, playlist: city.videoId },
+                    videoId: vid,
+                    playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, modestbranding: 1, rel: 0, loop: 1, playlist: vid },
                     events: {
-                        onReady: (e) => { e.target.mute(); e.target.playVideo(); }
+                        onReady: (e) => { e.target.mute(); e.target.playVideo(); },
+                        onError: () => { if (DRIVE_LISTEN.currentOnError) DRIVE_LISTEN.currentOnError(); }
                     }
                 });
             } else {
-                DRIVE_LISTEN.ytPlayer.loadVideoById(city.videoId);
+                DRIVE_LISTEN.ytPlayer.loadVideoById(vid);
                 DRIVE_LISTEN.ytPlayer.mute();
             }
         };
-        if (DRIVE_LISTEN.ytReady) startVideo();
-        else { const wait = setInterval(() => { if (DRIVE_LISTEN.ytReady) { clearInterval(wait); startVideo(); } }, 300); }
+        if (DRIVE_LISTEN.ytReady) startVideo(false);
+        else { const wait = setInterval(() => { if (DRIVE_LISTEN.ytReady) { clearInterval(wait); startVideo(false); } }, 300); }
 
         // Rádio local (o som real da sala)
         fetch('/api/drivelisten/radio?country=' + encodeURIComponent(city.country)).then(r => r.json()).then(data => {
@@ -2220,6 +2254,243 @@
         if (!confirm(`Remover ${name} do grupo?`)) return;
         socket.emit('group_kick', { groupId: APP.currentChatId, targetPhone });
     }
+
+    // ==================== SALA DE REALIDADE VIRTUAL (avatares 3D em tempo real) ====================
+    // Usa Three.js (gratuito, via CDN) — não é VR de headset (Oculus/Quest), é um
+    // espaço 3D partilhado onde cada pessoa controla um avatar e vê os avatares dos
+    // outros membros do grupo a moverem-se em tempo real, tipo uma "sala de encontro".
+    const VR = {
+        active: false, roomId: null, scene: null, camera: null, renderer: null,
+        avatars: {}, // socketId (ou 'me') -> { group, targetPos, targetRotY, label }
+        myPos: { x: 0, z: 0 }, myRotY: 0,
+        keys: {}, joystick: { active: false, x: 0, y: 0, touchId: null },
+        animFrame: null, lastSent: 0
+    };
+
+    function colorFromPhone(phone) {
+        let hash = 0;
+        for (let i = 0; i < (phone || '').length; i++) hash = (hash * 31 + phone.charCodeAt(i)) & 0xffffff;
+        return hash | 0x333333; // evita cores demasiado escuras
+    }
+
+    function makeNameSprite(name) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.roundRect ? ctx.roundRect(0, 12, 256, 40, 12) : ctx.fillRect(0, 12, 256, 40);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(name.substring(0, 16), 128, 40);
+        const texture = new THREE.CanvasTexture(canvas);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+        sprite.scale.set(2, 0.5, 1);
+        sprite.position.y = 2.3;
+        return sprite;
+    }
+
+    function makeAvatarMesh(name, phone) {
+        const group = new THREE.Group();
+        const color = colorFromPhone(phone || name);
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 1.1, 12), new THREE.MeshStandardMaterial({ color }));
+        body.position.y = 1;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), new THREE.MeshStandardMaterial({ color: 0xffe0bd }));
+        head.position.y = 1.75;
+        group.add(body, head, makeNameSprite(name));
+        return group;
+    }
+
+    function openVrRoom() {
+        if (!APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') return alert('A sala virtual está disponível para grupos.');
+        if (typeof THREE === 'undefined') return alert('Não foi possível carregar o motor 3D (Three.js). Verifica a tua ligação à internet.');
+        VR.roomId = APP.currentChatId;
+        document.getElementById('vrRoomTitle').textContent = '🕶️ Sala Virtual · ' + chat.name;
+        document.getElementById('vrRoomScreen').classList.add('active');
+        initVrScene();
+        VR.active = true;
+        socket.emit('join_vr_room', { roomId: VR.roomId });
+        vrAnimate();
+    }
+
+    function closeVrRoom() {
+        VR.active = false;
+        if (VR.animFrame) cancelAnimationFrame(VR.animFrame);
+        if (VR.roomId) socket.emit('leave_vr_room', { roomId: VR.roomId });
+        document.getElementById('vrRoomScreen').classList.remove('active');
+        const wrap = document.getElementById('vrCanvasWrap');
+        if (VR.renderer) { VR.renderer.dispose(); if (VR.renderer.domElement.parentElement) VR.renderer.domElement.remove(); }
+        VR.scene = null; VR.camera = null; VR.renderer = null; VR.avatars = {}; VR.roomId = null;
+    }
+
+    function initVrScene() {
+        const wrap = document.getElementById('vrCanvasWrap');
+        const width = wrap.clientWidth, height = wrap.clientHeight;
+
+        VR.scene = new THREE.Scene();
+        VR.scene.background = new THREE.Color(0x0d1117);
+        VR.scene.fog = new THREE.Fog(0x0d1117, 8, 30);
+
+        VR.camera = new THREE.PerspectiveCamera(65, width / height, 0.1, 100);
+
+        VR.renderer = new THREE.WebGLRenderer({ antialias: true });
+        VR.renderer.setSize(width, height);
+        VR.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        wrap.insertBefore(VR.renderer.domElement, wrap.firstChild);
+
+        VR.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 5);
+        VR.scene.add(dirLight);
+
+        // Chão com grelha, para dar noção de espaço/movimento
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x1c2733 }));
+        floor.rotation.x = -Math.PI / 2;
+        VR.scene.add(floor);
+        VR.scene.add(new THREE.GridHelper(40, 40, 0x334455, 0x223344));
+
+        // Paredes simples, só para dar sensação de "sala"
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x202c33, transparent: true, opacity: 0.6 });
+        [[0, -20, 0], [0, 20, 0], [-20, 0, Math.PI / 2], [20, 0, Math.PI / 2]].forEach(([x, z, rot]) => {
+            const wall = new THREE.Mesh(new THREE.PlaneGeometry(40, 6), wallMat);
+            wall.position.set(x, 3, z);
+            wall.rotation.y = rot;
+            VR.scene.add(wall);
+        });
+
+        VR.myPos = { x: 0, z: 5 };
+        VR.myRotY = Math.PI;
+        VR.avatars['me'] = { group: makeAvatarMesh(APP.user.name, APP.user.phone) };
+        VR.scene.add(VR.avatars['me'].group);
+
+        window.addEventListener('resize', onVrResize);
+        setupVrControls();
+    }
+
+    function onVrResize() {
+        if (!VR.renderer || !VR.camera) return;
+        const wrap = document.getElementById('vrCanvasWrap');
+        VR.camera.aspect = wrap.clientWidth / wrap.clientHeight;
+        VR.camera.updateProjectionMatrix();
+        VR.renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    }
+
+    function setupVrControls() {
+        document.onkeydown = document.onkeydown || null;
+        window.addEventListener('keydown', (e) => { if (VR.active) VR.keys[e.key.toLowerCase()] = true; });
+        window.addEventListener('keyup', (e) => { if (VR.active) VR.keys[e.key.toLowerCase()] = false; });
+
+        // Joystick virtual (arrastar com o dedo) — estilo "tanque": cima/baixo anda,
+        // esquerda/direita roda, para funcionar bem em telemóvel sem precisar de mais controlos.
+        const zone = document.getElementById('vrJoystickZone');
+        const stick = document.getElementById('vrJoystickStick');
+        function moveStick(dx, dy) {
+            const max = 35;
+            const dist = Math.min(Math.hypot(dx, dy), max);
+            const angle = Math.atan2(dy, dx);
+            const sx = Math.cos(angle) * dist, sy = Math.sin(angle) * dist;
+            stick.style.left = (35 + sx) + 'px';
+            stick.style.top = (35 + sy) + 'px';
+            VR.joystick.x = sx / max;
+            VR.joystick.y = sy / max;
+        }
+        zone.addEventListener('touchstart', (e) => { VR.joystick.active = true; VR.joystick.touchId = e.changedTouches[0].identifier; }, { passive: true });
+        zone.addEventListener('touchmove', (e) => {
+            const t = [...e.changedTouches].find(t => t.identifier === VR.joystick.touchId);
+            if (!t) return;
+            const rect = zone.getBoundingClientRect();
+            moveStick(t.clientX - (rect.left + rect.width / 2), t.clientY - (rect.top + rect.height / 2));
+        }, { passive: true });
+        ['touchend', 'touchcancel'].forEach(ev => zone.addEventListener(ev, () => {
+            VR.joystick.active = false; VR.joystick.x = 0; VR.joystick.y = 0;
+            stick.style.left = '35px'; stick.style.top = '35px';
+        }));
+    }
+
+    function vrAnimate() {
+        if (!VR.active || !VR.renderer) return;
+        VR.animFrame = requestAnimationFrame(vrAnimate);
+
+        const turnSpeed = 0.045, moveSpeed = 0.09;
+        let turn = 0, forward = 0;
+        if (VR.keys['a'] || VR.keys['arrowleft']) turn += 1;
+        if (VR.keys['d'] || VR.keys['arrowright']) turn -= 1;
+        if (VR.keys['w'] || VR.keys['arrowup']) forward += 1;
+        if (VR.keys['s'] || VR.keys['arrowdown']) forward -= 1;
+        turn -= VR.joystick.x; // joystick esquerda/direita roda
+        forward -= VR.joystick.y; // joystick cima/baixo anda (y negativo = cima)
+
+        if (turn) VR.myRotY += turn * turnSpeed;
+        if (forward) {
+            VR.myPos.x += Math.sin(VR.myRotY) * forward * moveSpeed;
+            VR.myPos.z += Math.cos(VR.myRotY) * forward * moveSpeed;
+            VR.myPos.x = Math.max(-19, Math.min(19, VR.myPos.x));
+            VR.myPos.z = Math.max(-19, Math.min(19, VR.myPos.z));
+        }
+
+        const me = VR.avatars['me'];
+        if (me) {
+            me.group.position.set(VR.myPos.x, 0, VR.myPos.z);
+            me.group.rotation.y = VR.myRotY;
+        }
+
+        // Câmara em 3ª pessoa, atrás do avatar
+        const camDist = 5, camHeight = 3.2;
+        const targetCamX = VR.myPos.x - Math.sin(VR.myRotY) * camDist;
+        const targetCamZ = VR.myPos.z - Math.cos(VR.myRotY) * camDist;
+        VR.camera.position.lerp(new THREE.Vector3(targetCamX, camHeight, targetCamZ), 0.15);
+        VR.camera.lookAt(VR.myPos.x, 1.2, VR.myPos.z);
+
+        // Suaviza a posição dos avatares dos outros (interpolação simples)
+        Object.entries(VR.avatars).forEach(([key, a]) => {
+            if (key === 'me' || !a.targetPos) return;
+            a.group.position.x += (a.targetPos.x - a.group.position.x) * 0.2;
+            a.group.position.z += (a.targetPos.z - a.group.position.z) * 0.2;
+            a.group.rotation.y += (a.targetRotY - a.group.rotation.y) * 0.2;
+        });
+
+        // Envia a minha posição no máximo a cada 100ms (não sobrecarregar a rede)
+        const now = Date.now();
+        if (now - VR.lastSent > 100 && (turn || forward)) {
+            VR.lastSent = now;
+            socket.emit('vr_position', { roomId: VR.roomId, x: VR.myPos.x, y: 0, z: VR.myPos.z, rotY: VR.myRotY });
+        }
+
+        VR.renderer.render(VR.scene, VR.camera);
+    }
+
+    socket.on('vr_existing_peers', (data) => {
+        (data.peers || []).forEach(p => {
+            if (p.socketId === socket.id || VR.avatars[p.socketId]) return;
+            const group = makeAvatarMesh(p.name, p.phone);
+            group.position.set(0, 0, 0);
+            VR.avatars[p.socketId] = { group, targetPos: { x: 0, z: 0 }, targetRotY: 0 };
+            if (VR.scene) VR.scene.add(group);
+        });
+    });
+
+    socket.on('vr_peer_joined', (p) => {
+        if (!VR.active || p.socketId === socket.id || VR.avatars[p.socketId]) return;
+        const group = makeAvatarMesh(p.name, p.phone);
+        group.position.set(0, 0, 0);
+        VR.avatars[p.socketId] = { group, targetPos: { x: 0, z: 0 }, targetRotY: 0 };
+        VR.scene.add(group);
+    });
+
+    socket.on('vr_position_received', (data) => {
+        const a = VR.avatars[data.socketId];
+        if (!a) return;
+        a.targetPos = { x: data.x, z: data.z };
+        a.targetRotY = data.rotY;
+    });
+
+    socket.on('vr_peer_left', (data) => {
+        const a = VR.avatars[data.socketId];
+        if (a && VR.scene) { VR.scene.remove(a.group); delete VR.avatars[data.socketId]; }
+    });
 
     function closeChat() {
         APP.currentChatId = null;

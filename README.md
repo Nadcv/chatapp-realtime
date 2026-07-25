@@ -223,5 +223,27 @@ Antes, todas as pessoas cadastradas apareciam automaticamente na lista de conver
 
 Aumentado de 2 para 4 minutos por mensagem, como pedido.
 
+## Barra de ícones do cabeçalho agora desliza para o lado
+
+Com tantos ícones acumulados (tradutor, música, grupos, chamadas, admin, pesquisa, transportes, conduzir e ouvir), a barra ficava cortada em ecrãs pequenos. Agora desliza horizontalmente.
+
+## Correção: vídeos "indisponível" no Conduzir e Ouvir (Portugal, Tóquio, França)
+
+A causa real não era só os vídeos em si — era o leitor não ter **nenhuma deteção de erro**. Quando um vídeo do YouTube deixa de estar disponível (o dono remove, desativa a partilha/incorporação, etc.), isso vai continuar a acontecer de vez em quando no futuro, com qualquer vídeo. Por isso, em vez de só trocar os IDs (o que resolvia hoje mas voltaria a acontecer mais tarde), também corrigi a causa:
+- Cada cidade agora tem um **vídeo alternativo** — se o principal falhar, tenta automaticamente o segundo antes de desistir.
+- Se mesmo assim falhar, aparece uma mensagem clara a convidar a escolher outra cidade, em vez de ficar preso sem explicação.
+- Também troquei o vídeo de Portugal, Tóquio e França por uns verificados e mais recentes.
+
+## Sala de Realidade Virtual — já existia! 🕶️
+
+Boas notícias: esta funcionalidade **já estava construída** (avatares em 3D, cada pessoa com o seu boneco e nome, movimento com WASD/setas no computador ou um manípulo virtual no telemóvel, câmara que segue o teu avatar). Só não tinha sido usada ainda. Para a encontrar:
+
+1. Abre uma **conversa de grupo** (só funciona em grupos, não em conversas 1-para-1)
+2. No cabeçalho da conversa, toca no ícone 🕶️
+3. Todos os que estiverem no mesmo grupo e abrirem a sala ao mesmo tempo veem-se uns aos outros a mover-se pelo espaço 3D
+
+(Tinha uma segunda versão desta funcionalidade duplicada e incompatível no código, que teria causado um erro ao arrancar o servidor — removida.)
+
+
 
 

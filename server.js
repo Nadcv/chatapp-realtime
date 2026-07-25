@@ -297,11 +297,11 @@ app.get('/api/transport/flights', async (req, res) => {
 // verifica periodicamente se os links ainda funcionam, para não depender de
 // um link fixo que pode "morrer" com o tempo.
 const DRIVE_LISTEN_CITIES = [
-  { id: 'lisbon', name: 'Lisboa', country: 'Portugal', flag: '🇵🇹', videoId: 's0zi01sRxNs' },
-  { id: 'paris', name: 'Paris', country: 'France', flag: '🇫🇷', videoId: 'lN43inpI2lk' },
+  { id: 'lisbon', name: 'Lisboa', country: 'Portugal', flag: '🇵🇹', videoId: 's0zi01sRxNs', videoId2: 'pbaQXuoJVgA' },
+  { id: 'paris', name: 'Paris', country: 'France', flag: '🇫🇷', videoId: 'lN43inpI2lk', videoId2: 'IW8jllqb8BE' },
   { id: 'london', name: 'Londres', country: 'United Kingdom', flag: '🇬🇧', videoId: '7lqBxVD9lI0' },
   { id: 'newyork', name: 'Nova Iorque', country: 'United States', flag: '🇺🇸', videoId: 'usyrgSEbx_A' },
-  { id: 'tokyo', name: 'Tóquio', country: 'Japan', flag: '🇯🇵', videoId: 'qPgWV8Rxemo' }
+  { id: 'tokyo', name: 'Tóquio', country: 'Japan', flag: '🇯🇵', videoId: 'fkoDgPOFtHY', videoId2: '39-riPjjmBg' }
 ];
 
 app.get('/api/drivelisten/cities', (req, res) => {
@@ -467,6 +467,7 @@ function saveGroupsLocal() {
 // WhatsApp/Telegram, é preciso saber quem procurar; ninguém aparece sozinho.
 const onlinePhones = new Set();
 const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20+ pessoas em simultâneo)
+const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
 function contactPublicInfo(u) {
   return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null };
@@ -767,6 +768,35 @@ io.on('connection', (socket) => {
   }
   socket.on('leave_call', (data) => { if (data?.roomId) leaveCall(data.roomId); });
 
+  // ==================== SALA DE REALIDADE VIRTUAL (avatares em 3D) ====================
+  // roomId -> Map(socket.id -> { socketId, phone, name })
+  socket.on('join_vr_room', (data) => {
+    const roomId = data?.roomId;
+    if (!roomId) return;
+    if (!vrRoomParticipants[roomId]) vrRoomParticipants[roomId] = new Map();
+    const me = { socketId: socket.id, phone: users[socket.id]?.phone || null, name: users[socket.id]?.name || 'Alguém' };
+    const existing = [...vrRoomParticipants[roomId].values()];
+    vrRoomParticipants[roomId].set(socket.id, me);
+    socket.emit('vr_existing_peers', { peers: existing });
+    socket.to(roomId).emit('vr_peer_joined', me);
+    log(`🕶️ ${me.name} entrou na sala virtual (${roomId})`, 'VR');
+  });
+
+  socket.on('vr_position', (data) => {
+    const roomId = data?.roomId;
+    if (!roomId) return;
+    socket.to(roomId).emit('vr_position_received', { socketId: socket.id, x: data.x, y: data.y, z: data.z, rotY: data.rotY });
+  });
+
+  function leaveVrRoom(roomId) {
+    if (vrRoomParticipants[roomId]) {
+      vrRoomParticipants[roomId].delete(socket.id);
+      if (vrRoomParticipants[roomId].size === 0) delete vrRoomParticipants[roomId];
+    }
+    socket.to(roomId).emit('vr_peer_left', { socketId: socket.id });
+  }
+  socket.on('leave_vr_room', (data) => { if (data?.roomId) leaveVrRoom(data.roomId); });
+
   socket.on('whiteboard_draw', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('whiteboard_draw_received', data);
@@ -820,6 +850,13 @@ io.on('connection', (socket) => {
         roomCallParticipants[roomId].delete(socket.id);
         if (roomCallParticipants[roomId].size === 0) delete roomCallParticipants[roomId];
         socket.to(roomId).emit('peer_left_call', { socketId: socket.id });
+      }
+    });
+    Object.keys(vrRoomParticipants).forEach((roomId) => {
+      if (vrRoomParticipants[roomId].has(socket.id)) {
+        vrRoomParticipants[roomId].delete(socket.id);
+        if (vrRoomParticipants[roomId].size === 0) delete vrRoomParticipants[roomId];
+        socket.to(roomId).emit('vr_peer_left', { socketId: socket.id });
       }
     });
   });
