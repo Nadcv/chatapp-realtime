@@ -1,8 +1,8 @@
-<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
     <title>ChatApp Completo - Mensageiro + IA + Multimídia</title>
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
@@ -37,6 +37,7 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
+            height: 100dvh; /* dvh = altura real visível no telemóvel, sem contar a barra de endereço do navegador */
             overflow: hidden;
             user-select: none;
         }
@@ -44,6 +45,7 @@
             width: 100%;
             max-width: 480px;
             height: 95vh;
+            height: 95dvh;
             max-height: 900px;
             background: var(--bg-primary);
             border-radius: 20px;
@@ -1014,7 +1016,8 @@
         @media (max-width: 500px) {
             .app-container {
                 height: 100vh;
-                max-height: 100vh;
+                height: 100dvh;
+                max-height: 100dvh;
                 border-radius: 0;
                 max-width: 100%;
             }
@@ -1074,6 +1077,7 @@
         <!-- Formulário de CRIAR CONTA -->
         <div id="registerFormBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
             <input type="text" id="regName" placeholder="Seu nome">
+            <input type="text" id="regUsername" placeholder="Nome de utilizador (ex: joao_silva) — usado para te encontrarem">
             <div class="login-row">
                 <input type="text" id="regPhone" placeholder="Número de telemóvel">
                 <select id="regCountry">
@@ -1106,7 +1110,9 @@
                 <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
+                <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
                 <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
+                <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -1162,6 +1168,27 @@
             </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
+        </div>
+        <div class="location-screen" id="driveListenScreen">
+            <div class="location-header">
+                <strong>🚗 Conduzir e Ouvir</strong>
+                <button onclick="closeDriveListenScreen()">✖️</button>
+            </div>
+            <div id="driveListenCityBar" style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);overflow-x:auto;"></div>
+            <div id="driveListenVideoWrap" style="flex:1;position:relative;background:#000;overflow:hidden;">
+                <div id="driveListenPlayer" style="position:absolute;inset:0;"></div>
+                <div id="driveListenOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px;background:rgba(0,0,0,0.5);">
+                    Escolhe uma cidade para começar o passeio 🌍
+                </div>
+            </div>
+            <div class="location-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
+                <div id="driveListenRadioStatus" style="font-size:12px;color:var(--text-secondary);text-align:center;">Sem rádio a tocar</div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <button class="btn-small" id="driveListenPlayBtn" onclick="toggleDriveListenPlay()" style="flex:0 0 auto;">⏸️</button>
+                    <span style="color:var(--text-secondary);font-size:12px;">🔊</span>
+                    <input type="range" id="driveListenVolume" min="0" max="100" value="70" oninput="setDriveListenVolume(this.value)" style="flex:1;">
+                </div>
+            </div>
         </div>
         <div class="location-screen" id="locationScreen">
             <div class="location-header">
@@ -1318,6 +1345,18 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalSearchUser">
+            <div class="modal">
+                <h3>🔍 Procurar utilizador</h3>
+                <p style="color:#8696a0;font-size:13px;">Só encontras alguém se souberes o nome de utilizador exato (@). Ninguém aparece na tua lista sem procurares primeiro.</p>
+                <input type="text" id="searchUsernameInput" placeholder="nome_de_utilizador" onkeypress="if(event.key==='Enter')doSearchUser()">
+                <div id="searchUserResult" style="min-height:60px;padding:10px 0;color:var(--text-primary);"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalSearchUser')">Fechar</button>
+                    <button class="btn-small btn-accept" onclick="doSearchUser()">Procurar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalAdmin">
             <div class="modal">
                 <h3>⚙️ Utilizadores cadastrados</h3>
@@ -1447,7 +1486,7 @@
             .filter(c => c.phone !== APP.user.phone)
             .map(c => ({
                 id: dmRoomId(APP.user.phone, c.phone),
-                name: c.name, phone: c.phone, avatar: c.name.charAt(0).toUpperCase(),
+                name: c.name, phone: c.phone, username: c.username || null, avatar: c.name.charAt(0).toUpperCase(),
                 type: 'user', online: c.online, publicKey: c.publicKey || null
             }));
         const groupChats = APP.groupsList
@@ -1471,6 +1510,11 @@
         });
         renderChatList();
         updateCallContactList();
+        // Se acabaste de encontrar alguém pela pesquisa e "Iniciar conversa", abre já a conversa
+        if (APP.pendingOpenChatPhone) {
+            const found = APP.chats.find(c => c.type === 'user' && c.phone === APP.pendingOpenChatPhone);
+            if (found) { APP.pendingOpenChatPhone = null; openChat(found.id); }
+        }
         // Se a conversa aberta agora é de um contato, atualiza o "Online/Offline" no cabeçalho
         if (APP.currentChatId) {
             const openChatData = APP.chats.find(c => c.id === APP.currentChatId);
@@ -1524,15 +1568,16 @@
 
     async function doRegister() {
         const name = document.getElementById('regName').value.trim();
+        const username = document.getElementById('regUsername').value.trim();
         const phone = document.getElementById('regPhone').value.trim();
         const country = document.getElementById('regCountry').value;
         const email = document.getElementById('regEmail').value.trim();
         const password = document.getElementById('regPassword').value;
         const errEl = document.getElementById('registerError');
         errEl.textContent = '';
-        if (!name || !phone || !country || !password) { errEl.textContent = 'Preencha nome, telemóvel, país e senha.'; return; }
+        if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
         try {
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, country, email, password }) });
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, password }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
             enterApp(data.user, data.token);
@@ -1641,7 +1686,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -1688,6 +1733,47 @@
         showAuthForm('login');
         document.getElementById('chatArea').classList.remove('active');
         document.getElementById('musicPlayer').classList.remove('active');
+    }
+
+    function openSearchUserModal() {
+        document.getElementById('searchUsernameInput').value = '';
+        document.getElementById('searchUserResult').innerHTML = '';
+        document.getElementById('modalSearchUser').classList.add('active');
+        setTimeout(() => document.getElementById('searchUsernameInput').focus(), 150);
+    }
+
+    function doSearchUser() {
+        const username = document.getElementById('searchUsernameInput').value.trim();
+        if (!username) return;
+        document.getElementById('searchUserResult').innerHTML = '<p style="color:#8696a0;">A procurar...</p>';
+        socket.emit('search_user', { username });
+    }
+
+    socket.on('search_user_result', (data) => {
+        const box = document.getElementById('searchUserResult');
+        if (!box) return;
+        if (!data.found) {
+            box.innerHTML = `<p style="color:#8696a0;">Não foi encontrado ninguém com o nome de utilizador "@${data.query}".</p>`;
+            return;
+        }
+        const u = data.user;
+        box.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div class="chat-item-avatar avatar-user">${u.name.charAt(0).toUpperCase()}</div>
+                <div style="flex:1;">
+                    <strong>${u.name}</strong><br>
+                    <span style="color:#8696a0;font-size:12px;">@${u.username} · ${u.online ? '🟢 Online' : '⚪ Offline'}</span>
+                </div>
+            </div>
+            <button class="btn btn-primary" style="margin-top:12px;" onclick="startChatWithFoundUser('${u.phone}')">💬 Iniciar conversa</button>`;
+    });
+
+    function startChatWithFoundUser(phone) {
+        socket.emit('add_contact', { phone });
+        closeModal('modalSearchUser');
+        // rebuildChatsFromServer() vai correr assim que 'contacts_update' chegar de volta;
+        // guardamos o telefone para abrir a conversa automaticamente assim que ela aparecer.
+        APP.pendingOpenChatPhone = phone;
     }
 
     async function openAdminModal() {
@@ -1799,6 +1885,131 @@
         if (TRANSPORT.pollInterval) { clearInterval(TRANSPORT.pollInterval); TRANSPORT.pollInterval = null; }
     }
 
+    function closeTransportScreen() {
+        document.getElementById('transportScreen').classList.remove('active');
+        if (TRANSPORT.pollInterval) { clearInterval(TRANSPORT.pollInterval); TRANSPORT.pollInterval = null; }
+    }
+
+    // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
+    // Vídeo de condução (YouTube, sem som) + rádio local a tocar por cima —
+    // a mesma técnica do driveandlisten.app. O YouTube fornece só a imagem;
+    // o som vem de uma rádio real do país obtida pela Radio Browser.
+    const DRIVE_LISTEN = {
+        cities: [],
+        currentCity: null,
+        ytPlayer: null,
+        ytReady: false,
+        radioAudio: new Audio(),
+        playing: false
+    };
+    DRIVE_LISTEN.radioAudio.volume = 0.7;
+    DRIVE_LISTEN.radioAudio.crossOrigin = 'anonymous';
+
+    function loadYouTubeIframeAPI() {
+        if (window.YT && window.YT.Player) { DRIVE_LISTEN.ytReady = true; return; }
+        if (document.getElementById('ytIframeApiScript')) return;
+        const tag = document.createElement('script');
+        tag.id = 'ytIframeApiScript';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+    }
+    // Chamado automaticamente pelo script do YouTube quando está pronto
+    window.onYouTubeIframeAPIReady = function () { DRIVE_LISTEN.ytReady = true; };
+
+    function openDriveListenScreen() {
+        document.getElementById('driveListenScreen').classList.add('active');
+        loadYouTubeIframeAPI();
+        if (!DRIVE_LISTEN.cities.length) {
+            fetch('/api/drivelisten/cities').then(r => r.json()).then(cities => {
+                DRIVE_LISTEN.cities = cities;
+                renderDriveListenCityBar();
+            }).catch(() => {
+                document.getElementById('driveListenCityBar').innerHTML = '<span style="color:var(--text-secondary);font-size:12px;">⚠️ Não foi possível carregar a lista de cidades.</span>';
+            });
+        } else {
+            renderDriveListenCityBar();
+        }
+    }
+
+    function closeDriveListenScreen() {
+        document.getElementById('driveListenScreen').classList.remove('active');
+        DRIVE_LISTEN.radioAudio.pause();
+        if (DRIVE_LISTEN.ytPlayer && DRIVE_LISTEN.ytPlayer.pauseVideo) DRIVE_LISTEN.ytPlayer.pauseVideo();
+        DRIVE_LISTEN.playing = false;
+    }
+
+    function renderDriveListenCityBar() {
+        const bar = document.getElementById('driveListenCityBar');
+        bar.innerHTML = DRIVE_LISTEN.cities.map(c => `
+            <button class="btn-small ${DRIVE_LISTEN.currentCity === c.id ? 'btn-accept' : ''}" style="flex:0 0 auto;" onclick="selectDriveListenCity('${c.id}')">${c.flag} ${c.name}</button>
+        `).join('');
+    }
+
+    function selectDriveListenCity(cityId) {
+        const city = DRIVE_LISTEN.cities.find(c => c.id === cityId);
+        if (!city) return;
+        DRIVE_LISTEN.currentCity = cityId;
+        renderDriveListenCityBar();
+        document.getElementById('driveListenOverlay').style.display = 'none';
+        document.getElementById('driveListenRadioStatus').textContent = 'A procurar uma rádio de ' + city.country + '...';
+
+        // Vídeo (imagem, sem som — o som vem da rádio)
+        const startVideo = () => {
+            if (!DRIVE_LISTEN.ytPlayer) {
+                DRIVE_LISTEN.ytPlayer = new YT.Player('driveListenPlayer', {
+                    videoId: city.videoId,
+                    playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, modestbranding: 1, rel: 0, loop: 1, playlist: city.videoId },
+                    events: {
+                        onReady: (e) => { e.target.mute(); e.target.playVideo(); }
+                    }
+                });
+            } else {
+                DRIVE_LISTEN.ytPlayer.loadVideoById(city.videoId);
+                DRIVE_LISTEN.ytPlayer.mute();
+            }
+        };
+        if (DRIVE_LISTEN.ytReady) startVideo();
+        else { const wait = setInterval(() => { if (DRIVE_LISTEN.ytReady) { clearInterval(wait); startVideo(); } }, 300); }
+
+        // Rádio local (o som real da sala)
+        fetch('/api/drivelisten/radio?country=' + encodeURIComponent(city.country)).then(r => r.json()).then(data => {
+            if (data.error) throw new Error(data.error);
+            DRIVE_LISTEN.radioAudio.src = data.url;
+            DRIVE_LISTEN.radioAudio.play()
+                .then(() => {
+                    DRIVE_LISTEN.playing = true;
+                    document.getElementById('driveListenPlayBtn').textContent = '⏸️';
+                    document.getElementById('driveListenRadioStatus').textContent = '📻 ' + data.name;
+                })
+                .catch(() => {
+                    document.getElementById('driveListenRadioStatus').textContent = '📻 ' + data.name + ' — toque em ▶️ para ouvir (o navegador bloqueou o som automático)';
+                    document.getElementById('driveListenPlayBtn').textContent = '▶️';
+                    DRIVE_LISTEN.playing = false;
+                });
+        }).catch(err => {
+            document.getElementById('driveListenRadioStatus').textContent = '⚠️ Não encontrei uma rádio para ' + city.country + ' agora: ' + err.message;
+        });
+    }
+
+    function toggleDriveListenPlay() {
+        const btn = document.getElementById('driveListenPlayBtn');
+        if (DRIVE_LISTEN.playing) {
+            DRIVE_LISTEN.radioAudio.pause();
+            if (DRIVE_LISTEN.ytPlayer && DRIVE_LISTEN.ytPlayer.pauseVideo) DRIVE_LISTEN.ytPlayer.pauseVideo();
+            DRIVE_LISTEN.playing = false;
+            btn.textContent = '▶️';
+        } else {
+            DRIVE_LISTEN.radioAudio.play().catch(() => {});
+            if (DRIVE_LISTEN.ytPlayer && DRIVE_LISTEN.ytPlayer.playVideo) DRIVE_LISTEN.ytPlayer.playVideo();
+            DRIVE_LISTEN.playing = true;
+            btn.textContent = '⏸️';
+        }
+    }
+
+    function setDriveListenVolume(value) {
+        DRIVE_LISTEN.radioAudio.volume = value / 100;
+    }
+
     function switchTransportTab(tab) {
         TRANSPORT.activeTab = tab;
         document.querySelectorAll('.transport-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
@@ -1838,7 +2049,17 @@
 
     function loadFlights() {
         document.getElementById('transportStatus').textContent = 'A atualizar voos...';
-        fetch('/api/transport/flights').then(r => r.json()).then(data => {
+        // Usa a área do mapa que está visível agora — assim funciona em
+        // qualquer parte do mundo (não só Ibéria), sem gastar a cota gratuita
+        // da OpenSky a pedir o mundo inteiro de cada vez.
+        const bounds = TRANSPORT.map.getBounds();
+        const params = new URLSearchParams({
+            lamin: bounds.getSouth().toFixed(2),
+            lomin: bounds.getWest().toFixed(2),
+            lamax: bounds.getNorth().toFixed(2),
+            lomax: bounds.getEast().toFixed(2)
+        });
+        fetch('/api/transport/flights?' + params.toString()).then(r => r.json()).then(data => {
             if (data.error) throw new Error(data.error);
             const states = data.states || [];
             TRANSPORT.layers.flight.clearLayers();
@@ -1851,7 +2072,7 @@
                     .bindPopup(`✈️ <strong>${callsign || 'Desconhecido'}</strong><br>Altitude: ${altitude != null ? Math.round(altitude) + ' m' : '—'}<br>Velocidade: ${velocity != null ? Math.round(velocity * 3.6) + ' km/h' : '—'}`)
                     .addTo(TRANSPORT.layers.flight);
             });
-            document.getElementById('transportStatus').textContent = `${states.length} voos sobre Portugal/Espanha (OpenSky Network) — atualizado agora`;
+            document.getElementById('transportStatus').textContent = `${states.length} voos na área visível do mapa (OpenSky Network) — mova/afaste o mapa e toque em 🔄 para atualizar`;
         }).catch(err => {
             document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar os voos: ' + err.message;
         });
@@ -2327,6 +2548,7 @@
         if (chat?.type === 'ai') return; // a IA (texto) ignora anexos por agora
         socket.emit('send_message', {
             id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
+            toPhone: chat.type === 'user' ? chat.phone : undefined,
             text, time, fileData: dataUrl, fileName, fileType
         });
     }
@@ -2382,7 +2604,7 @@
             voiceTimerInterval = setInterval(() => {
                 const secs = Math.floor((Date.now() - voiceStartTime) / 1000);
                 btn.textContent = '🔴' + secs + 's';
-                if (secs >= 120) stopVoiceRecording(true); // limite de 2 minutos por mensagem
+                if (secs >= 240) stopVoiceRecording(true); // limite de 4 minutos por mensagem
             }, 500);
         }).catch(err => alert('Não foi possível aceder ao microfone: ' + err.message));
     }
@@ -2439,7 +2661,7 @@
                     renderChatList();
                 });
         } else {
-            let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, text, time, replyTo };
+            let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo };
             if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {
                 await e2eeReadyPromise;
                 const enc = await encryptFor(chat.phone, chat.publicKey, text);
@@ -3442,6 +3664,19 @@
         APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
     });
 
+    // Converte a posição do rato/dedo (em pixels do ecrã) para a posição
+    // correspondente na resolução interna do canvas — sem isto, o traço
+    // desenhado ficava desalinhado sempre que o quadro era exibido menor
+    // que 600x400 (o que acontece em quase todos os telemóveis).
+    function whiteboardEventPos(clientX, clientY) {
+        const canvas = APP.whiteboard.canvas;
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: (clientX - rect.left) * (canvas.width / rect.width),
+            y: (clientY - rect.top) * (canvas.height / rect.height)
+        };
+    }
+
     function initWhiteboard() {
         const canvas = APP.whiteboard.canvas;
         canvas.addEventListener('mousedown', startDraw);
@@ -3451,46 +3686,42 @@
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            APP.whiteboard.lastX = touch.clientX - rect.left;
-            APP.whiteboard.lastY = touch.clientY - rect.top;
+            const pos = whiteboardEventPos(touch.clientX, touch.clientY);
+            APP.whiteboard.lastX = pos.x;
+            APP.whiteboard.lastY = pos.y;
             APP.whiteboard.drawing = true;
         });
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             if (!APP.whiteboard.drawing) return;
             const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
+            const pos = whiteboardEventPos(touch.clientX, touch.clientY);
             const color = document.getElementById('drawColor').value;
             const size = document.getElementById('drawSize').value;
-            drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
-            emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
-            APP.whiteboard.lastX = x;
-            APP.whiteboard.lastY = y;
+            drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
+            emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
+            APP.whiteboard.lastX = pos.x;
+            APP.whiteboard.lastY = pos.y;
         });
         canvas.addEventListener('touchend', () => APP.whiteboard.drawing = false);
     }
 
     function startDraw(e) {
         APP.whiteboard.drawing = true;
-        const rect = APP.whiteboard.canvas.getBoundingClientRect();
-        APP.whiteboard.lastX = e.clientX - rect.left;
-        APP.whiteboard.lastY = e.clientY - rect.top;
+        const pos = whiteboardEventPos(e.clientX, e.clientY);
+        APP.whiteboard.lastX = pos.x;
+        APP.whiteboard.lastY = pos.y;
     }
 
     function draw(e) {
         if (!APP.whiteboard.drawing) return;
-        const rect = APP.whiteboard.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const pos = whiteboardEventPos(e.clientX, e.clientY);
         const color = document.getElementById('drawColor').value;
         const size = document.getElementById('drawSize').value;
-        drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
-        emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, x, y, color, size);
-        APP.whiteboard.lastX = x;
-        APP.whiteboard.lastY = y;
+        drawSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
+        emitWhiteboardSegment(APP.whiteboard.lastX, APP.whiteboard.lastY, pos.x, pos.y, color, size);
+        APP.whiteboard.lastX = pos.x;
+        APP.whiteboard.lastY = pos.y;
     }
 
     function stopDraw() { APP.whiteboard.drawing = false; }

@@ -5,77 +5,190 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
 
 const app = express();
 app.use(express.json());
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
 
+// ==================== BASE DE DADOS (MongoDB Atlas / Persistência Total) ====================
+// Configuração para guardar permanentemente contas, grupos e mensagens na nuvem,
+// evitando perdas de informação quando a aplicação reinicia ou faz deploy.
+const MONGO_URI = process.env.MONGO_URI || '';
+let isDbConnected = false;
+
+// Schemas do Mongoose.
+// IMPORTANTE: o Mongoose só grava os campos declarados no schema — qualquer
+// campo enviado pelo cliente que não esteja aqui é APAGADO silenciosamente ao
+// gravar. Isto já tinha causado um bug real: mensagens encriptadas (campos
+// `encrypted`/`iv`/`data`) e anexos (`fileName`/`fileType`) perdiam essa
+// informação ao serem recarregados após um reinício. Corrigido abaixo — e
+// `strict: false` no schema de mensagens serve de rede de segurança para
+// qualquer campo novo que se venha a adicionar no futuro sem ter de lembrar
+// de atualizar este ficheiro também.
+const accountSchema = new mongoose.Schema({
+  phone: { type: String, required: true, unique: true },
+  id: String,
+  name: String,
+  username: { type: String, unique: true, sparse: true }, // sparse: contas antigas sem username não entram em conflito
+  country: String,
+  email: String,
+  salt: String,
+  passwordHash: String,
+  createdAt: String,
+  publicKey: Object,
+  contacts: { type: [String], default: [] } // telefones de quem esta pessoa já procurou/falou
+});
+const AccountModel = mongoose.model('Account', accountSchema);
+
+const groupSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  name: String,
+  createdBy: String,
+  createdByPhone: String,
+  createdAt: String,
+  admins: [String],
+  moderators: [String],
+  mutedPhones: [String],
+  bannedPhones: [String]
+});
+const GroupModel = mongoose.model('Group', groupSchema);
+
+const messageSchema = new mongoose.Schema({
+  chatId: { type: String, required: true, index: true },
+  id: String,
+  sender: String,
+  senderPhone: String,
+  text: String,
+  time: String,
+  type: String,
+  fileData: String,
+  fileName: String,
+  fileType: String,
+  replyTo: Object,
+  reactions: Object,
+  deleted: Boolean,
+  encrypted: Boolean, // mensagens 1-para-1 cifradas ponta-a-ponta guardam o texto aqui em vez de "text"
+  iv: String,
+  data: String,
+  createdAt: { type: Date, default: Date.now }
+}, { strict: false }); // rede de segurança: qualquer campo futuro que se esqueça de listar acima ainda assim é gravado
+const MessageModel = mongoose.model('Message', messageSchema);
+
+async function loadDataFromMongo() {
+  const [dbAccounts, dbGroups, dbMsgs] = await Promise.all([
+    AccountModel.find({}),
+    GroupModel.find({}),
+    MessageModel.find({}).sort({ createdAt: 1 })
+  ]);
+  dbAccounts.forEach(acc => {
+    accounts[acc.phone] = acc.toObject();
+    if (accounts[acc.phone].username) usernameIndex[accounts[acc.phone].username.toLowerCase()] = acc.phone;
+    if (!firstRegisteredPhone) firstRegisteredPhone = acc.phone;
+  });
+  dbGroups.forEach(g => { groups[g.id] = g.toObject(); });
+  dbMsgs.forEach(m => {
+    const obj = m.toObject();
+    if (!messagesByRoom[obj.chatId]) messagesByRoom[obj.chatId] = [];
+    messagesByRoom[obj.chatId].push(obj);
+  });
+  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbMsgs.length} mensagem(ns).`);
+}
+
+// Liga à base de dados ANTES do servidor começar a aceitar pedidos — sem isto,
+// os primeiros registos/mensagens logo a seguir a um reinício podiam ir parar
+// aos ficheiros locais em vez de à base de dados (e depois pareciam ter
+// desaparecido), por causa do tempo que a ligação ao Mongo demora a estabelecer.
+async function connectDatabase() {
+  if (!MONGO_URI) {
+    console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal();
+    return;
+  }
+  try {
+    await mongoose.connect(MONGO_URI);
+    isDbConnected = true;
+    console.log('📦 Base de dados MongoDB Atlas ligada com sucesso! Persistência total ativa.');
+    await loadDataFromMongo();
+  } catch (err) {
+    console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
+    isDbConnected = false;
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal();
+  }
+}
+
 // ==================== AUTENTICAÇÃO DE USUÁRIOS ====================
-// Cadastro com nome, telefone, país, email e senha. Senhas nunca são
-// guardadas em texto puro: usamos scrypt (módulo nativo do Node, sem
-// dependência extra) com um "salt" aleatório por usuário.
-// Persistência em arquivo local (mesmo padrão do histórico de mensagens) —
-// em Railway/Render sobrevive a reinícios, mas é apagado a cada novo deploy.
-// Para persistência permanente entre deploys, o próximo passo seria trocar
-// por um banco de dados real (ex: Postgres).
-const USERS_FILE = path.join(__dirname, 'users.json');
-let accounts = {}; // phone -> { id, name, phone, country, email, salt, passwordHash, createdAt }
+let accounts = {}; // phone -> { id, name, phone, username, country, email, salt, passwordHash, createdAt, contacts: [phone,...] }
+let usernameIndex = {}; // username (minúsculas) -> phone
 let firstRegisteredPhone = null;
 
-function loadUsers() {
+const USERS_FILE = path.join(__dirname, 'users.json');
+function loadUsersLocal() {
   try {
     if (fs.existsSync(USERS_FILE)) {
       const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
       accounts = data.accounts || {};
       firstRegisteredPhone = data.firstRegisteredPhone || null;
+      Object.values(accounts).forEach(a => { if (a.username) usernameIndex[a.username.toLowerCase()] = a.phone; });
     }
   } catch (err) {
-    console.error('Erro ao carregar usuários:', err.message);
+    console.error('Erro ao carregar usuários localmente:', err.message);
   }
 }
 function saveUsers() {
+  if (isDbConnected) return; // gravado pontualmente no Mongo em cada operação (ver chamadas a AccountModel abaixo)
   fs.writeFile(USERS_FILE, JSON.stringify({ accounts, firstRegisteredPhone }), (err) => {
     if (err) console.error('Erro ao salvar usuários:', err.message);
   });
 }
-loadUsers();
 
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
 
-// Quem é administrador (vê a lista completa de usuários cadastrados):
-// 1) Se a variável de ambiente ADMIN_PHONE estiver definida, esse telefone é o admin.
-// 2) Caso contrário, o PRIMEIRO usuário já cadastrado no servidor vira admin automaticamente.
 function isAdminPhone(phone) {
   if (process.env.ADMIN_PHONE) return phone === process.env.ADMIN_PHONE;
   return phone === firstRegisteredPhone;
 }
 
-// tokens de sessão simples em memória: token -> phone
 const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null };
 }
 
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { name, phone, country, email, password } = req.body || {};
-  if (!name || !phone || !country || !password) {
-    return res.status(400).json({ error: 'Nome, telefone, país e senha são obrigatórios.' });
+  let { username } = req.body || {};
+  if (!name || !phone || !country || !password || !username) {
+    return res.status(400).json({ error: 'Nome, nome de utilizador, telefone, país e senha são obrigatórios.' });
   }
+  username = String(username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (username.length < 3) return res.status(400).json({ error: 'O nome de utilizador deve ter pelo menos 3 caracteres (letras, números ou _).' });
   if (accounts[phone]) return res.status(409).json({ error: 'Já existe uma conta com esse número de telefone.' });
+  if (usernameIndex[username]) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
   if (String(password).length < 4) return res.status(400).json({ error: 'A senha deve ter pelo menos 4 caracteres.' });
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
-  const user = { id: 'u_' + Date.now(), name, phone, country, email: email || '', salt, passwordHash, createdAt: new Date().toISOString() };
+  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', salt, passwordHash, createdAt: new Date().toISOString(), contacts: [] };
   accounts[phone] = user;
+  usernameIndex[username] = phone;
   if (!firstRegisteredPhone) firstRegisteredPhone = phone;
-  saveUsers();
+
+  if (isDbConnected) {
+    try {
+      await AccountModel.create(user);
+    } catch (e) {
+      console.error('Erro ao gravar utilizador no Mongo:', e.message);
+    }
+  } else {
+    saveUsers();
+  }
+
   const token = makeToken();
   sessions[token] = phone;
-  log(`🆕 Novo cadastro: ${name} (${phone})`, 'AUTH');
+  log(`🆕 Novo cadastro: ${name} (@${username})`, 'AUTH');
   res.json({ success: true, user: publicUser(user), token });
 });
 
@@ -98,22 +211,23 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: Object.values(accounts).map(publicUser) });
 });
 
-// Publica a chave pública do usuário (encriptação ponta-a-ponta das conversas
-// 1-para-1) — o servidor só guarda a chave PÚBLICA, nunca a privada; esta
-// nunca sai do dispositivo do usuário.
-app.post('/api/publish-key', (req, res) => {
+app.post('/api/publish-key', async (req, res) => {
   const token = req.headers['x-auth-token'] || req.body?.token;
   const phone = sessions[token];
   if (!phone || !accounts[phone]) return res.status(403).json({ error: 'Sessão inválida.' });
   accounts[phone].publicKey = req.body?.publicKeyJwk || null;
-  saveUsers();
-  broadcastContacts();
+
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { publicKey: accounts[phone].publicKey }).catch(e => console.error('Erro Mongo (publicKey):', e.message));
+  } else {
+    saveUsers();
+  }
+
+  notifyContactsOfStatusChange(phone); // avisa quem te tem como contacto de que a tua chave pública mudou
   res.json({ success: true });
 });
 
-// ==================== TRANSPORTES (autocarros, aviões, metro/comboio) ====================
-// Cache simples em memória para não martelar as APIs externas gratuitas a
-// cada pedido de cada usuário — todos os clientes partilham a mesma cache.
+// ==================== TRANSPORTES ====================
 const transportCache = {};
 async function cachedFetch(key, url, ttlMs, options) {
   const now = Date.now();
@@ -125,8 +239,6 @@ async function cachedFetch(key, url, ttlMs, options) {
   return data;
 }
 
-// Autocarros da Carris Metropolitana (Área Metropolitana de Lisboa) — API oficial,
-// gratuita, sem chave: https://api.carrismetropolitana.pt
 app.get('/api/transport/buses', async (req, res) => {
   try {
     const data = await cachedFetch('buses', 'https://api.carrismetropolitana.pt/v2/vehicles', 10000);
@@ -137,7 +249,6 @@ app.get('/api/transport/buses', async (req, res) => {
   }
 });
 
-// Estações de Metro e Comboio (localização estática) — vêm do mesmo dataset aberto
 app.get('/api/transport/metro-stations', async (req, res) => {
   try {
     const data = await cachedFetch('metro', 'https://api.carrismetropolitana.pt/v2/facilities/subway_stations', 3600000);
@@ -155,34 +266,66 @@ app.get('/api/transport/train-stations', async (req, res) => {
   }
 });
 
-// Aviões em tempo real sobre Portugal e Espanha — OpenSky Network, gratuita,
-// sem chave (uso anónimo tem limite de pedidos, por isso a cache é maior).
+// Aviões em tempo real — OpenSky Network, gratuita, sem chave. O uso anónimo
+// (sem conta) tem uma cota diária baixa (~400 "créditos"/dia) e cada pedido
+// SEM caixa delimitadora (mundo inteiro) custa 4 créditos, contra 1 crédito
+// para uma área pequena — ou seja, esgota a cota rapidamente se pedires o
+// mundo inteiro a cada poucos segundos. Por isso: o cliente pode mandar
+// lamin/lomin/lamax/lomax (a área do mapa que está a ver) e só cai para
+// "mundo inteiro" se não mandar nada — e mesmo assim a cache de 15s é
+// partilhada por todos os utilizadores, para poupar a cota o máximo possível.
 app.get('/api/transport/flights', async (req, res) => {
   try {
-    // Caixa delimitadora aproximada da Península Ibérica
-    const bbox = 'lamin=35.8&lomin=-9.7&lamax=43.9&lomax=4.4';
-    const data = await cachedFetch('flights', `https://opensky-network.org/api/states/all?${bbox}`, 15000);
+    const { lamin, lomin, lamax, lomax } = req.query;
+    const hasBox = lamin && lomin && lamax && lomax;
+    const bbox = hasBox ? `lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}` : '';
+    const cacheKey = hasBox ? `flights_${lamin}_${lomin}_${lamax}_${lomax}` : 'flights_world';
+    const data = await cachedFetch(cacheKey, `https://opensky-network.org/api/states/all${bbox ? '?' + bbox : ''}`, 15000);
     res.json(data);
   } catch (err) {
     console.error('Erro voos:', err.message);
-    res.status(502).json({ error: 'Não foi possível obter os voos agora (o serviço gratuito às vezes tem limite de pedidos).' });
+    res.status(502).json({ error: 'Não foi possível obter os voos agora (o serviço gratuito tem uma cota diária baixa — pode ter esgotado por hoje).' });
   }
 });
 
-// ==================== SERVIDOR TURN (para as chamadas de voz/vídeo) ====================
-// O TURN é o que permite duas pessoas ligarem-se quando ambas estão atrás de
-// routers/NAT normais (o caso mais comum) — sem ele, a chamada muitas vezes
-// "liga" na sinalização mas o áudio/vídeo nunca chega a fluir.
-//
-// Por padrão usa um TURN público gratuito (openrelay) que não exige conta,
-// mas é uma rede partilhada por muita gente e por isso pode ficar sobrecarregada
-// ou lenta em horas de pico — a causa mais provável de "liga mas não dá pra
-// falar". Para um TURN dedicado e muito mais fiável (gratuito até 1TB/mês):
-//   1. Cria uma conta em https://dash.cloudflare.com (grátis)
-//   2. Vai a "Calls" → cria uma "TURN key"
-//   3. Define CF_TURN_KEY_ID (o Token ID) e CF_TURN_API_TOKEN (o API token) nas
-//      variáveis de ambiente do Railway/Render
-// Sem essas variáveis, o app usa automaticamente o TURN público gratuito.
+// ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
+// Inspirado no driveandlisten.app: vídeo de condução pela cidade (YouTube) +
+// rádio local a tocar ao mesmo tempo. A lista de cidades é curada à mão (com
+// vídeos verificados); o link do YouTube só toca imagem (sem som do vídeo),
+// e o som vem de uma rádio real do país, obtida através da Radio Browser
+// (radio-browser.info) — uma base de dados aberta e mundial de rádios, que
+// verifica periodicamente se os links ainda funcionam, para não depender de
+// um link fixo que pode "morrer" com o tempo.
+const DRIVE_LISTEN_CITIES = [
+  { id: 'lisbon', name: 'Lisboa', country: 'Portugal', flag: '🇵🇹', videoId: 's0zi01sRxNs' },
+  { id: 'paris', name: 'Paris', country: 'France', flag: '🇫🇷', videoId: 'lN43inpI2lk' },
+  { id: 'london', name: 'Londres', country: 'United Kingdom', flag: '🇬🇧', videoId: '7lqBxVD9lI0' },
+  { id: 'newyork', name: 'Nova Iorque', country: 'United States', flag: '🇺🇸', videoId: 'usyrgSEbx_A' },
+  { id: 'tokyo', name: 'Tóquio', country: 'Japan', flag: '🇯🇵', videoId: 'qPgWV8Rxemo' }
+];
+
+app.get('/api/drivelisten/cities', (req, res) => {
+  res.json(DRIVE_LISTEN_CITIES);
+});
+
+app.get('/api/drivelisten/radio', async (req, res) => {
+  const { country } = req.query;
+  if (!country) return res.status(400).json({ error: 'Parâmetro "country" é obrigatório.' });
+  try {
+    const url = `https://de1.api.radio-browser.info/json/stations/bycountry/${encodeURIComponent(country)}?hidebroken=true&order=votes&reverse=true&limit=5`;
+    const stations = await cachedFetch('radio_' + country, url, 3600000, {
+      headers: { 'User-Agent': 'SinalApp/1.0' } // a Radio Browser pede um User-Agent identificável
+    });
+    const valid = (Array.isArray(stations) ? stations : []).find(s => s.url_resolved || s.url);
+    if (!valid) return res.status(404).json({ error: 'Nenhuma rádio encontrada para este país.' });
+    res.json({ name: valid.name, url: valid.url_resolved || valid.url, homepage: valid.homepage || null });
+  } catch (err) {
+    console.error('Erro rádio:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter uma rádio agora.' });
+  }
+});
+
+// ==================== SERVIDOR TURN ====================
 let turnCache = null;
 let turnCacheAt = 0;
 app.get('/api/turn-credentials', async (req, res) => {
@@ -201,7 +344,7 @@ app.get('/api/turn-credentials', async (req, res) => {
   }
   try {
     const now = Date.now();
-    if (turnCache && (now - turnCacheAt) < 20 * 60 * 1000) return res.json(turnCache); // reaproveita por 20min
+    if (turnCache && (now - turnCacheAt) < 20 * 60 * 1000) return res.json(turnCache);
     const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + process.env.CF_TURN_API_TOKEN, 'Content-Type': 'application/json' },
@@ -209,27 +352,21 @@ app.get('/api/turn-credentials', async (req, res) => {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    // Junta o STUN da Google como reforço extra, além do TURN da Cloudflare
     const combined = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...(data.iceServers || [])] };
     turnCache = combined;
     turnCacheAt = now;
     res.json(combined);
   } catch (err) {
-    console.error('Erro ao gerar credenciais TURN (Cloudflare):', err.message);
-    res.json(FALLBACK); // nunca deixa a chamada sem ICE servers, mesmo se isto falhar
+    console.error('Erro ao gerar credenciais TURN:', err.message);
+    res.json(FALLBACK);
   }
 });
 
-// ==================== ASSISTENTE DE IA (GitHub Models) ====================
-// Usa a API gratuita de "GitHub Models" (a mesma infraestrutura por trás do
-// Copilot Chat). Precisa de um Personal Access Token do GitHub, definido na
-// variável de ambiente GITHUB_TOKEN (Settings → Variables no Railway/Render).
-// Como gerar o token: https://github.com/settings/tokens → "Generate new token"
-// → não precisa marcar nenhum scope especial para uso básico dos modelos.
+// ==================== ASSISTENTE DE IA ====================
 app.post('/api/ai-chat', async (req, res) => {
   const { messages } = req.body || {};
   if (!process.env.GITHUB_TOKEN) {
-    return res.status(500).json({ error: 'Assistente de IA não configurado: falta a variável de ambiente GITHUB_TOKEN no servidor.' });
+    return res.status(500).json({ error: 'Assistente de IA não configurado: falta GITHUB_TOKEN.' });
   }
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Mensagem vazia.' });
@@ -249,37 +386,28 @@ app.post('/api/ai-chat', async (req, res) => {
     });
     const data = await r.json();
     if (!r.ok) {
-      console.error('Erro GitHub Models:', JSON.stringify(data).substring(0, 300));
-      return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu (verifique o GITHUB_TOKEN).' });
+      return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu.' });
     }
-    const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar uma resposta agora.';
+    const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
     res.json({ reply });
   } catch (err) {
-    console.error('Erro ao consultar IA:', err.message);
-    res.status(500).json({ error: 'Falha ao contactar o serviço de IA. Tente novamente.' });
+    res.status(500).json({ error: 'Falha ao contactar o serviço de IA.' });
   }
 });
 
-// ==================== TRADUTOR (proxy server-side) ====================
-// Usa o endpoint público do Google Translate (o mesmo usado pela extensão
-// "Google Tradutor" no navegador). Rodar isso no servidor evita problemas de
-// CORS e não expõe nenhuma chave — não requer conta nem chave de API.
-// Não é uma API oficial suportada, então em produção séria o ideal seria
-// trocar por uma conta oficial do Google Cloud Translation ou pelo LibreTranslate.
+// ==================== TRADUTOR ====================
 app.get('/api/translate', async (req, res) => {
   const { text, target } = req.query;
-  if (!text || !target) return res.status(400).json({ error: 'Parâmetros "text" e "target" são obrigatórios.' });
+  if (!text || !target) return res.status(400).json({ error: 'Parâmetros obrigatórios emfalta.' });
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`;
     const r = await fetch(url);
-    if (!r.ok) throw new Error('Resposta não OK do serviço de tradução: ' + r.status);
+    if (!r.ok) throw new Error('Erro na tradução');
     const data = await r.json();
-    // data[0] é um array de pedaços [ [traduzido, original, ...], ... ]
     const translated = (data[0] || []).map(chunk => chunk[0]).join('');
     res.json({ translated });
   } catch (err) {
-    console.error('Erro ao traduzir:', err.message);
-    res.status(500).json({ error: 'Falha ao traduzir. Tente novamente.' });
+    res.status(500).json({ error: 'Falha ao traduzir.' });
   }
 });
 
@@ -288,82 +416,87 @@ const io = new Server(server, {
   cors: { origin: '*' },
   pingTimeout: 60000,
   pingInterval: 25000,
-  // Fotos/documentos vão embutidos na mensagem como base64 (até 10MB no original,
-  // o que em base64 fica ~33% maior) — por isso o limite do socket.io precisa de
-  // ser bem maior que o padrão (1MB).
-  maxHttpBufferSize: 18 * 1024 * 1024
+  // Aumentado para 40MB para permitir áudios estendidos longos e ficheiros pesados sem cortes
+  maxHttpBufferSize: 40 * 1024 * 1024
 });
 
-// socket.id -> { name, rooms: Set<roomId> }
 const users = {};
 
 // ==================== PERSISTÊNCIA DE MENSAGENS ====================
-// Guarda o histórico de cada sala (roomId -> array de mensagens) em disco,
-// assim as conversas sobrevivem a reinícios do servidor (não apenas ficam
-// na memória do navegador). Em caso de REDEPLOY no Railway, o disco é
-// recriado do zero — para persistência garantida entre deploys, o ideal é
-// trocar isto por um banco de dados (ex: Postgres/SQLite com volume).
 const DATA_FILE = path.join(__dirname, 'messages.json');
 let messagesByRoom = {};
 
-function loadMessages() {
+function loadMessagesLocal() {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      messagesByRoom = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-    }
+    if (fs.existsSync(DATA_FILE)) messagesByRoom = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
   } catch (err) {
-    console.error('Erro ao carregar histórico:', err.message);
-    messagesByRoom = {};
+    console.error('Erro ao carregar histórico local:', err.message);
   }
 }
-
-let saveTimeout = null;
-function saveMessages() {
-  // debounce simples para não escrever no disco a cada mensagem individual
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    fs.writeFile(DATA_FILE, JSON.stringify(messagesByRoom), (err) => {
-      if (err) console.error('Erro ao salvar histórico:', err.message);
-    });
-  }, 500);
+function saveMessagesLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(DATA_FILE, JSON.stringify(messagesByRoom), (err) => {
+    if (err) console.error('Erro ao salvar histórico local:', err.message);
+  });
 }
 
-loadMessages();
+const MAX_HISTORY_PER_ROOM = 500;
 
-const MAX_HISTORY_PER_ROOM = 200; // evita crescer sem limite
-
-// ==================== GRUPOS (visíveis a TODOS os utilizadores) ====================
-// Neste app, um grupo funciona como um canal público: qualquer usuário
-// cadastrado vê e participa de todos os grupos automaticamente (sem convite).
+// ==================== GRUPOS ====================
 const GROUPS_FILE = path.join(__dirname, 'groups.json');
-let groups = {}; // id -> { id, name, createdBy, createdAt }
+let groups = {};
 
-function loadGroups() {
+function loadGroupsLocal() {
   try {
     if (fs.existsSync(GROUPS_FILE)) groups = JSON.parse(fs.readFileSync(GROUPS_FILE, 'utf-8'));
   } catch (err) {
-    console.error('Erro ao carregar grupos:', err.message);
+    console.error('Erro ao carregar grupos localmente:', err.message);
   }
 }
-function saveGroups() {
+function saveGroupsLocal() {
+  if (isDbConnected) return;
   fs.writeFile(GROUPS_FILE, JSON.stringify(groups), (err) => {
-    if (err) console.error('Erro ao salvar grupos:', err.message);
+    if (err) console.error('Erro ao salvar grupos localmente:', err.message);
   });
 }
-loadGroups();
 
-// ==================== CONTATOS ONLINE/OFFLINE ====================
-// Todo usuário CADASTRADO (não só quem está online agora) aparece na lista de
-// conversas de todo mundo, para se poder falar com ele mesmo offline — com uma
-// bolinha indicando se está online ou desligado neste momento.
+// ==================== CONTATOS (por pesquisa, não automáticos) ====================
+// Antes, todo usuário cadastrado aparecia na lista de todo mundo. Agora só
+// aparece quem procuraste pelo nome de utilizador (@username) e escolheste
+// "Iniciar conversa", ou quem já te mandou uma mensagem — tal como no
+// WhatsApp/Telegram, é preciso saber quem procurar; ninguém aparece sozinho.
 const onlinePhones = new Set();
-// roomId -> Set de socket.id atualmente na chamada de grupo dessa sala (partilhado por todas as ligações)
-const roomCallParticipants = {};
-function broadcastContacts() {
-  const list = Object.values(accounts).map(u => ({
-    name: u.name, phone: u.phone, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null
-  }));
-  io.emit('contacts_update', list);
+const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20+ pessoas em simultâneo)
+
+function contactPublicInfo(u) {
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null };
+}
+
+function sendContactsTo(phone) {
+  const account = accounts[phone];
+  if (!account) return;
+  const list = (account.contacts || []).map(cp => accounts[cp] ? contactPublicInfo(accounts[cp]) : null).filter(Boolean);
+  Object.entries(users).forEach(([sid, u]) => { if (u.phone === phone) io.to(sid).emit('contacts_update', list); });
+}
+
+// Quando alguém fica online/offline ou muda a chave pública, avisa só quem o
+// tem nos contactos (para a bolinha/estado atualizar do lado deles)
+function notifyContactsOfStatusChange(phone) {
+  Object.values(accounts).forEach(acc => { if ((acc.contacts || []).includes(phone)) sendContactsTo(acc.phone); });
+}
+
+async function addContact(myPhone, targetPhone) {
+  const me = accounts[myPhone];
+  if (!me || !accounts[targetPhone] || myPhone === targetPhone) return false;
+  if (!me.contacts) me.contacts = [];
+  if (me.contacts.includes(targetPhone)) return false;
+  me.contacts.push(targetPhone);
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone: myPhone }, { contacts: me.contacts }).catch(e => console.error('Erro Mongo (contacts):', e.message));
+  } else {
+    saveUsers();
+  }
+  return true;
 }
 
 const log = (msg, type = 'INFO') =>
@@ -372,38 +505,64 @@ const log = (msg, type = 'INFO') =>
 io.on('connection', (socket) => {
   log(`Novo utilizador conectado: ${socket.id}`, 'SOCKET');
   users[socket.id] = { name: 'Anônimo', phone: null, rooms: new Set() };
-  // Assim que conecta, já recebe a lista atual de grupos e contatos (mesmo antes do login)
+  // Os grupos continuam visíveis a todos assim que conectas; os contactos só chegam depois do login
   socket.emit('groups_update', Object.values(groups));
-  broadcastContacts();
 
   socket.on('user_login', (userData) => {
     users[socket.id].name = userData?.name || 'Anônimo';
     users[socket.id].phone = userData?.phone || null;
-    if (users[socket.id].phone) onlinePhones.add(users[socket.id].phone);
+    if (users[socket.id].phone) {
+      onlinePhones.add(users[socket.id].phone);
+      sendContactsTo(users[socket.id].phone);
+      notifyContactsOfStatusChange(users[socket.id].phone);
+    }
     socket.broadcast.emit('user_online', { id: socket.id, name: users[socket.id].name });
-    broadcastContacts();
-    log(`✅ ${users[socket.id].name} está online.`, 'USER');
   });
 
-  socket.on('create_group', (data) => {
+  // Procurar alguém pelo nome de utilizador (@username) — não lista ninguém,
+  // só devolve resultado se souberes o nome exato.
+  socket.on('search_user', (data) => {
+    const query = String(data?.username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const myPhone = users[socket.id]?.phone;
+    if (!query || !myPhone) return socket.emit('search_user_result', { found: false, query });
+    const targetPhone = usernameIndex[query];
+    if (!targetPhone || targetPhone === myPhone || !accounts[targetPhone]) {
+      return socket.emit('search_user_result', { found: false, query });
+    }
+    socket.emit('search_user_result', { found: true, query, user: contactPublicInfo(accounts[targetPhone]) });
+  });
+
+  // Adiciona alguém encontrado por pesquisa aos teus contactos (início de conversa)
+  socket.on('add_contact', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.phone) return;
+    if (await addContact(myPhone, data.phone)) sendContactsTo(myPhone);
+  });
+
+  socket.on('create_group', async (data) => {
     const name = (data?.name || '').trim();
     const creatorPhone = users[socket.id]?.phone;
     if (!name || !creatorPhone) return;
     const id = 'group_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    groups[id] = {
+    const newGroup = {
       id, name, createdBy: users[socket.id]?.name || 'Alguém', createdByPhone: creatorPhone, createdAt: new Date().toISOString(),
       admins: [creatorPhone], moderators: [], mutedPhones: [], bannedPhones: []
     };
-    saveGroups();
+    groups[id] = newGroup;
+
+    if (isDbConnected) {
+      await GroupModel.create(newGroup);
+    } else {
+      saveGroupsLocal();
+    }
+
     io.emit('groups_update', Object.values(groups));
-    log(`👥 Grupo criado: "${name}" por ${groups[id].createdBy}`, 'GROUP');
   });
 
-  // ==================== MODERAÇÃO DE GRUPOS (cargos, silenciar, remover) ====================
   function isGroupAdmin(group, phone) { return group?.admins?.includes(phone); }
   function isGroupModOrAdmin(group, phone) { return group?.admins?.includes(phone) || group?.moderators?.includes(phone); }
 
-  socket.on('group_set_role', (data) => {
+  socket.on('group_set_role', async (data) => {
     const { groupId, targetPhone, role } = data || {};
     const group = groups[groupId];
     const myPhone = users[socket.id]?.phone;
@@ -412,23 +571,32 @@ io.on('connection', (socket) => {
     group.admins = group.admins.filter(p => p !== targetPhone);
     if (role === 'admin') group.admins.push(targetPhone);
     else if (role === 'moderator') group.moderators.push(targetPhone);
-    saveGroups();
+
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: groupId }, { admins: group.admins, moderators: group.moderators });
+    } else {
+      saveGroupsLocal();
+    }
     io.emit('groups_update', Object.values(groups));
-    log(`👑 ${targetPhone} passou a ${role} em "${group.name}"`, 'GROUP');
   });
 
-  socket.on('group_mute', (data) => {
+  socket.on('group_mute', async (data) => {
     const { groupId, targetPhone, muted } = data || {};
     const group = groups[groupId];
     const myPhone = users[socket.id]?.phone;
     if (!group || !myPhone || !isGroupModOrAdmin(group, myPhone) || !targetPhone) return;
     group.mutedPhones = group.mutedPhones.filter(p => p !== targetPhone);
     if (muted) group.mutedPhones.push(targetPhone);
-    saveGroups();
+
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: groupId }, { mutedPhones: group.mutedPhones });
+    } else {
+      saveGroupsLocal();
+    }
     io.emit('groups_update', Object.values(groups));
   });
 
-  socket.on('group_kick', (data) => {
+  socket.on('group_kick', async (data) => {
     const { groupId, targetPhone } = data || {};
     const group = groups[groupId];
     const myPhone = users[socket.id]?.phone;
@@ -436,72 +604,99 @@ io.on('connection', (socket) => {
     if (!group.bannedPhones.includes(targetPhone)) group.bannedPhones.push(targetPhone);
     group.admins = group.admins.filter(p => p !== targetPhone);
     group.moderators = group.moderators.filter(p => p !== targetPhone);
-    saveGroups();
+
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones, admins: group.admins, moderators: group.moderators });
+    } else {
+      saveGroupsLocal();
+    }
     io.emit('groups_update', Object.values(groups));
-    log(`🚫 ${targetPhone} removido de "${group.name}"`, 'GROUP');
   });
 
-  socket.on('group_unban', (data) => {
+  socket.on('group_unban', async (data) => {
     const { groupId, targetPhone } = data || {};
     const group = groups[groupId];
     const myPhone = users[socket.id]?.phone;
     if (!group || !myPhone || !isGroupAdmin(group, myPhone) || !targetPhone) return;
     group.bannedPhones = group.bannedPhones.filter(p => p !== targetPhone);
-    saveGroups();
+
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones });
+    } else {
+      saveGroupsLocal();
+    }
     io.emit('groups_update', Object.values(groups));
   });
 
-  // Um usuário pode participar de VÁRIAS salas ao mesmo tempo (uma por conversa/grupo)
   socket.on('join_room', (roomId) => {
     const user = users[socket.id];
     if (!user || !roomId) return;
     socket.join(roomId);
     user.rooms.add(roomId);
-    log(`👥 ${user.name} entrou na sala ${roomId}`, 'ROOM');
-    // Envia o histórico salvo da sala só para quem acabou de entrar
     socket.emit('room_history', { chatId: roomId, messages: messagesByRoom[roomId] || [] });
   });
 
-  socket.on('send_message', (data) => {
+  socket.on('send_message', async (data) => {
     if (!data?.chatId) return;
     const group = groups[data.chatId];
     const myPhone = users[socket.id]?.phone;
     if (group && myPhone) {
-      if (group.bannedPhones?.includes(myPhone)) return; // removido do grupo
+      if (group.bannedPhones?.includes(myPhone)) return;
       if (group.mutedPhones?.includes(myPhone)) {
-        socket.emit('message_rejected', { chatId: data.chatId, reason: 'Foste silenciado neste grupo por um administrador.' });
+        socket.emit('message_rejected', { chatId: data.chatId, reason: 'Foste silenciado neste grupo.' });
         return;
       }
+    }
+    // Conversa 1-para-1: quem recebe a primeira mensagem passa a ter quem
+    // enviou nos seus contactos automaticamente, para poder responder sem
+    // precisar de o procurar primeiro (tal como receber um SMS de um número novo).
+    if (!group && data.toPhone && myPhone) {
+      if (await addContact(data.toPhone, myPhone)) sendContactsTo(data.toPhone);
     }
     if (!messagesByRoom[data.chatId]) messagesByRoom[data.chatId] = [];
     messagesByRoom[data.chatId].push(data);
     if (messagesByRoom[data.chatId].length > MAX_HISTORY_PER_ROOM) {
       messagesByRoom[data.chatId] = messagesByRoom[data.chatId].slice(-MAX_HISTORY_PER_ROOM);
     }
-    saveMessages();
+
+    if (isDbConnected) {
+      try {
+        await MessageModel.create({ ...data });
+      } catch (e) {
+        console.error('Erro ao guardar mensagem na base de dados:', e.message);
+      }
+    } else {
+      saveMessagesLocal();
+    }
+
     socket.to(data.chatId).emit('receive_message', data);
-    log(`📩 ${data.sender} (${data.chatId}): ${(data.text || '').substring(0, 30)}`, 'MSG');
   });
 
-  // "a escrever..." — não é guardado, é só um aviso momentâneo para a sala
   socket.on('typing', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('typing_received', { roomId: data.roomId, name: users[socket.id]?.name });
   });
 
-  // Apagar mensagem para todos — atualiza o histórico guardado e avisa a sala
-  socket.on('delete_message', (data) => {
+  socket.on('delete_message', async (data) => {
     if (!data?.chatId || !data?.messageId) return;
     const msgs = messagesByRoom[data.chatId];
     if (msgs) {
       const msg = msgs.find(m => m.id === data.messageId);
-      if (msg) { msg.text = 'Mensagem apagada'; msg.deleted = true; msg.fileData = null; saveMessages(); }
+      if (msg) { 
+        msg.text = 'Mensagem apagada'; 
+        msg.deleted = true; 
+        msg.fileData = null; 
+        if (isDbConnected) {
+          await MessageModel.updateOne({ id: data.messageId }, { text: 'Mensagem apagada', deleted: true, fileData: null });
+        } else {
+          saveMessagesLocal();
+        }
+      }
     }
     socket.to(data.chatId).emit('message_deleted_received', data);
   });
 
-  // Reagir a uma mensagem com emoji (👍❤️😂 etc.)
-  socket.on('react_message', (data) => {
+  socket.on('react_message', async (data) => {
     if (!data?.chatId || !data?.messageId || !data?.emoji) return;
     const msgs = messagesByRoom[data.chatId];
     if (msgs) {
@@ -511,29 +706,30 @@ io.on('connection', (socket) => {
         const who = users[socket.id]?.phone || socket.id;
         if (!msg.reactions[data.emoji]) msg.reactions[data.emoji] = [];
         if (!msg.reactions[data.emoji].includes(who)) msg.reactions[data.emoji].push(who);
-        saveMessages();
+        
+        if (isDbConnected) {
+          await MessageModel.updateOne({ id: data.messageId }, { reactions: msg.reactions });
+        } else {
+          saveMessagesLocal();
+        }
       }
     }
     socket.to(data.chatId).emit('reaction_received', { ...data, who: users[socket.id]?.phone || socket.id });
   });
 
-  // Confirmação de leitura (✓✓)
   socket.on('message_read', (data) => {
     if (!data?.chatId) return;
     socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: users[socket.id]?.phone });
   });
 
-  // Sinalização WebRTC (chamadas de voz/vídeo 1-para-1)
   socket.on('call_user', (data) => {
-    log(`📞 Chamada de ${data.callerName} para a sala ${data.targetRoomId}`, 'WEBRTC');
     socket.to(data.targetRoomId).emit('incoming_call', data);
   });
   socket.on('answer_call', (data) => socket.to(data.targetRoomId).emit('call_answered', data));
   socket.on('ice_candidate', (data) => socket.to(data.targetRoomId).emit('ice_candidate_received', data));
   socket.on('end_call', (data) => socket.to(data.targetRoomId).emit('call_ended', data));
 
-  // ==================== CHAMADAS EM GRUPO (malha: cada participante liga a todos os outros) ====================
-
+  // ==================== CONFERÊNCIAS EM GRUPO (Até 20+ participantes em simultâneo) ====================
   socket.on('join_call', (data) => {
     const { roomId, callType } = data || {};
     if (!roomId) return;
@@ -542,14 +738,11 @@ io.on('connection', (socket) => {
     const existing = [...roomCallParticipants[roomId]].map(id => ({ socketId: id, name: users[id]?.name || 'Alguém' }));
     roomCallParticipants[roomId].add(socket.id);
     if (isFirst) {
-      // Avisa o resto do grupo (que não está na chamada) que uma chamada começou, para poderem entrar
       socket.to(roomId).emit('group_call_started', { roomId, callType, starterName: users[socket.id]?.name || 'Alguém' });
     }
-    // Avisa quem já está na chamada de que uma pessoa nova entrou (para atualizar a UI, ex: nome)
     socket.to(roomId).emit('peer_joined_call', { socketId: socket.id, name: users[socket.id]?.name || 'Alguém', callType });
-    // Devolve a quem entrou a lista de quem já está na chamada, para ele iniciar a ligação com cada um
     socket.emit('existing_call_participants', { roomId, participants: existing });
-    log(`🎥 ${users[socket.id]?.name || socket.id} entrou na chamada em grupo (${roomId}) — ${roomCallParticipants[roomId].size} participante(s)`, 'WEBRTC');
+    log(`🎥 ${users[socket.id]?.name || socket.id} entrou na conferência (${roomId}) — Total: ${roomCallParticipants[roomId].size}`, 'WEBRTC');
   });
 
   socket.on('call_offer', (data) => {
@@ -574,7 +767,6 @@ io.on('connection', (socket) => {
   }
   socket.on('leave_call', (data) => { if (data?.roomId) leaveCall(data.roomId); });
 
-  // Quadro branco: retransmite cada traço e o "limpar" para o resto da sala
   socket.on('whiteboard_draw', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('whiteboard_draw_received', data);
@@ -584,15 +776,11 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('whiteboard_clear_received', data);
   });
 
-  // Música compartilhada na chamada: avisa o outro lado sobre trocar/parar/fechar
-  // (o áudio em si viaja pela própria chamada WebRTC, isto só sincroniza a interface)
   socket.on('music_state', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('music_state_received', data);
   });
 
-  // Localização em tempo real (GPS): apenas retransmite para a sala — não fica
-  // guardado em disco, é só "ao vivo" (como a localização em tempo real do WhatsApp).
   socket.on('location_update', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('location_update_received', data);
@@ -602,8 +790,6 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('location_stop_received', { phone: users[socket.id]?.phone });
   });
 
-  // Legendas ao vivo nas chamadas: só retransmite o texto reconhecido pelo navegador
-  // de quem está a falar — cada lado traduz para o seu próprio idioma localmente.
   socket.on('call_caption', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('call_caption_received', { text: data.text, name: users[socket.id]?.name || 'Alguém' });
@@ -613,7 +799,7 @@ io.on('connection', (socket) => {
     const user = users[socket.id];
     if (user?.phone) {
       const stillConnected = Object.entries(users).some(([id, u]) => id !== socket.id && u.phone === user.phone);
-      if (!stillConnected) { onlinePhones.delete(user.phone); broadcastContacts(); }
+      if (!stillConnected) { onlinePhones.delete(user.phone); notifyContactsOfStatusChange(user.phone); }
       user.phone = null;
       user.name = 'Anônimo';
     }
@@ -622,16 +808,13 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const user = users[socket.id];
     if (user) {
-      log(`🔌 ${user.name} desconectou.`, 'SOCKET');
       user.rooms.forEach((room) => socket.to(room).emit('user_left', user.name));
       delete users[socket.id];
       if (user.phone) {
-        // só marca offline se não houver OUTRA aba/dispositivo ainda ligado com o mesmo telefone
         const stillConnected = Object.values(users).some(u => u.phone === user.phone);
-        if (!stillConnected) { onlinePhones.delete(user.phone); broadcastContacts(); }
+        if (!stillConnected) { onlinePhones.delete(user.phone); notifyContactsOfStatusChange(user.phone); }
       }
     }
-    // Se estava numa chamada em grupo, tira-o de todas as salas de chamada e avisa os outros
     Object.keys(roomCallParticipants).forEach((roomId) => {
       if (roomCallParticipants[roomId].has(socket.id)) {
         roomCallParticipants[roomId].delete(socket.id);
@@ -643,16 +826,17 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  let ipAddress = 'localhost';
-  const nets = os.networkInterfaces();
-  Object.keys(nets).forEach((ifname) =>
-    nets[ifname].forEach((iface) => {
-      if (iface.family === 'IPv4' && !iface.internal) ipAddress = iface.address;
-    })
-  );
-  console.log(`\n🚀 SERVIDOR INICIADO COM SUCESSO!`);
-  console.log(`📡 Acesse pelo navegador: http://${ipAddress}:${PORT}`);
-  console.log(`   (ou http://localhost:${PORT} no mesmo computador)`);
-  console.log(`👥 Aguardando conexões...\n`);
+connectDatabase().then(() => {
+  server.listen(PORT, '0.0.0.0', () => {
+    let ipAddress = 'localhost';
+    const nets = os.networkInterfaces();
+    Object.keys(nets).forEach((ifname) =>
+      nets[ifname].forEach((iface) => {
+        if (iface.family === 'IPv4' && !iface.internal) ipAddress = iface.address;
+      })
+    );
+    console.log(`\n🚀 SERVIDOR INICIADO COM SUCESSO!`);
+    console.log(`📡 Acesse pelo navegador: http://${ipAddress}:${PORT}`);
+    console.log(`👥 Aguardando conexões...\n`);
+  });
 });
