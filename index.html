@@ -386,31 +386,6 @@
         }
         .header-actions::-webkit-scrollbar { display: none; } /* Chrome/Safari */
         .header-actions .btn-icon { flex: 0 0 auto; }
-        .more-menu {
-            display: none;
-            position: absolute;
-            top: 44px;
-            right: 0;
-            background: var(--bg-secondary);
-            border-radius: 10px;
-            box-shadow: var(--shadow);
-            min-width: 200px;
-            z-index: 50;
-            overflow: hidden;
-        }
-        .more-menu.active { display: block; }
-        .more-menu button {
-            display: block;
-            width: 100%;
-            text-align: left;
-            padding: 12px 16px;
-            background: none;
-            border: none;
-            color: var(--text-primary);
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .more-menu button:hover { background: var(--bg-tertiary); }
         .main-content {
             display: flex;
             flex: 1;
@@ -1148,21 +1123,16 @@
                 </div>
             </div>
             <div class="header-actions">
-                <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
-                <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
+                <button class="btn-icon" onclick="openTranslatorModal()" title="Idioma do tradutor">🌐</button>
+                <button class="btn-icon" onclick="toggleMusicPlayer()" title="Música de fundo">🎵</button>
                 <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
+                <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
-                <div style="position:relative;">
-                    <button class="btn-icon" onclick="toggleMoreMenu()" title="Mais opções">⋮</button>
-                    <div id="moreMenu" class="more-menu">
-                        <button onclick="closeMoreMenu(); openTranslatorModal();">🌐 Tradutor</button>
-                        <button onclick="closeMoreMenu(); toggleMusicPlayer();">🎵 Música de fundo</button>
-                        <button onclick="closeMoreMenu(); openActivitiesScreen();">🏃 Atividades</button>
-                        <button onclick="closeMoreMenu(); openTransportScreen();">🚌 Transportes</button>
-                        <button onclick="closeMoreMenu(); openDriveListenScreen();">🚗 Conduzir e Ouvir</button>
-                        <button onclick="closeMoreMenu(); logout();">🚪 Sair</button>
-                    </div>
-                </div>
+                <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
+                <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
+                <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
+                <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
+                <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
         <div class="main-content">
@@ -1869,19 +1839,6 @@
         document.getElementById('chatArea').classList.remove('active');
         document.getElementById('musicPlayer').classList.remove('active');
     }
-
-    function toggleMoreMenu() {
-        document.getElementById('moreMenu').classList.toggle('active');
-    }
-    function closeMoreMenu() {
-        document.getElementById('moreMenu').classList.remove('active');
-    }
-    document.addEventListener('click', (e) => {
-        const menu = document.getElementById('moreMenu');
-        if (menu && menu.classList.contains('active') && !menu.contains(e.target) && e.target.getAttribute('onclick') !== 'toggleMoreMenu()') {
-            menu.classList.remove('active');
-        }
-    });
 
     function openSearchUserModal() {
         document.getElementById('searchUsernameInput').value = '';

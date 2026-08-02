@@ -1,5 +1,5 @@
 // Service Worker do ChatApp — instalação como app (PWA) + notificações push.
-const CACHE_NAME = 'chatapp-shell-v2';
+const CACHE_NAME = 'chatapp-shell-v1';
 const SHELL_FILES = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
