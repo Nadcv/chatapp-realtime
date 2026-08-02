@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
 
 // ==================== BASE DE DADOS (MongoDB Atlas / Persistência Total) ====================
@@ -37,7 +37,8 @@ const accountSchema = new mongoose.Schema({
   passwordHash: String,
   createdAt: String,
   publicKey: Object,
-  contacts: { type: [String], default: [] } // telefones de quem esta pessoa já procurou/falou
+  contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
+  pushSubscriptions: { type: [Object], default: [] } // inscrições de notificações push (um dispositivo pode ter mais do que uma)
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -68,6 +69,7 @@ const messageSchema = new mongoose.Schema({
   replyTo: Object,
   reactions: Object,
   deleted: Boolean,
+  edited: Boolean,
   encrypted: Boolean, // mensagens 1-para-1 cifradas ponta-a-ponta guardam o texto aqui em vez de "text"
   iv: String,
   data: String,
@@ -75,11 +77,28 @@ const messageSchema = new mongoose.Schema({
 }, { strict: false }); // rede de segurança: qualquer campo futuro que se esqueça de listar acima ainda assim é gravado
 const MessageModel = mongoose.model('Message', messageSchema);
 
+const activitySchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  phone: { type: String, required: true, index: true },
+  name: String, // nome de quem fez a atividade, guardado aqui para não ter de ir buscar à conta sempre
+  type: String, // 'corrida' | 'caminhada' | 'bicicleta'
+  startTime: String,
+  distanceMeters: Number,
+  durationSeconds: Number,
+  avgSpeedKmh: Number,
+  elevationGain: Number,
+  route: [{ lat: Number, lng: Number }], // simplificado — sem timestamp por ponto, só para desenhar a rota
+  kudos: { type: [String], default: [] }, // telefones de quem deu kudos
+  createdAt: { type: Date, default: Date.now }
+}, { strict: false });
+const ActivityModel = mongoose.model('Activity', activitySchema);
+
 async function loadDataFromMongo() {
-  const [dbAccounts, dbGroups, dbMsgs] = await Promise.all([
+  const [dbAccounts, dbGroups, dbMsgs, dbActivities] = await Promise.all([
     AccountModel.find({}),
     GroupModel.find({}),
-    MessageModel.find({}).sort({ createdAt: 1 })
+    MessageModel.find({}).sort({ createdAt: 1 }),
+    ActivityModel.find({}).sort({ createdAt: -1 }).limit(500)
   ]);
   dbAccounts.forEach(acc => {
     accounts[acc.phone] = acc.toObject();
@@ -92,7 +111,8 @@ async function loadDataFromMongo() {
     if (!messagesByRoom[obj.chatId]) messagesByRoom[obj.chatId] = [];
     messagesByRoom[obj.chatId].push(obj);
   });
-  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbMsgs.length} mensagem(ns).`);
+  dbActivities.forEach(a => { activities.push(a.toObject()); });
+  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s).`);
 }
 
 // Liga à base de dados ANTES do servidor começar a aceitar pedidos — sem isto,
@@ -102,7 +122,7 @@ async function loadDataFromMongo() {
 async function connectDatabase() {
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal();
     return;
   }
   try {
@@ -113,7 +133,7 @@ async function connectDatabase() {
   } catch (err) {
     console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
     isDbConnected = false;
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal();
   }
 }
 
@@ -411,6 +431,111 @@ app.get('/api/translate', async (req, res) => {
   }
 });
 
+// ==================== UPLOAD DE FICHEIROS (Cloudinary — armazenamento externo) ====================
+// Por padrão, fotos/áudios/documentos são guardados diretamente na mensagem
+// (em base64), o que enche depressa os 512MB grátis do MongoDB Atlas. Se
+// configurares o Cloudinary (gratuito até 25GB), os ficheiros passam a ficar
+// lá guardados e a mensagem só leva o link — muito mais leve.
+//   1. Cria uma conta grátis em https://cloudinary.com/users/register/free
+//   2. No painel principal ("Dashboard"), copia: Cloud Name, API Key, API Secret
+//   3. Define as variáveis de ambiente CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY,
+//      CLOUDINARY_API_SECRET no Railway/Render
+// Sem essas variáveis, os ficheiros continuam a ser guardados em base64 como
+// até agora (não obriga a nada).
+app.post('/api/upload', async (req, res) => {
+  const { fileData } = req.body || {};
+  if (!fileData) return res.status(400).json({ error: 'Sem ficheiro.' });
+  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+    return res.json({ success: false, configured: false }); // o cliente usa o base64 normalmente, sem erro
+  }
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_API_SECRET}`).digest('hex');
+    const form = new URLSearchParams();
+    form.append('file', fileData);
+    form.append('timestamp', String(timestamp));
+    form.append('api_key', CLOUDINARY_API_KEY);
+    form.append('signature', signature);
+    const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, { method: 'POST', body: form });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error?.message || 'Erro desconhecido do Cloudinary');
+    res.json({ success: true, configured: true, url: data.secure_url });
+  } catch (err) {
+    console.error('Erro no upload para o Cloudinary:', err.message);
+    res.status(500).json({ error: 'Falha ao enviar o ficheiro para o armazenamento externo.' });
+  }
+});
+
+// ==================== NOTIFICAÇÕES PUSH ====================
+// Avisa a pessoa de mensagens novas mesmo com a app fechada/em segundo plano.
+// As chaves VAPID são geradas automaticamente na primeira vez que o servidor
+// arranca e depois guardadas (no MongoDB se estiver ligado, senão num ficheiro
+// local) — não precisas de configurar nada à mão para isto funcionar.
+let webpush = null;
+try { webpush = require('web-push'); } catch (e) { console.warn('⚠️ Pacote "web-push" não instalado — notificações push desativadas.'); }
+let vapidKeys = null;
+const VAPID_FILE = path.join(__dirname, 'vapid.json');
+const settingsSchema = new mongoose.Schema({ key: { type: String, unique: true }, value: Object });
+const SettingModel = mongoose.model('Setting', settingsSchema);
+
+async function initPush() {
+  if (!webpush) return;
+  if (isDbConnected) {
+    const doc = await SettingModel.findOne({ key: 'vapid' }).catch(() => null);
+    if (doc) vapidKeys = doc.value;
+    else {
+      vapidKeys = webpush.generateVAPIDKeys();
+      await SettingModel.create({ key: 'vapid', value: vapidKeys }).catch(e => console.error('Erro ao guardar chaves VAPID:', e.message));
+    }
+  } else {
+    try {
+      if (fs.existsSync(VAPID_FILE)) vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf-8'));
+      else { vapidKeys = webpush.generateVAPIDKeys(); fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys)); }
+    } catch (e) { console.error('Erro ao gerir chaves VAPID locais:', e.message); }
+  }
+  if (vapidKeys) webpush.setVapidDetails('mailto:admin@chatnadiel.app', vapidKeys.publicKey, vapidKeys.privateKey);
+  console.log(vapidKeys ? '🔔 Notificações push prontas.' : '⚠️ Não foi possível preparar as notificações push.');
+}
+
+app.get('/api/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapidKeys?.publicKey || null });
+});
+
+app.post('/api/push-subscribe', async (req, res) => {
+  const { token, subscription } = req.body || {};
+  const phone = sessions[token];
+  if (!phone || !accounts[phone] || !subscription) return res.status(400).json({ error: 'Pedido inválido.' });
+  if (!accounts[phone].pushSubscriptions) accounts[phone].pushSubscriptions = [];
+  const already = accounts[phone].pushSubscriptions.some(s => s.endpoint === subscription.endpoint);
+  if (!already) {
+    accounts[phone].pushSubscriptions.push(subscription);
+    if (isDbConnected) await AccountModel.updateOne({ phone }, { pushSubscriptions: accounts[phone].pushSubscriptions }).catch(e => console.error('Erro Mongo (push):', e.message));
+    else saveUsers();
+  }
+  res.json({ success: true });
+});
+
+async function sendPushToPhone(phone, payload) {
+  if (!webpush || !vapidKeys) return;
+  const account = accounts[phone];
+  if (!account?.pushSubscriptions?.length) return;
+  const stillValid = [];
+  for (const sub of account.pushSubscriptions) {
+    try {
+      await webpush.sendNotification(sub, JSON.stringify(payload));
+      stillValid.push(sub);
+    } catch (err) {
+      if (err.statusCode !== 410 && err.statusCode !== 404) stillValid.push(sub); // 410/404 = inscrição expirada, descarta; outros erros mantém para tentar depois
+    }
+  }
+  if (stillValid.length !== account.pushSubscriptions.length) {
+    account.pushSubscriptions = stillValid;
+    if (isDbConnected) await AccountModel.updateOne({ phone }, { pushSubscriptions: stillValid }).catch(() => {});
+    else saveUsers();
+  }
+}
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
@@ -457,6 +582,24 @@ function saveGroupsLocal() {
   if (isDbConnected) return;
   fs.writeFile(GROUPS_FILE, JSON.stringify(groups), (err) => {
     if (err) console.error('Erro ao salvar grupos localmente:', err.message);
+  });
+}
+
+// ==================== ATIVIDADES (estilo Strava — corridas/caminhadas/bicicleta) ====================
+const ACTIVITIES_FILE = path.join(__dirname, 'activities.json');
+let activities = []; // lista simples, mais recente primeiro
+
+function loadActivitiesLocal() {
+  try {
+    if (fs.existsSync(ACTIVITIES_FILE)) activities = JSON.parse(fs.readFileSync(ACTIVITIES_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar atividades localmente:', err.message);
+  }
+}
+function saveActivitiesLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(ACTIVITIES_FILE, JSON.stringify(activities.slice(0, 500)), (err) => {
+    if (err) console.error('Erro ao salvar atividades localmente:', err.message);
   });
 }
 
@@ -629,6 +772,28 @@ io.on('connection', (socket) => {
     io.emit('groups_update', Object.values(groups));
   });
 
+  // Apagar o grupo por completo — só quem o criou pode fazer isto (não basta
+  // ser administrador promovido, para evitar que alguém apague o grupo de outra pessoa)
+  socket.on('group_delete', async (data) => {
+    const { groupId } = data || {};
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!group || !myPhone || group.createdByPhone !== myPhone) return;
+    delete groups[groupId];
+    delete messagesByRoom[groupId]; // apaga também o histórico de mensagens desse grupo
+
+    if (isDbConnected) {
+      await GroupModel.deleteOne({ id: groupId }).catch(e => console.error('Erro Mongo (apagar grupo):', e.message));
+      await MessageModel.deleteMany({ chatId: groupId }).catch(e => console.error('Erro Mongo (apagar mensagens do grupo):', e.message));
+    } else {
+      saveGroupsLocal();
+      saveMessagesLocal();
+    }
+    io.emit('groups_update', Object.values(groups));
+    io.emit('group_deleted', { groupId });
+    log(`🗑️ Grupo "${group.name}" apagado por ${users[socket.id]?.name || myPhone}`, 'GROUP');
+  });
+
   socket.on('join_room', (roomId) => {
     const user = users[socket.id];
     if (!user || !roomId) return;
@@ -671,6 +836,13 @@ io.on('connection', (socket) => {
     }
 
     socket.to(data.chatId).emit('receive_message', data);
+
+    // Notificação push (mesmo com a app fechada) — só para conversas 1-para-1 por agora
+    if (!group && data.toPhone) {
+      const senderName = data.sender || 'Alguém';
+      const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100))));
+      sendPushToPhone(data.toPhone, { title: senderName, body: preview, chatId: data.chatId }).catch(() => {});
+    }
   });
 
   socket.on('typing', (data) => {
@@ -695,6 +867,27 @@ io.on('connection', (socket) => {
       }
     }
     socket.to(data.chatId).emit('message_deleted_received', data);
+  });
+
+  // Editar uma mensagem já enviada — só quem a enviou pode editar, e só
+  // mensagens de texto normais (uma mensagem encriptada ponta-a-ponta não dá
+  // para editar aqui porque o servidor nunca vê o texto para poder validar
+  // o dono nem guardar a versão nova cifrada corretamente).
+  socket.on('edit_message', async (data) => {
+    if (!data?.chatId || !data?.messageId || typeof data.newText !== 'string' || !data.newText.trim()) return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find(m => m.id === data.messageId);
+    if (!msg || msg.senderPhone !== myPhone || msg.deleted || msg.encrypted || msg.fileData) return;
+    msg.text = data.newText.trim();
+    msg.edited = true;
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { text: msg.text, edited: true }).catch(e => console.error('Erro Mongo (editar mensagem):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    socket.to(data.chatId).emit('message_edited_received', { chatId: data.chatId, messageId: data.messageId, newText: msg.text });
   });
 
   socket.on('react_message', async (data) => {
@@ -820,6 +1013,57 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('location_stop_received', { phone: users[socket.id]?.phone });
   });
 
+  // ==================== ATIVIDADES (estilo Strava) ====================
+  socket.on('activity_save', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data || !data.type || !data.distanceMeters) return;
+    const activity = {
+      id: 'act_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      phone: myPhone,
+      name: users[socket.id]?.name || accounts[myPhone]?.name || 'Alguém',
+      type: data.type,
+      startTime: data.startTime || new Date().toISOString(),
+      distanceMeters: data.distanceMeters,
+      durationSeconds: data.durationSeconds || 0,
+      avgSpeedKmh: data.avgSpeedKmh || 0,
+      elevationGain: data.elevationGain || 0,
+      route: Array.isArray(data.route) ? data.route.filter((_, i) => i % 3 === 0) : [], // amostra 1 em cada 3 pontos, chega para desenhar a rota sem pesar demasiado
+      kudos: []
+    };
+    activities.unshift(activity);
+    if (activities.length > 500) activities = activities.slice(0, 500);
+    if (isDbConnected) {
+      await ActivityModel.create(activity).catch(e => console.error('Erro Mongo (atividade):', e.message));
+    } else {
+      saveActivitiesLocal();
+    }
+    socket.emit('activity_saved', activity);
+  });
+
+  socket.on('activities_feed_request', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    const visiblePhones = new Set([myPhone, ...(accounts[myPhone]?.contacts || [])]);
+    const feed = activities.filter(a => visiblePhones.has(a.phone)).slice(0, 60);
+    socket.emit('activities_feed', feed);
+  });
+
+  socket.on('activity_kudos', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const activity = activities.find(a => a.id === data?.activityId);
+    if (!myPhone || !activity) return;
+    if (!activity.kudos) activity.kudos = [];
+    const i = activity.kudos.indexOf(myPhone);
+    if (i === -1) activity.kudos.push(myPhone); else activity.kudos.splice(i, 1); // toca outra vez para tirar o kudos
+    if (isDbConnected) {
+      await ActivityModel.updateOne({ id: activity.id }, { kudos: activity.kudos }).catch(e => console.error('Erro Mongo (kudos):', e.message));
+    } else {
+      saveActivitiesLocal();
+    }
+    // avisa quem partilha atividades com esta pessoa (donos + quem a tem como contacto) para atualizarem o feed
+    io.emit('activity_kudos_updated', { activityId: activity.id, kudos: activity.kudos });
+  });
+
   socket.on('call_caption', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('call_caption_received', { text: data.text, name: users[socket.id]?.name || 'Alguém' });
@@ -863,7 +1107,8 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-connectDatabase().then(() => {
+connectDatabase().then(async () => {
+  await initPush();
   server.listen(PORT, '0.0.0.0', () => {
     let ipAddress = 'localhost';
     const nets = os.networkInterfaces();

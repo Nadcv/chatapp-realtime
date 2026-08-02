@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
     <title>ChatApp Completo - Mensageiro + IA + Multimídia</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#00a884">
+    <link rel="apple-touch-icon" href="/icon-192.png">
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -209,10 +212,19 @@
             border-radius: 8px;
         }
         #transportMap { flex: 1; width: 100%; }
-        .transport-tab.active {
+        .transport-tab.active, .activities-tab.active {
             background: var(--green, #00a884);
             color: #fff;
         }
+        #activityMap { width: 100%; }
+        .activity-card {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+        .activity-card .kudos-btn.given { color: #ff6b6b; }
         .location-footer {
             padding: 10px 14px;
             background: var(--bg-secondary);
@@ -1117,6 +1129,7 @@
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
+                <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
                 <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
                 <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
@@ -1174,6 +1187,40 @@
                 </div>
                 <div style="position:absolute;right:12px;bottom:12px;z-index:5;color:#fff;font-size:11px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:8px;">🖱️ Arrasta para olhar à volta · 🕹️ move-te</div>
             </div>
+        </div>
+        <div class="location-screen" id="activitiesScreen">
+            <div class="location-header">
+                <strong>🏃 Atividades</strong>
+                <button onclick="closeActivitiesScreen()">✖️</button>
+            </div>
+            <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <button class="btn-small activities-tab active" data-tab="record" onclick="switchActivitiesTab('record')" style="flex:1;">📍 Registar</button>
+                <button class="btn-small activities-tab" data-tab="feed" onclick="switchActivitiesTab('feed')" style="flex:1;">📰 Feed</button>
+            </div>
+
+            <div id="activitiesRecordTab" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+                <div id="activityMap" style="flex:1;"></div>
+                <div id="activityStatsBar" style="display:none;padding:10px 14px;background:var(--bg-secondary);color:var(--text-primary);text-align:center;">
+                    <div style="display:flex;justify-content:space-around;">
+                        <div><div style="font-size:20px;font-weight:600;" id="actStatDistance">0.00 km</div><div style="font-size:11px;color:var(--text-secondary);">Distância</div></div>
+                        <div><div style="font-size:20px;font-weight:600;" id="actStatTime">00:00</div><div style="font-size:11px;color:var(--text-secondary);">Tempo</div></div>
+                        <div><div style="font-size:20px;font-weight:600;" id="actStatPace">--</div><div style="font-size:11px;color:var(--text-secondary);">Ritmo/Vel.</div></div>
+                    </div>
+                </div>
+                <div class="location-footer" style="flex-direction:column;gap:10px;">
+                    <select id="activityTypeSelect" style="width:100%;">
+                        <option value="corrida">🏃 Corrida</option>
+                        <option value="caminhada">🚶 Caminhada</option>
+                        <option value="bicicleta">🚴 Bicicleta</option>
+                    </select>
+                    <div style="display:flex;gap:10px;width:100%;">
+                        <button class="btn btn-primary" id="activityStartBtn" onclick="toggleActivityRecording()" style="flex:1;">▶️ Começar</button>
+                        <button class="btn btn-primary btn-danger" id="activitySaveBtn" onclick="saveActivity()" style="flex:1;display:none;">✅ Guardar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="activitiesFeedTab" style="flex:1;overflow-y:auto;display:none;padding:10px;"></div>
         </div>
         <div class="location-screen" id="transportScreen">
             <div class="location-header">
@@ -1360,6 +1407,7 @@
                 <p style="color:#8696a0;font-size:13px;">Silenciar impede a pessoa de escrever; remover tira-a do grupo (pode ser desconvidado depois).</p>
                 <div style="max-height:340px;overflow:auto;" id="manageGroupList"></div>
                 <div class="modal-actions">
+                    <button class="btn-small btn-danger" id="deleteGroupBtn" style="display:none;" onclick="deleteCurrentGroup()">🗑️ Apagar grupo</button>
                     <button class="btn-small" onclick="closeModal('modalManageGroup')">Fechar</button>
                 </div>
             </div>
@@ -1722,6 +1770,43 @@
         // desencriptar", mesmo sendo perfeitamente decifráveis.
         await initE2EE();
         APP.chats.forEach(chat => socket.emit('join_room', chat.id));
+        initPushNotifications(); // não bloqueia a entrada na app — corre em segundo plano
+    }
+
+    // ==================== PWA: SERVICE WORKER + NOTIFICAÇÕES PUSH ====================
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('Erro ao registar service worker:', err.message));
+        });
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = atob(base64);
+        return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+    }
+
+    async function initPushNotifications() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return; // navegador sem suporte (ex: alguns iPhones mais antigos)
+        try {
+            const keyRes = await fetch('/api/vapid-public-key');
+            const { publicKey } = await keyRes.json();
+            if (!publicKey) return; // servidor ainda não tem notificações push configuradas
+            const reg = await navigator.serviceWorker.ready;
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') return; // usuário recusou — respeita a escolha, sem insistir
+                sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+            }
+            await fetch('/api/push-subscribe', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: APP.token, subscription: sub })
+            });
+        } catch (err) {
+            console.warn('Não foi possível ativar notificações push:', err.message);
+        }
     }
 
     // Restaura a sessão se já havia login guardado neste dispositivo
@@ -2241,8 +2326,23 @@
                 <button class="btn-small btn-danger" onclick="kickFromGroup('${c.phone}', '${c.name.replace(/'/g, '')}')" title="Remover do grupo">🚫</button>
             </div>`;
         }).join('') || '<p style="color:#8696a0;">Sem outros utilizadores cadastrados.</p>';
+        document.getElementById('deleteGroupBtn').style.display = chat.createdByPhone === myPhone ? 'inline-flex' : 'none';
         document.getElementById('modalManageGroup').classList.add('active');
     }
+
+    function deleteCurrentGroup() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') return;
+        if (chat.createdByPhone !== APP.user.phone) return alert('Só quem criou o grupo pode apagá-lo.');
+        if (!confirm(`Apagar o grupo "${chat.name}" para sempre? Isto também apaga todas as mensagens. Não é possível desfazer.`)) return;
+        socket.emit('group_delete', { groupId: chat.id });
+        closeModal('modalManageGroup');
+    }
+
+    socket.on('group_deleted', (data) => {
+        if (APP.currentChatId === data.groupId) closeChat();
+        delete APP.messages[data.groupId];
+    });
 
     function setGroupRole(targetPhone, role) {
         socket.emit('group_set_role', { groupId: APP.currentChatId, targetPhone, role });
@@ -2563,6 +2663,201 @@
         btn.classList.toggle('btn-danger', LOCATION.sharing);
     }
 
+    // ==================== ATIVIDADES (estilo Strava) ====================
+    const ACTIVITY = {
+        map: null,
+        tracking: false,
+        watchId: null,
+        route: [], // [{lat,lng}]
+        polyline: null,
+        startTime: null,
+        distanceMeters: 0,
+        timerInterval: null,
+        lastKudosGiven: new Set()
+    };
+
+    function openActivitiesScreen() {
+        document.getElementById('activitiesScreen').classList.add('active');
+        if (!ACTIVITY.map) {
+            ACTIVITY.map = L.map('activityMap').setView([38.72, -9.14], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(ACTIVITY.map);
+        }
+        setTimeout(() => ACTIVITY.map.invalidateSize(), 200);
+        switchActivitiesTab('record');
+    }
+
+    function closeActivitiesScreen() {
+        document.getElementById('activitiesScreen').classList.remove('active');
+    }
+
+    function switchActivitiesTab(tab) {
+        document.querySelectorAll('.activities-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+        document.getElementById('activitiesRecordTab').style.display = tab === 'record' ? 'flex' : 'none';
+        document.getElementById('activitiesFeedTab').style.display = tab === 'feed' ? 'block' : 'none';
+        if (tab === 'record') setTimeout(() => ACTIVITY.map?.invalidateSize(), 150);
+        else loadActivitiesFeed();
+    }
+
+    function formatDuration(seconds) {
+        const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = Math.floor(seconds % 60);
+        return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function toggleActivityRecording() {
+        if (ACTIVITY.tracking) return stopActivityRecording();
+        if (!navigator.geolocation) return alert('Este dispositivo não tem GPS/geolocalização disponível.');
+        ACTIVITY.tracking = true;
+        ACTIVITY.route = [];
+        ACTIVITY.distanceMeters = 0;
+        ACTIVITY.startTime = Date.now();
+        document.getElementById('activityStartBtn').textContent = '⏹️ Terminar';
+        document.getElementById('activityStatsBar').style.display = 'block';
+        document.getElementById('activityTypeSelect').disabled = true;
+        if (ACTIVITY.polyline) { ACTIVITY.map.removeLayer(ACTIVITY.polyline); ACTIVITY.polyline = null; }
+
+        ACTIVITY.timerInterval = setInterval(updateActivityStats, 1000);
+        ACTIVITY.watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const { latitude: lat, longitude: lng } = pos.coords;
+                if (ACTIVITY.route.length > 0) {
+                    const last = ACTIVITY.route[ACTIVITY.route.length - 1];
+                    ACTIVITY.distanceMeters += haversineMeters(last.lat, last.lng, lat, lng);
+                }
+                ACTIVITY.route.push({ lat, lng });
+                if (!ACTIVITY.polyline) {
+                    ACTIVITY.polyline = L.polyline([[lat, lng]], { color: '#00a884', weight: 5 }).addTo(ACTIVITY.map);
+                } else {
+                    ACTIVITY.polyline.addLatLng([lat, lng]);
+                }
+                ACTIVITY.map.panTo([lat, lng]);
+                updateActivityStats();
+            },
+            (err) => alert('Erro no GPS: ' + err.message),
+            { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+        );
+    }
+
+    function updateActivityStats() {
+        const km = ACTIVITY.distanceMeters / 1000;
+        const seconds = (Date.now() - ACTIVITY.startTime) / 1000;
+        document.getElementById('actStatDistance').textContent = km.toFixed(2) + ' km';
+        document.getElementById('actStatTime').textContent = formatDuration(seconds);
+        const type = document.getElementById('activityTypeSelect').value;
+        if (km > 0.05) {
+            if (type === 'bicicleta') {
+                const kmh = km / (seconds / 3600);
+                document.getElementById('actStatPace').textContent = kmh.toFixed(1) + ' km/h';
+            } else {
+                const paceMinPerKm = (seconds / 60) / km;
+                const min = Math.floor(paceMinPerKm), sec = Math.round((paceMinPerKm - min) * 60);
+                document.getElementById('actStatPace').textContent = `${min}:${String(sec).padStart(2, '0')} /km`;
+            }
+        }
+    }
+
+    function stopActivityRecording() {
+        ACTIVITY.tracking = false;
+        if (ACTIVITY.watchId != null) navigator.geolocation.clearWatch(ACTIVITY.watchId);
+        clearInterval(ACTIVITY.timerInterval);
+        document.getElementById('activityStartBtn').style.display = 'none';
+        document.getElementById('activitySaveBtn').style.display = 'block';
+        if (ACTIVITY.distanceMeters < 20) {
+            alert('A atividade é demasiado curta para guardar (menos de 20 metros percorridos).');
+            resetActivityRecordingUI();
+        }
+    }
+
+    function saveActivity() {
+        const seconds = (Date.now() - ACTIVITY.startTime) / 1000;
+        const avgSpeedKmh = (ACTIVITY.distanceMeters / 1000) / (seconds / 3600);
+        socket.emit('activity_save', {
+            type: document.getElementById('activityTypeSelect').value,
+            startTime: new Date(ACTIVITY.startTime).toISOString(),
+            distanceMeters: Math.round(ACTIVITY.distanceMeters),
+            durationSeconds: Math.round(seconds),
+            avgSpeedKmh: Math.round(avgSpeedKmh * 10) / 10,
+            route: ACTIVITY.route
+        });
+    }
+
+    socket.on('activity_saved', () => {
+        alert('✅ Atividade guardada! Já podes vê-la no separador Feed.');
+        resetActivityRecordingUI();
+        switchActivitiesTab('feed');
+    });
+
+    function resetActivityRecordingUI() {
+        document.getElementById('activityStartBtn').textContent = '▶️ Começar';
+        document.getElementById('activityStartBtn').style.display = 'block';
+        document.getElementById('activitySaveBtn').style.display = 'none';
+        document.getElementById('activityStatsBar').style.display = 'none';
+        document.getElementById('activityTypeSelect').disabled = false;
+        if (ACTIVITY.polyline) { ACTIVITY.map.removeLayer(ACTIVITY.polyline); ACTIVITY.polyline = null; }
+        ACTIVITY.route = [];
+        ACTIVITY.distanceMeters = 0;
+    }
+
+    const ACTIVITY_ICONS = { corrida: '🏃', caminhada: '🚶', bicicleta: '🚴' };
+    let currentActivitiesFeed = [];
+
+    function loadActivitiesFeed() {
+        document.getElementById('activitiesFeedTab').innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">A carregar...</p>';
+        socket.emit('activities_feed_request');
+    }
+
+    socket.on('activities_feed', (feed) => {
+        currentActivitiesFeed = feed || [];
+        renderActivitiesFeed();
+    });
+
+    socket.on('activity_kudos_updated', (data) => {
+        const act = currentActivitiesFeed.find(a => a.id === data.activityId);
+        if (act) { act.kudos = data.kudos; renderActivitiesFeed(); }
+    });
+
+    function renderActivitiesFeed() {
+        const box = document.getElementById('activitiesFeedTab');
+        if (!currentActivitiesFeed.length) {
+            box.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não há atividades — as tuas e as dos teus contactos aparecem aqui. Regista a primeira no separador "Registar"! 🏃</p>';
+            return;
+        }
+        box.innerHTML = currentActivitiesFeed.map(a => {
+            const km = (a.distanceMeters / 1000).toFixed(2);
+            const gaveKudos = (a.kudos || []).includes(APP.user.phone);
+            const dateStr = new Date(a.startTime).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short' });
+            const isMine = a.phone === APP.user.phone;
+            return `
+            <div class="activity-card">
+                <strong>${ACTIVITY_ICONS[a.type] || '🏃'} ${isMine ? 'Você' : a.name}</strong>
+                <span style="color:#8696a0;font-size:12px;"> · ${dateStr}</span>
+                <div style="display:flex;justify-content:space-around;margin:10px 0;text-align:center;">
+                    <div><div style="font-weight:600;">${km} km</div><div style="font-size:11px;color:#8696a0;">Distância</div></div>
+                    <div><div style="font-weight:600;">${formatDuration(a.durationSeconds)}</div><div style="font-size:11px;color:#8696a0;">Tempo</div></div>
+                    <div><div style="font-weight:600;">${a.avgSpeedKmh} km/h</div><div style="font-size:11px;color:#8696a0;">Vel. média</div></div>
+                </div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn-small kudos-btn ${gaveKudos ? 'given' : ''}" onclick="toggleActivityKudos('${a.id}')">👏 ${(a.kudos || []).length}</button>
+                    ${a.route?.length > 1 ? `<button class="btn-small" onclick='showActivityRoute(${JSON.stringify(a.route)})'>🗺️ Ver rota</button>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function toggleActivityKudos(activityId) {
+        socket.emit('activity_kudos', { activityId });
+    }
+
+    function showActivityRoute(route) {
+        if (!route || route.length < 2) return;
+        switchActivitiesTab('record');
+        setTimeout(() => {
+            if (ACTIVITY.polyline) ACTIVITY.map.removeLayer(ACTIVITY.polyline);
+            const latlngs = route.map(p => [p.lat, p.lng]);
+            ACTIVITY.polyline = L.polyline(latlngs, { color: '#6c5ce7', weight: 5 }).addTo(ACTIVITY.map);
+            ACTIVITY.map.fitBounds(ACTIVITY.polyline.getBounds(), { padding: [30, 30] });
+        }, 250);
+    }
+
     function toggleShareLocation() {
         if (LOCATION.sharing) {
             if (LOCATION.watchId != null) navigator.geolocation.clearWatch(LOCATION.watchId);
@@ -2750,11 +3045,13 @@
             const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
+            const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
+            const editedLabel = msg.edited ? '<span style="opacity:0.6;font-size:10px;"> (editada)</span>' : '';
             html += `
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 <div class="time">
@@ -2762,6 +3059,7 @@
                     <button onclick="replyToMessage('${msg.id}')" title="Responder" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↩️</button>
                     <button onclick="toggleReactionPicker('${msg.id}', this)" title="Reagir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">😀</button>
                     <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🌐</button>
+                    ${canEdit ? `<button onclick="editMessage('${msg.id}')" title="Editar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">✏️</button>` : ''}
                     ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Apagar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🗑️</button>` : ''}
                     ` : ''}
                     ${msg.time?.split(' ')[1] || msg.time} ${tick}
@@ -2803,25 +3101,92 @@
         reader.readAsDataURL(file);
     }
 
-    function sendAttachmentMessage(dataUrl, fileName, fileType) {
+    async function sendAttachmentMessage(dataUrl, fileName, fileType, transcript) {
         const now = new Date();
         const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const isImage = (fileType || '').startsWith('image/');
         const isAudio = (fileType || '').startsWith('audio/');
         const text = isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`);
-        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType };
+        // Mostra já localmente com o ficheiro original — não espera pelo upload para dar feedback instantâneo
+        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push(payload);
         renderMessages();
         renderChatList();
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        if (chat?.type === 'ai') return; // a IA (texto) ignora anexos por agora
+
+        // Tenta enviar para armazenamento externo (Cloudinary) para não sobrecarregar
+        // a base de dados com base64 — se não estiver configurado, usa o método antigo.
+        let outgoingFileData = dataUrl;
+        try {
+            const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+            const data = await res.json();
+            if (data.success && data.url) outgoingFileData = data.url;
+        } catch (e) {
+            // sem internet momentânea ou erro qualquer — segue com o base64 mesmo, não bloqueia o envio
+        }
+
+        if (chat?.type === 'ai') {
+            // Para a IA analisar, o URL público do Cloudinary é sempre preferível ao
+            // base64 (mais leve no pedido); se não houver Cloudinary configurado,
+            // o base64 em si também funciona como image_url no formato OpenAI.
+            payload.fileData = outgoingFileData;
+            askAIAssistant(APP.currentChatId);
+            return;
+        }
+
         socket.emit('send_message', {
             id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
             toPhone: chat.type === 'user' ? chat.phone : undefined,
-            text, time, fileData: dataUrl, fileName, fileType
+            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null
         });
+    }
+
+    // Converte uma mensagem (texto, foto ou áudio) no formato que a API da IA
+    // entende — fotos viram um bloco "image_url" (visão multimodal), áudios
+    // usam a transcrição capturada durante a gravação (quando existe).
+    function messageToAIContent(m) {
+        if ((m.fileType || '').startsWith('image/') && m.fileData) {
+            return [
+                { type: 'text', text: (m.text && m.text !== '📷 Foto') ? m.text : 'Descreve o que vês nesta imagem.' },
+                { type: 'image_url', image_url: { url: m.fileData } }
+            ];
+        }
+        if ((m.fileType || '').startsWith('audio/')) {
+            return m.transcript ? `[Mensagem de voz, transcrita automaticamente]: "${m.transcript}"` : '[O usuário enviou uma mensagem de voz, mas não foi possível transcrevê-la automaticamente neste navegador — pede para escrever o que disse, se for importante.]';
+        }
+        if (m.fileData) return `[Enviou um ficheiro: ${m.fileName || 'documento'}]`;
+        return m.text;
+    }
+
+    // Pede uma resposta da assistente de IA com base no histórico da conversa
+    // (usado tanto depois de uma mensagem de texto como de uma foto/áudio)
+    function askAIAssistant(chatId) {
+        document.getElementById('chatSubtitle').textContent = chatId === APP.currentChatId ? 'Inteligência Artificial · digitando...' : document.getElementById('chatSubtitle').textContent;
+        const history = APP.messages[chatId].slice(-12).map(m => ({ role: m.type === 'sent' ? 'user' : 'assistant', content: messageToAIContent(m) }));
+        fetch('/api/ai-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: [
+                    { role: 'system', content: 'Você é uma assistente de IA simpática e útil, integrada num app de chat chamado ChatApp. Consegue ver fotos que lhe enviarem e ler transcrições de mensagens de voz. Responda em português, de forma breve e natural.' },
+                    ...history
+                ]
+            })
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                const replyText = ok ? (data.reply || 'Desculpe, não consegui responder agora.') : ('⚠️ ' + (data.error || 'A IA não está disponível agora.'));
+                APP.messages[chatId].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: replyText, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
+                if (APP.currentChatId === chatId) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
+                renderChatList();
+            })
+            .catch(() => {
+                APP.messages[chatId].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: '⚠️ Não foi possível ligar ao servidor da IA. Tente novamente.', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
+                if (APP.currentChatId === chatId) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
+                renderChatList();
+            });
     }
 
     function renderAttachment(msg) {
@@ -2831,7 +3196,8 @@
             return `<img src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">`;
         }
         if (type.startsWith('audio/')) {
-            return `<audio controls src="${msg.fileData}" style="max-width:220px;margin-top:4px;"></audio>`;
+            const transcriptHtml = msg.transcript ? `<div style="font-size:11px;opacity:0.75;font-style:italic;margin-top:3px;max-width:220px;">📝 "${msg.transcript}"</div>` : '';
+            return `<audio controls src="${msg.fileData}" style="max-width:220px;margin-top:4px;"></audio>${transcriptHtml}`;
         }
         return `<a href="${msg.fileData}" download="${msg.fileName || 'ficheiro'}" style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.15);padding:8px;border-radius:8px;margin-top:4px;color:inherit;text-decoration:none;">📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${msg.fileName || 'ficheiro'}</span></a>`;
     }
@@ -2855,8 +3221,34 @@
             voiceChunks = [];
             voiceRecorder = new MediaRecorder(stream);
             voiceRecorder.ondataavailable = (e) => { if (e.data.size > 0) voiceChunks.push(e.data); };
+
+            // Transcrição em paralelo (Web Speech API) — assim a assistente de IA
+            // consegue "ler" o que foi dito na mensagem de voz. Só funciona em
+            // navegadores com suporte (Chrome/Android; limitado no Safari/iPhone);
+            // sem suporte, a mensagem de voz continua a funcionar normalmente, só
+            // sem transcrição.
+            let voiceTranscript = '';
+            const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+            let voiceRecognition = null;
+            if (SpeechRecognitionAPI) {
+                try {
+                    voiceRecognition = new SpeechRecognitionAPI();
+                    voiceRecognition.continuous = true;
+                    voiceRecognition.interimResults = false;
+                    voiceRecognition.lang = navigator.language || 'pt-PT';
+                    voiceRecognition.onresult = (e) => {
+                        for (let i = e.resultIndex; i < e.results.length; i++) {
+                            if (e.results[i].isFinal) voiceTranscript += e.results[i][0].transcript + ' ';
+                        }
+                    };
+                    voiceRecognition.onerror = () => {}; // ignora silenciosamente — a gravação em si não depende disto
+                    voiceRecognition.start();
+                } catch (e) { voiceRecognition = null; }
+            }
+
             voiceRecorder.onstop = () => {
                 voiceStream.getTracks().forEach(t => t.stop());
+                if (voiceRecognition) { try { voiceRecognition.stop(); } catch (e) {} }
                 clearInterval(voiceTimerInterval);
                 const btn = document.getElementById('voiceRecordBtn');
                 btn.textContent = '🎤';
@@ -2865,7 +3257,7 @@
                 const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
                 if (blob.size > MAX_ATTACHMENT_MB * 1024 * 1024) return alert('Áudio muito longo (acima de ' + MAX_ATTACHMENT_MB + 'MB).');
                 const reader = new FileReader();
-                reader.onload = () => sendAttachmentMessage(reader.result, 'audio.webm', blob.type);
+                reader.onload = () => sendAttachmentMessage(reader.result, 'audio.webm', blob.type, voiceTranscript.trim());
                 reader.readAsDataURL(blob);
             };
             voiceRecorder.start();
@@ -2906,31 +3298,7 @@
         if (!chat) return;
 
         if (chat.type === 'ai') {
-            const chatIdAtSend = APP.currentChatId;
-            document.getElementById('chatSubtitle').textContent = chatIdAtSend === APP.currentChatId ? 'Inteligência Artificial · digitando...' : document.getElementById('chatSubtitle').textContent;
-            const history = APP.messages[chatIdAtSend].slice(-12).map(m => ({ role: m.type === 'sent' ? 'user' : 'assistant', content: m.text }));
-            fetch('/api/ai-chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: [
-                        { role: 'system', content: 'Você é uma assistente de IA simpática e útil, integrada num app de chat chamado ChatApp. Responda em português, de forma breve e natural.' },
-                        ...history
-                    ]
-                })
-            })
-                .then(r => r.json().then(data => ({ ok: r.ok, data })))
-                .then(({ ok, data }) => {
-                    const replyText = ok ? (data.reply || 'Desculpe, não consegui responder agora.') : ('⚠️ ' + (data.error || 'A IA não está disponível agora.'));
-                    APP.messages[chatIdAtSend].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: replyText, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
-                    if (APP.currentChatId === chatIdAtSend) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
-                    renderChatList();
-                })
-                .catch(() => {
-                    APP.messages[chatIdAtSend].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: '⚠️ Não foi possível ligar ao servidor da IA. Tente novamente.', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
-                    if (APP.currentChatId === chatIdAtSend) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
-                    renderChatList();
-                });
+            askAIAssistant(APP.currentChatId);
         } else {
             let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo };
             if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {
@@ -2963,9 +3331,11 @@
                 replyTo: m.replyTo || null,
                 reactions: m.reactions || null,
                 deleted: !!m.deleted,
+                edited: !!m.edited,
                 fileData: m.fileData || null,
                 fileName: m.fileName || null,
-                fileType: m.fileType || null
+                fileType: m.fileType || null,
+                transcript: m.transcript || null
             };
         }));
         APP.messages[data.chatId] = APP.messages[data.chatId].concat(historyEntries);
@@ -2992,7 +3362,8 @@
             replyTo: data.replyTo || null,
             fileData: data.fileData || null,
             fileName: data.fileName || null,
-            fileType: data.fileType || null
+            fileType: data.fileType || null,
+            transcript: data.transcript || null
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();
@@ -3074,6 +3445,29 @@
         renderMessages();
         socket.emit('delete_message', { chatId: APP.currentChatId, messageId: msgId });
     }
+
+    // Editar uma mensagem já enviada — só texto simples (sem anexo, sem estar
+    // cifrada ponta-a-ponta, ver explicação no servidor)
+    function editMessage(msgId) {
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        if (!msg) return;
+        const newText = prompt('Editar mensagem:', msg.text);
+        if (newText == null) return; // cancelou
+        const trimmed = newText.trim();
+        if (!trimmed || trimmed === msg.text) return;
+        msg.text = trimmed;
+        msg.edited = true;
+        renderMessages();
+        socket.emit('edit_message', { chatId: APP.currentChatId, messageId: msgId, newText: trimmed });
+    }
+
+    socket.on('message_edited_received', (data) => {
+        const msgs = APP.messages[data.chatId];
+        if (!msgs) return;
+        const msg = msgs.find(m => m.id === data.messageId);
+        if (msg) { msg.text = data.newText; msg.edited = true; }
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
 
     const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
     function toggleReactionPicker(msgId, btnEl) {
