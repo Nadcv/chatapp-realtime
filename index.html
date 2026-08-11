@@ -29,6 +29,24 @@
             --radius: 12px;
             --transition: 0.25s ease;
         }
+        /* Tema claro — ativado ao pôr data-theme="light" no <html> (ver toggleTheme()) */
+        html[data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f0f2f5;
+            --bg-tertiary: #e9edef;
+            --bg-chat: #efeae2;
+            --text-primary: #111b21;
+            --text-secondary: #667781;
+            --green: #00a884;
+            --green-dark: #d9fdd3;
+            --blue: #027eb5;
+            --red: #ef4444;
+            --msg-out: #d9fdd3;
+            --msg-in: #ffffff;
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        html[data-theme="light"] .message.sent, html[data-theme="light"] .message.received { color: #111b21; }
+        html[data-theme="light"] body { background: #d8dbdf; }
         * {
             margin: 0;
             padding: 0;
@@ -153,6 +171,11 @@
             z-index: 20;
         }
         .reaction-picker span { font-size: 18px; cursor: pointer; }
+        .message.search-hit {
+            outline: 2px solid var(--green);
+            outline-offset: 2px;
+        }
+        .sidebar-tab.active { color: var(--text-primary) !important; }
         .reply-preview-bar {
             display: flex;
             align-items: center;
@@ -217,6 +240,22 @@
             color: #fff;
         }
         #activityMap { width: 100%; }
+        .apps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        .app-tile {
+            background: var(--bg-secondary);
+            border-radius: 14px;
+            padding: 16px 8px;
+            text-align: center;
+            color: var(--text-primary);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .app-tile-icon { font-size: 30px; margin-bottom: 6px; }
+        .app-tile-soon { opacity: 0.5; }
         .activity-card {
             background: var(--bg-secondary);
             border-radius: 10px;
@@ -386,6 +425,31 @@
         }
         .header-actions::-webkit-scrollbar { display: none; } /* Chrome/Safari */
         .header-actions .btn-icon { flex: 0 0 auto; }
+        .more-menu {
+            display: none;
+            position: absolute;
+            top: 44px;
+            right: 0;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            min-width: 200px;
+            z-index: 50;
+            overflow: hidden;
+        }
+        .more-menu.active { display: block; }
+        .more-menu button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .more-menu button:hover { background: var(--bg-tertiary); }
         .main-content {
             display: flex;
             flex: 1;
@@ -1116,23 +1180,28 @@
     <div id="mainApp" style="display:none;flex-direction:column;flex:1;overflow:hidden;position:relative;width:100%;">
         <div class="app-header">
             <div class="header-user">
-                <div class="header-avatar" id="headerAvatar">U</div>
+                <div class="header-avatar" id="headerAvatar" onclick="openProfileModal()" style="cursor:pointer;">U</div>
                 <div class="header-info">
                     <h3 id="headerName">Usuário</h3>
                     <span>Online</span>
                 </div>
             </div>
             <div class="header-actions">
-                <button class="btn-icon" onclick="openTranslatorModal()" title="Idioma do tradutor">🌐</button>
-                <button class="btn-icon" onclick="toggleMusicPlayer()" title="Música de fundo">🎵</button>
-                <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
-                <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
-                <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
-                <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
-                <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
-                <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
-                <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
+                <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
+                <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
+                <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
+                <div style="position:relative;">
+                    <button class="btn-icon" onclick="toggleMoreMenu()" title="Mais opções">⋮</button>
+                    <div id="moreMenu" class="more-menu">
+                        <button onclick="closeMoreMenu(); openProfileModal();">👤 O meu perfil</button>
+                        <button onclick="closeMoreMenu(); openTranslatorModal();">🌐 Tradutor</button>
+                        <button onclick="closeMoreMenu(); toggleMusicPlayer();">🎵 Música de fundo</button>
+                        <button onclick="closeMoreMenu(); openAppsHub();">🧩 Aplicações</button>
+                        <button onclick="closeMoreMenu(); toggleTheme();">🌓 Tema claro/escuro</button>
+                        <button onclick="closeMoreMenu(); logout();">🚪 Sair</button>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="main-content">
@@ -1140,7 +1209,13 @@
                 <div class="search-bar">
                     <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)">
                 </div>
+                <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.08);flex:0 0 auto;">
+                    <button class="sidebar-tab active" id="tabConversas" onclick="switchSidebarTab('chats')" style="flex:1;padding:10px;background:none;border:none;color:var(--text-primary);font-size:13px;cursor:pointer;border-bottom:2px solid var(--green);">💬 Conversas</button>
+                    <button class="sidebar-tab" id="tabEstados" onclick="switchSidebarTab('status')" style="flex:1;padding:10px;background:none;border:none;color:var(--text-secondary);font-size:13px;cursor:pointer;border-bottom:2px solid transparent;">🟢 Estados</button>
+                    <button class="sidebar-tab" id="tabChamadas" onclick="switchSidebarTab('calls')" style="flex:1;padding:10px;background:none;border:none;color:var(--text-secondary);font-size:13px;cursor:pointer;border-bottom:2px solid transparent;">📞 Chamadas</button>
+                </div>
                 <div class="chat-list" id="chatList"></div>
+                <div class="chat-list" id="statusPanel" style="display:none;"></div>
             </div>
             <div class="chat-area" id="chatArea">
                 <div class="chat-header">
@@ -1151,6 +1226,8 @@
                         <span id="chatSubtitle"></span>
                     </div>
                     <div style="margin-left:auto;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:60vw;">
+                        <button class="btn-icon" onclick="toggleChatSearch()" title="Pesquisar nesta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🔍</button>
+                        <button class="btn-icon" id="muteToggleBtn" onclick="toggleMuteChat()" title="Silenciar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🔔</button>
                         <button class="btn-icon" onclick="summarizeChat()" title="Resumir conversa (IA)" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📝</button>
                         <button class="btn-icon" id="manageGroupBtn" onclick="openManageGroupModal()" title="Gerir grupo" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">👑</button>
                         <button class="btn-icon" onclick="openLocationScreen()" title="Localização em tempo real" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📍</button>
@@ -1158,7 +1235,30 @@
                         <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📹</button>
                         <button class="btn-icon" onclick="startConference()" title="Conferência" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🎥</button>
                         <button class="btn-icon" id="vrRoomBtn" onclick="openVrRoom()" title="Sala de Realidade Virtual" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">🕶️</button>
+                        <div style="position:relative;flex:0 0 auto;">
+                            <button class="btn-icon" onclick="toggleChatOptionsMenu()" title="Mais opções" style="width:36px;height:36px;font-size:16px;">⋮</button>
+                            <div id="chatOptionsMenu" class="more-menu">
+                                <button onclick="closeChatOptionsMenu(); openDisappearingModal();">⏳ Mensagens temporárias</button>
+                                <button onclick="closeChatOptionsMenu(); exportChat();">📤 Exportar conversa</button>
+                                <button onclick="closeChatOptionsMenu(); openScheduleModal();">📅 Agendar mensagem</button>
+                            </div>
+                        </div>
                     </div>
+                </div>
+                <div id="chatSearchBar" style="display:none;padding:8px 12px;background:var(--bg-secondary);gap:8px;align-items:center;">
+                    <input type="text" id="chatSearchInput" placeholder="Pesquisar nas mensagens..." oninput="runChatSearch(this.value)" style="flex:1;padding:8px 12px;border-radius:20px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);outline:none;">
+                    <span id="chatSearchCount" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;"></span>
+                    <button onclick="chatSearchNav(-1)" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">⬆️</button>
+                    <button onclick="chatSearchNav(1)" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">⬇️</button>
+                    <button onclick="toggleChatSearch()" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">✖️</button>
+                </div>
+                <div id="pinnedBanner" style="display:none;padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid rgba(255,255,255,0.08);align-items:center;gap:8px;cursor:pointer;" onclick="scrollToPinned()">
+                    <span style="font-size:14px;">📌</span>
+                    <div style="flex:1;overflow:hidden;">
+                        <div style="font-size:11px;color:var(--text-secondary);">Mensagem fixada</div>
+                        <div id="pinnedBannerText" style="font-size:13px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+                    </div>
+                    <button onclick="event.stopPropagation(); unpinCurrentMessage();" style="background:none;border:none;color:var(--text-secondary);font-size:14px;cursor:pointer;">✖️</button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="reply-preview-bar" id="replyPreviewBar" style="display:none;">
@@ -1186,6 +1286,88 @@
                     <div id="vrJoystickStick" style="position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.35);"></div>
                 </div>
                 <div style="position:absolute;right:12px;bottom:12px;z-index:5;color:#fff;font-size:11px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:8px;">🖱️ Arrasta para olhar à volta · 🕹️ move-te</div>
+            </div>
+        </div>
+        <div class="location-screen" id="todoScreen">
+            <div class="location-header">
+                <strong id="todoTitle">✅ Tarefas</strong>
+                <button onclick="closeTodoApp()">✖️</button>
+            </div>
+            <div id="todoList" style="flex:1;overflow-y:auto;padding:12px;"></div>
+            <div class="location-footer">
+                <input type="text" id="todoInput" placeholder="Nova tarefa..." style="flex:1;" onkeypress="if(event.key==='Enter')addTodoItem()">
+                <button class="btn-small btn-accept" onclick="addTodoItem()">Adicionar</button>
+            </div>
+        </div>
+        <div class="location-screen" id="notesScreen">
+            <div class="location-header">
+                <strong>📔 Notas</strong>
+                <button onclick="closeNotesApp()">✖️</button>
+            </div>
+            <div id="notesListView" style="flex:1;overflow-y:auto;padding:12px;">
+                <button class="btn btn-primary" onclick="editNote(null)" style="margin-bottom:12px;">➕ Nova nota</button>
+                <div id="notesList"></div>
+            </div>
+            <div id="notesEditView" style="flex:1;display:none;flex-direction:column;padding:12px;gap:10px;">
+                <input type="text" id="noteTitleInput" placeholder="Título">
+                <textarea id="noteTextInput" placeholder="Escreve aqui..." style="flex:1;resize:none;background:var(--bg-tertiary);border:none;border-radius:8px;padding:10px;color:var(--text-primary);"></textarea>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn-small" onclick="backToNotesList()">← Voltar</button>
+                    <button class="btn-small btn-accept" onclick="saveCurrentNote()" style="flex:1;">💾 Guardar</button>
+                </div>
+            </div>
+        </div>
+        <div class="location-screen" id="weatherScreen">
+            <div class="location-header">
+                <strong>🌦️ Tempo</strong>
+                <button onclick="closeWeatherApp()">✖️</button>
+            </div>
+            <div id="weatherContent" style="flex:1;overflow-y:auto;padding:20px;color:var(--text-primary);text-align:center;"></div>
+        </div>
+        <div class="location-screen" id="appsHubScreen">
+            <div class="location-header">
+                <strong>🧩 Aplicações</strong>
+                <button onclick="closeAppsHub()">✖️</button>
+            </div>
+            <div style="flex:1;overflow-y:auto;padding:16px;">
+                <div class="apps-grid">
+                    <div class="app-tile" onclick="closeAppsHub(); openActivitiesScreen();">
+                        <div class="app-tile-icon">🏃</div><div>Atividades</div>
+                    </div>
+                    <div class="app-tile" onclick="closeAppsHub(); openTransportScreen();">
+                        <div class="app-tile-icon">🚌</div><div>Transportes</div>
+                    </div>
+                    <div class="app-tile" onclick="closeAppsHub(); openDriveListenScreen();">
+                        <div class="app-tile-icon">🚗</div><div>Conduzir e Ouvir</div>
+                    </div>
+                    <div class="app-tile" onclick="closeAppsHub(); alert('A Sala de Realidade Virtual abre a partir do cabeçalho de uma conversa de grupo (ícone 🕶️).');">
+                        <div class="app-tile-icon">🕶️</div><div>Sala Virtual</div>
+                    </div>
+                    <div class="app-tile" onclick="closeAppsHub(); openTodoApp();">
+                        <div class="app-tile-icon">✅</div><div>Tarefas</div>
+                    </div>
+                    <div class="app-tile" onclick="closeAppsHub(); openNotesApp();">
+                        <div class="app-tile-icon">📔</div><div>Notas</div>
+                    </div>
+                    <div class="app-tile" onclick="closeAppsHub(); openWeatherApp();">
+                        <div class="app-tile-icon">🌦️</div><div>Tempo</div>
+                    </div>
+                    <div class="app-tile app-tile-soon" onclick="alert('Brevemente disponível! 🙂')">
+                        <div class="app-tile-icon">💰</div><div>Dividir despesas</div>
+                    </div>
+                    <div class="app-tile app-tile-soon" onclick="alert('Brevemente disponível! 🙂')">
+                        <div class="app-tile-icon">📅</div><div>Agenda de grupo</div>
+                    </div>
+                    <div class="app-tile app-tile-soon" onclick="alert('Brevemente disponível! 🙂')">
+                        <div class="app-tile-icon">🎮</div><div>Jogos</div>
+                    </div>
+                    <div class="app-tile app-tile-soon" onclick="alert('Brevemente disponível! 🙂')">
+                        <div class="app-tile-icon">🍽️</div><div>Perto de ti</div>
+                    </div>
+                    <div class="app-tile app-tile-soon" onclick="alert('Brevemente disponível! 🙂')">
+                        <div class="app-tile-icon">🏆</div><div>Ranking semanal</div>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="location-screen" id="activitiesScreen">
@@ -1335,6 +1517,7 @@
                 <button class="call-btn call-btn-action" onclick="toggleCallChat()" title="Mensagens">💬</button>
                 <button class="call-btn call-btn-action" onclick="toggleLiveCaptions()" id="captionBtn" title="Legendas ao vivo traduzidas">💬🌐</button>
                 <button class="call-btn call-btn-end" onclick="endCall()">❌</button>
+                <button class="call-btn call-btn-action" onclick="flipCamera()" title="Trocar câmara (frente/trás)">🔄📷</button>
                 <button class="call-btn call-btn-action" onclick="toggleCamera()">📸</button>
             </div>
         </div>
@@ -1412,6 +1595,18 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalProfile">
+            <div class="modal" style="text-align:center;">
+                <h3>👤 O meu perfil</h3>
+                <div id="profileAvatarPreview" class="chat-item-avatar avatar-user" style="width:90px;height:90px;font-size:36px;margin:14px auto;">U</div>
+                <input type="file" id="profilePhotoInput" accept="image/*" style="display:none;" onchange="handleProfilePhotoSelected(this)">
+                <button class="btn-small btn-accept" onclick="document.getElementById('profilePhotoInput').click()">📷 Escolher foto</button>
+                <p style="color:#8696a0;font-size:12px;margin-top:14px;" id="profileNameLine"></p>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalSearchUser">
             <div class="modal">
                 <h3>🔍 Procurar utilizador</h3>
@@ -1449,6 +1644,109 @@
                 </div>
             </div>
         </div>
+
+        <!-- ============ ESTADOS (stories, 24h) ============ -->
+        <div class="modal-overlay" id="modalNewStatus">
+            <div class="modal">
+                <h3>🟢 Novo estado</h3>
+                <p style="color:#8696a0;font-size:13px;">Fica visível 24 horas.</p>
+                <div id="newStatusPhotoPreview" style="display:none;width:100%;max-height:200px;overflow:hidden;border-radius:10px;margin-bottom:10px;"><img id="newStatusPhotoImg" style="width:100%;object-fit:cover;"></div>
+                <input type="file" id="statusPhotoInput" accept="image/*" style="display:none;" onchange="handleStatusPhotoSelected(this)">
+                <textarea id="newStatusText" placeholder="No que estás a pensar?" maxlength="300"></textarea>
+                <div class="modal-actions" style="justify-content:space-between;">
+                    <button class="btn-small" onclick="document.getElementById('statusPhotoInput').click()">📷 Foto</button>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn-small" onclick="closeModal('modalNewStatus')">Cancelar</button>
+                        <button class="btn-small btn-accept" onclick="postStatus()">Publicar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalViewStatus" style="z-index:210;">
+            <div class="modal" style="padding:0;overflow:hidden;max-width:420px;">
+                <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.3);">
+                    <div class="chat-item-avatar avatar-user" style="width:34px;height:34px;font-size:14px;" id="statusViewerAvatar">U</div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;font-size:14px;" id="statusViewerName"></div>
+                        <div style="font-size:11px;color:var(--text-secondary);" id="statusViewerTime"></div>
+                    </div>
+                    <button onclick="closeModal('modalViewStatus')" style="background:none;border:none;color:var(--text-primary);font-size:20px;cursor:pointer;">✖️</button>
+                </div>
+                <div id="statusViewerPhoto" style="display:none;width:100%;max-height:360px;overflow:hidden;"><img style="width:100%;object-fit:cover;" id="statusViewerImg"></div>
+                <div id="statusViewerText" style="padding:24px 18px;font-size:16px;color:var(--text-primary);min-height:80px;"></div>
+                <div id="statusViewerOwnActions" style="display:none;padding:10px 16px;text-align:right;">
+                    <button class="btn-small btn-danger" onclick="deleteViewedStatus()">🗑️ Apagar este estado</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ HISTÓRICO DE CHAMADAS ============ -->
+        <div class="modal-overlay" id="modalCallLog">
+            <div class="modal" style="max-width:420px;">
+                <h3>📞 Histórico de chamadas</h3>
+                <div id="callLogList" style="max-height:360px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small btn-danger" onclick="clearCallLog()">🗑️ Limpar</button>
+                    <button class="btn-small" onclick="closeModal('modalCallLog')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ MENSAGENS TEMPORÁRIAS ============ -->
+        <div class="modal-overlay" id="modalDisappearing">
+            <div class="modal">
+                <h3>⏳ Mensagens temporárias</h3>
+                <p style="color:#8696a0;font-size:13px;">As mensagens novas desaparecem sozinhas para os dois lados depois do tempo escolhido.</p>
+                <div style="display:flex;flex-direction:column;gap:6px;" id="disappearingOptions">
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(0)">Desligado</button>
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(86400)">24 horas</button>
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(604800)">7 dias</button>
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(2592000)">90 dias</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalDisappearing')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ AGENDAR MENSAGEM ============ -->
+        <div class="modal-overlay" id="modalScheduleMessage">
+            <div class="modal">
+                <h3>📅 Agendar mensagem</h3>
+                <textarea id="scheduleMsgText" placeholder="Escreva a mensagem..."></textarea>
+                <input type="datetime-local" id="scheduleMsgWhen">
+                <div class="modal-actions" style="justify-content:space-between;">
+                    <button class="btn-small" onclick="openScheduledList()">📋 Ver agendadas</button>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn-small" onclick="closeModal('modalScheduleMessage')">Cancelar</button>
+                        <button class="btn-small btn-accept" onclick="submitScheduledMessage()">Agendar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalScheduledList">
+            <div class="modal">
+                <h3>📋 Mensagens agendadas</h3>
+                <div id="scheduledListContent" style="max-height:300px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalScheduledList')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ THREAD DE RESPOSTAS ============ -->
+        <div class="modal-overlay" id="modalThread">
+            <div class="modal" style="max-width:420px;">
+                <h3>🧵 Thread</h3>
+                <div id="threadOriginal" style="background:var(--bg-tertiary);border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px;"></div>
+                <div id="threadReplies" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;"></div>
+                <input type="text" id="threadReplyInput" placeholder="Responder na thread..." onkeypress="if(event.key==='Enter')sendThreadReply()">
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalThread')">Fechar</button>
+                    <button class="btn-small btn-accept" onclick="sendThreadReply()">Enviar</button>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1457,6 +1755,8 @@
     let peerConnection = null;
     let pendingIceCandidates = []; // candidatos ICE (1-para-1) chegados antes de existir peerConnection/remoteDescription
     let incomingCallData = null; // dados da chamada 1-para-1 a chegar, à espera de Aceitar/Recusar
+    let callPeerPhone = null; // telefone da outra pessoa na chamada 1-para-1 atual (entrega direta, não depende de sala)
+    let callRingTimeout = null; // timeout de "sem resposta" para chamadas 1-para-1 a sair
     // STUN resolve a maioria dos casos na mesma rede. TURN (OpenRelay, gratuito para testes)
     // é necessário quando os dois lados estão atrás de NAT/roteadores restritivos —
     // ele retransmite a mídia quando a conexão direta P2P não é possível.
@@ -1554,7 +1854,7 @@
             .map(c => ({
                 id: dmRoomId(APP.user.phone, c.phone),
                 name: c.name, phone: c.phone, username: c.username || null, avatar: c.name.charAt(0).toUpperCase(),
-                type: 'user', online: c.online, publicKey: c.publicKey || null
+                type: 'user', online: c.online, publicKey: c.publicKey || null, avatarUrl: c.avatarUrl || null
             }));
         const groupChats = APP.groupsList
             .filter(g => !g.bannedPhones?.includes(APP.user.phone))
@@ -1595,6 +1895,24 @@
             updateEncryptionBadge();
         }
     }
+
+    // O Socket.IO reconecta sozinho depois de qualquer queda de rede (app em
+    // segundo plano no telemóvel, mudar de Wi-Fi para 4G, servidor reiniciar,
+    // etc.), mas o socket novo tem um id novo do zero, sem login nem salas.
+    // Sem isto, a pessoa continuava a aparecer "online" só por hábito da UI,
+    // mas ficava muda: mensagens em segundo plano, chamadas a chegar e
+    // chamadas em grupo deixavam de a alcançar — parecia estar "ligada" mas
+    // "não entrava". Isto corre em toda ligação, incluindo a primeira, mas só
+    // faz login/rejoin quando já havia sessão iniciada (reconexão).
+    socket.on('connect', () => {
+        if (APP.user) {
+            socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
+            APP.joinedRooms.clear();
+            APP.chats.forEach(chat => {
+                if (chat.type !== 'ai') { socket.emit('join_room', chat.id); APP.joinedRooms.add(chat.id); }
+            });
+        }
+    });
 
     socket.on('message_rejected', (data) => {
         if (data?.reason) alert('⚠️ ' + data.reason);
@@ -1753,13 +2071,13 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
-        document.getElementById('headerAvatar').textContent = APP.user.avatar;
+        applyHeaderAvatar();
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
@@ -1840,6 +2158,469 @@
         document.getElementById('musicPlayer').classList.remove('active');
     }
 
+    function toggleMoreMenu() {
+        document.getElementById('moreMenu').classList.toggle('active');
+    }
+    function closeMoreMenu() {
+        document.getElementById('moreMenu').classList.remove('active');
+    }
+    document.addEventListener('click', (e) => {
+        const menu = document.getElementById('moreMenu');
+        if (menu && menu.classList.contains('active') && !menu.contains(e.target) && e.target.getAttribute('onclick') !== 'toggleMoreMenu()') {
+            menu.classList.remove('active');
+        }
+        const chatMenu = document.getElementById('chatOptionsMenu');
+        if (chatMenu && chatMenu.classList.contains('active') && !chatMenu.contains(e.target) && e.target.getAttribute('onclick') !== 'toggleChatOptionsMenu()') {
+            chatMenu.classList.remove('active');
+        }
+    });
+
+    // ==================== TEMA CLARO/ESCURO ====================
+    (function initTheme() {
+        const saved = localStorage.getItem('themeMode') || 'dark';
+        document.documentElement.setAttribute('data-theme', saved);
+    })();
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('themeMode', next);
+    }
+
+    // ==================== SEPARADORES DA SIDEBAR (Conversas / Estados / Chamadas) ====================
+    function switchSidebarTab(tab) {
+        const tabs = { chats: 'tabConversas', status: 'tabEstados', calls: 'tabChamadas' };
+        Object.entries(tabs).forEach(([key, id]) => {
+            const el = document.getElementById(id);
+            el.style.borderBottom = key === tab ? '2px solid var(--green)' : '2px solid transparent';
+            el.style.color = key === tab ? 'var(--text-primary)' : 'var(--text-secondary)';
+        });
+        if (tab === 'calls') { openCallLogModal(); return; }
+        document.getElementById('chatList').style.display = tab === 'chats' ? 'flex' : 'none';
+        document.getElementById('statusPanel').style.display = tab === 'status' ? 'flex' : 'none';
+        if (tab === 'status') { socket.emit('get_statuses'); renderStatusPanel(); }
+    }
+
+    // ==================== ESTADOS (stories, 24h) ====================
+    APP.statusFeed = []; // vem do servidor: [{phone, name, avatarUrl, items:[...]}]
+    APP.pendingStatusPhotoUrl = null;
+
+    function renderStatusPanel() {
+        const panel = document.getElementById('statusPanel');
+        const mine = APP.statusFeed.find(s => s.phone === APP.user?.phone);
+        const others = APP.statusFeed.filter(s => s.phone !== APP.user?.phone);
+        let html = `
+        <div class="chat-item" onclick="openNewStatusModal()">
+            <div class="chat-item-avatar avatar-user">➕</div>
+            <div class="chat-item-info">
+                <h4>O meu estado</h4>
+                <p>${mine ? mine.items.length + ' estado(s) ativo(s) — toca para adicionar mais' : 'Toca para adicionar um estado'}</p>
+            </div>
+        </div>`;
+        if (others.length === 0) {
+            html += '<p style="color:#8696a0;text-align:center;padding:30px;">Nenhum estado dos teus contactos nas últimas 24h</p>';
+        } else {
+            others.forEach(s => {
+                const last = s.items[s.items.length - 1];
+                html += `
+                <div class="chat-item" onclick='viewStatusFeed(${JSON.stringify(s.phone)})'>
+                    <div class="chat-item-avatar avatar-user" style="border:2px solid var(--green);">${s.avatarUrl ? `<img src="${s.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : s.name.charAt(0).toUpperCase()}</div>
+                    <div class="chat-item-info">
+                        <h4>${s.name}</h4>
+                        <p>${s.items.length} estado(s) · ${new Date(last.postedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                </div>`;
+            });
+        }
+        panel.innerHTML = html;
+    }
+
+    socket.on('statuses_update', (feed) => {
+        APP.statusFeed = feed || [];
+        if (document.getElementById('statusPanel').style.display !== 'none') renderStatusPanel();
+    });
+
+    function openNewStatusModal() {
+        APP.pendingStatusPhotoUrl = null;
+        document.getElementById('newStatusText').value = '';
+        document.getElementById('newStatusPhotoPreview').style.display = 'none';
+        document.getElementById('modalNewStatus').classList.add('active');
+    }
+    function handleStatusPhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                const maxW = 720;
+                const scale = Math.min(1, maxW / img.width);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * scale; canvas.height = img.height * scale;
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+                APP.pendingStatusPhotoUrl = finalUrl;
+                document.getElementById('newStatusPhotoImg').src = finalUrl;
+                document.getElementById('newStatusPhotoPreview').style.display = 'block';
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    function postStatus() {
+        const text = document.getElementById('newStatusText').value.trim();
+        if (!text && !APP.pendingStatusPhotoUrl) return alert('Escreve algo ou escolhe uma foto.');
+        socket.emit('post_status', { text, photoData: APP.pendingStatusPhotoUrl });
+        closeModal('modalNewStatus');
+    }
+    APP.viewingStatus = null;
+    function viewStatusFeed(phone) {
+        const feed = APP.statusFeed.find(s => s.phone === phone);
+        if (!feed || !feed.items.length) return;
+        APP.viewingStatus = { phone, items: feed.items, index: 0, name: feed.name, avatarUrl: feed.avatarUrl };
+        showStatusItem();
+    }
+    function showStatusItem() {
+        const v = APP.viewingStatus;
+        if (!v) return;
+        const item = v.items[v.index];
+        document.getElementById('statusViewerName').textContent = v.name;
+        document.getElementById('statusViewerAvatar').innerHTML = v.avatarUrl ? `<img src="${v.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : v.name.charAt(0).toUpperCase();
+        document.getElementById('statusViewerTime').textContent = new Date(item.postedAt).toLocaleString('pt-BR');
+        document.getElementById('statusViewerText').textContent = item.text || '';
+        const photoBox = document.getElementById('statusViewerPhoto');
+        if (item.photoData) { photoBox.style.display = 'block'; document.getElementById('statusViewerImg').src = item.photoData; }
+        else photoBox.style.display = 'none';
+        document.getElementById('statusViewerOwnActions').style.display = v.phone === APP.user?.phone ? 'block' : 'none';
+        document.getElementById('modalViewStatus').classList.add('active');
+    }
+    function deleteViewedStatus() {
+        const v = APP.viewingStatus;
+        if (!v) return;
+        socket.emit('delete_status', { statusId: v.items[v.index].id });
+        closeModal('modalViewStatus');
+    }
+
+    // ==================== HISTÓRICO DE CHAMADAS ====================
+    APP.callLog = [];
+    APP.callDirection = null; // 'outgoing' | 'incoming' — usado para registar o histórico ao terminar a chamada
+    function logCallEvent(status) {
+        const durationSec = APP.callStartTime ? Math.floor((Date.now() - APP.callStartTime) / 1000) : 0;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        socket.emit('call_log_entry', {
+            peerPhone: callPeerPhone || chat?.phone || null,
+            peerName: chat?.name || 'Alguém',
+            type: APP.callType || 'voice',
+            direction: APP.callDirection || 'outgoing',
+            status, durationSec
+        });
+        APP.callDirection = null;
+    }
+    socket.on('call_log_update', (log) => {
+        APP.callLog = log || [];
+        renderCallLog();
+    });
+    function openCallLogModal() {
+        socket.emit('get_call_log');
+        document.getElementById('modalCallLog').classList.add('active');
+        renderCallLog();
+    }
+    function renderCallLog() {
+        const el = document.getElementById('callLogList');
+        if (!el) return;
+        if (!APP.callLog.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Sem chamadas ainda</p>'; return; }
+        el.innerHTML = APP.callLog.map(c => {
+            const icon = c.status === 'missed' ? '📵' : (c.direction === 'outgoing' ? '📤' : '📥');
+            const dur = c.durationSec ? `${Math.floor(c.durationSec / 60)}:${String(c.durationSec % 60).padStart(2, '0')}` : (c.status === 'declined' ? 'Recusada' : 'Sem resposta');
+            return `
+            <div class="chat-item" style="cursor:default;">
+                <div class="chat-item-avatar avatar-user">${(c.peerName || 'A').charAt(0).toUpperCase()}</div>
+                <div class="chat-item-info">
+                    <h4>${icon} ${c.peerName} ${c.type === 'video' ? '📹' : '📞'}</h4>
+                    <p>${new Date(c.timestamp).toLocaleString('pt-BR')} · ${dur}</p>
+                </div>
+            </div>`;
+        }).join('');
+    }
+    function clearCallLog() { socket.emit('clear_call_log'); }
+
+    // ==================== MENSAGENS FIXADAS ====================
+    APP.pinnedByChatId = {};
+    socket.on('message_pinned_received', (data) => {
+        if (!data?.chatId) return;
+        if (data.pin) APP.pinnedByChatId[data.chatId] = data.pin; else delete APP.pinnedByChatId[data.chatId];
+        if (APP.currentChatId === data.chatId) updatePinnedBanner();
+    });
+    function updatePinnedBanner() {
+        const banner = document.getElementById('pinnedBanner');
+        const pin = APP.pinnedByChatId[APP.currentChatId];
+        if (!pin) { banner.style.display = 'none'; return; }
+        banner.style.display = 'flex';
+        document.getElementById('pinnedBannerText').textContent = `${pin.sender}: ${pin.text}`;
+    }
+    function pinMessage(msgId) {
+        const msgs = APP.messages[APP.currentChatId];
+        const msg = msgs?.find(m => m.id === msgId);
+        if (!msg || !APP.currentChatId) return;
+        socket.emit('pin_message', { chatId: APP.currentChatId, messageId: msgId, text: (msg.text || '').substring(0, 200), sender: msg.type === 'sent' ? 'Você' : msg.sender });
+    }
+    function unpinCurrentMessage() {
+        if (!APP.currentChatId) return;
+        socket.emit('unpin_message', { chatId: APP.currentChatId });
+    }
+    function scrollToPinned() {
+        const pin = APP.pinnedByChatId[APP.currentChatId];
+        if (!pin) return;
+        const el = document.querySelector(`[data-msg-id="${pin.messageId}"]`);
+        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.background = 'rgba(0,168,132,0.25)'; setTimeout(() => el.style.background = '', 1500); }
+    }
+
+    // ==================== MENSAGENS TEMPORÁRIAS ====================
+    APP.disappearingByChatId = {};
+    socket.on('disappearing_updated', (data) => {
+        if (!data?.chatId) return;
+        if (data.seconds > 0) APP.disappearingByChatId[data.chatId] = data.seconds; else delete APP.disappearingByChatId[data.chatId];
+    });
+    socket.on('message_expired', (data) => {
+        if (!data?.chatId || !APP.messages[data.chatId]) return;
+        APP.messages[data.chatId] = APP.messages[data.chatId].filter(m => m.id !== data.messageId);
+        if (APP.currentChatId === data.chatId) renderMessages();
+        renderChatList();
+    });
+    function openDisappearingModal() {
+        if (!APP.currentChatId) return;
+        document.getElementById('modalDisappearing').classList.add('active');
+    }
+    function setDisappearing(seconds) {
+        if (!APP.currentChatId) return;
+        socket.emit('set_disappearing', { chatId: APP.currentChatId, seconds });
+        closeModal('modalDisappearing');
+    }
+
+    // ==================== SILENCIAR CONVERSA ====================
+    APP.mutedChats = new Set();
+    socket.on('muted_list', (list) => {
+        APP.mutedChats = new Set(list || []);
+        updateMuteButton();
+    });
+    function toggleMuteChat() {
+        if (!APP.currentChatId) return;
+        const willMute = !APP.mutedChats.has(APP.currentChatId);
+        if (willMute) APP.mutedChats.add(APP.currentChatId); else APP.mutedChats.delete(APP.currentChatId);
+        socket.emit('set_muted', { chatId: APP.currentChatId, muted: willMute });
+        updateMuteButton();
+    }
+    function updateMuteButton() {
+        const btn = document.getElementById('muteToggleBtn');
+        if (!btn) return;
+        const muted = APP.currentChatId && APP.mutedChats.has(APP.currentChatId);
+        btn.textContent = muted ? '🔕' : '🔔';
+        btn.title = muted ? 'Reativar notificações' : 'Silenciar conversa';
+    }
+
+    // ==================== EXPORTAR CONVERSA ====================
+    function exportChat() {
+        if (!APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const msgs = APP.messages[APP.currentChatId] || [];
+        const lines = msgs.map(m => `[${m.time || ''}] ${m.type === 'sent' ? 'Você' : m.sender}: ${m.deleted ? '(mensagem apagada)' : (m.fileData ? '(ficheiro/anexo)' : m.text)}`);
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `conversa_${(chat?.name || 'chat').replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // ==================== MENSAGENS AGENDADAS ====================
+    APP.scheduledMessages = [];
+    function openScheduleModal() {
+        if (!APP.currentChatId) return;
+        document.getElementById('scheduleMsgText').value = '';
+        const now = new Date(Date.now() + 5 * 60000);
+        document.getElementById('scheduleMsgWhen').value = now.toISOString().slice(0, 16);
+        document.getElementById('modalScheduleMessage').classList.add('active');
+    }
+    function submitScheduledMessage() {
+        const text = document.getElementById('scheduleMsgText').value.trim();
+        const when = document.getElementById('scheduleMsgWhen').value;
+        if (!text || !when || !APP.currentChatId) return alert('Escreve a mensagem e escolhe a data/hora.');
+        const sendAt = new Date(when).getTime();
+        if (sendAt <= Date.now()) return alert('Escolhe uma data/hora no futuro.');
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        socket.emit('schedule_message', { chatId: APP.currentChatId, text, sendAt, toPhone: chat?.type === 'user' ? chat.phone : undefined });
+        closeModal('modalScheduleMessage');
+    }
+    socket.on('scheduled_message_saved', (entry) => {
+        APP.scheduledMessages.push(entry);
+        alert('📅 Mensagem agendada para ' + new Date(entry.sendAt).toLocaleString('pt-BR'));
+    });
+    socket.on('scheduled_message_cancelled', (data) => {
+        APP.scheduledMessages = APP.scheduledMessages.filter(s => s.id !== data.id);
+        openScheduledList();
+    });
+    socket.on('scheduled_messages_list', (list) => { APP.scheduledMessages = list || []; });
+    socket.on('scheduled_message_sent', (data) => {
+        if (!data?.chatId) return;
+        if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
+        APP.messages[data.chatId].push({ id: data.id, sender: 'Você', text: data.text, time: data.time, type: 'sent', read: false, scheduled: true });
+        if (APP.currentChatId === data.chatId) renderMessages();
+        renderChatList();
+    });
+    function openScheduledList() {
+        closeModal('modalScheduleMessage');
+        socket.emit('get_scheduled_messages');
+        const el = document.getElementById('scheduledListContent');
+        const render = () => {
+            if (!APP.scheduledMessages.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem agendada</p>'; return; }
+            el.innerHTML = APP.scheduledMessages.map(s => {
+                const chat = APP.chats.find(c => c.id === s.chatId);
+                return `
+                <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size:13px;">${chat?.name || s.chatId}: ${s.text}</div>
+                    <div style="font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;">
+                        <span>${new Date(s.sendAt).toLocaleString('pt-BR')}</span>
+                        <button class="btn-small btn-danger" style="padding:2px 8px;font-size:11px;" onclick="socket.emit('cancel_scheduled_message', {id:'${s.id}'})">Cancelar</button>
+                    </div>
+                </div>`;
+            }).join('');
+        };
+        setTimeout(render, 150); // dá tempo à resposta 'scheduled_messages_list' chegar
+        document.getElementById('modalScheduledList').classList.add('active');
+    }
+
+    // ==================== THREAD DE RESPOSTAS ====================
+    APP.threadOriginalId = null;
+    function openThread(originalMsgId) {
+        const msgs = APP.messages[APP.currentChatId] || [];
+        const original = msgs.find(m => m.id === originalMsgId);
+        APP.threadOriginalId = originalMsgId;
+        document.getElementById('threadOriginal').innerHTML = original ? `<strong>${original.type === 'sent' ? 'Você' : original.sender}</strong><br>${original.text || ''}` : 'Mensagem original';
+        const replies = msgs.filter(m => m.replyTo?.id === originalMsgId);
+        document.getElementById('threadReplies').innerHTML = replies.map(r => `
+            <div style="background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:13px;">
+                <strong>${r.type === 'sent' ? 'Você' : r.sender}</strong> <span style="color:var(--text-secondary);font-size:11px;">${r.time || ''}</span><br>${r.deleted ? '(apagada)' : r.text}
+            </div>`).join('') || '<p style="color:#8696a0;font-size:13px;">Ainda sem respostas nesta thread</p>';
+        document.getElementById('modalThread').classList.add('active');
+    }
+    function sendThreadReply() {
+        const input = document.getElementById('threadReplyInput');
+        const text = input.value.trim();
+        if (!text || !APP.threadOriginalId) return;
+        const original = (APP.messages[APP.currentChatId] || []).find(m => m.id === APP.threadOriginalId);
+        APP.replyingTo = original ? { id: original.id, sender: original.type === 'sent' ? 'Você' : original.sender, text: original.text } : null;
+        document.getElementById('messageInput').value = text;
+        sendMessage('messageInput');
+        input.value = '';
+        openThread(APP.threadOriginalId); // re-renderiza a thread com a resposta nova
+    }
+
+    // ==================== PESQUISA DENTRO DA CONVERSA ====================
+    APP.chatSearchMatches = [];
+    APP.chatSearchIndex = -1;
+    function toggleChatSearch() {
+        const bar = document.getElementById('chatSearchBar');
+        const show = bar.style.display === 'none';
+        bar.style.display = show ? 'flex' : 'none';
+        if (show) { document.getElementById('chatSearchInput').focus(); }
+        else { document.getElementById('chatSearchInput').value = ''; runChatSearch(''); }
+    }
+    function runChatSearch(query) {
+        document.querySelectorAll('#chatMessages .message.search-hit').forEach(el => el.classList.remove('search-hit'));
+        const q = query.trim().toLowerCase();
+        if (!q) { document.getElementById('chatSearchCount').textContent = ''; APP.chatSearchMatches = []; return; }
+        const msgs = APP.messages[APP.currentChatId] || [];
+        APP.chatSearchMatches = msgs.filter(m => !m.deleted && (m.text || '').toLowerCase().includes(q)).map(m => m.id);
+        APP.chatSearchIndex = APP.chatSearchMatches.length ? 0 : -1;
+        document.getElementById('chatSearchCount').textContent = APP.chatSearchMatches.length ? `${APP.chatSearchIndex + 1}/${APP.chatSearchMatches.length}` : '0/0';
+        APP.chatSearchMatches.forEach(id => document.querySelector(`[data-msg-id="${id}"]`)?.classList.add('search-hit'));
+        if (APP.chatSearchIndex >= 0) scrollToSearchMatch();
+    }
+    function chatSearchNav(dir) {
+        if (!APP.chatSearchMatches.length) return;
+        APP.chatSearchIndex = (APP.chatSearchIndex + dir + APP.chatSearchMatches.length) % APP.chatSearchMatches.length;
+        document.getElementById('chatSearchCount').textContent = `${APP.chatSearchIndex + 1}/${APP.chatSearchMatches.length}`;
+        scrollToSearchMatch();
+    }
+    function scrollToSearchMatch() {
+        const id = APP.chatSearchMatches[APP.chatSearchIndex];
+        const el = document.querySelector(`[data-msg-id="${id}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // ==================== MENU DE OPÇÕES DA CONVERSA (⋮ no cabeçalho do chat) ====================
+    function toggleChatOptionsMenu() { document.getElementById('chatOptionsMenu').classList.toggle('active'); }
+    function closeChatOptionsMenu() { document.getElementById('chatOptionsMenu').classList.remove('active'); }
+
+    function openProfileModal() {
+        renderProfileAvatarPreview();
+        document.getElementById('profileNameLine').textContent = APP.user.name + (APP.user.username ? ' · @' + APP.user.username : '');
+        document.getElementById('modalProfile').classList.add('active');
+    }
+
+    function renderProfileAvatarPreview() {
+        const el = document.getElementById('profileAvatarPreview');
+        if (APP.user.avatarUrl) el.innerHTML = `<img src="${APP.user.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+        else el.textContent = APP.user.name.charAt(0).toUpperCase();
+    }
+
+    function handleProfilePhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                // Reduz para no máximo 400x400 antes de enviar — uma foto de perfil
+                // não precisa de mais do que isso, e fica muito mais leve.
+                const size = 400;
+                const canvas = document.createElement('canvas');
+                canvas.width = size; canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                const scale = Math.max(size / img.width, size / img.height);
+                const w = img.width * scale, h = img.height * scale;
+                ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* sem internet momentânea — segue com o base64 mesmo */ }
+
+                socket.emit('update_avatar', { avatarUrl: finalUrl });
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    socket.on('avatar_updated', (data) => {
+        APP.user.avatarUrl = data.avatarUrl;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderProfileAvatarPreview();
+        applyHeaderAvatar();
+        renderChatList();
+    });
+
+    function applyHeaderAvatar() {
+        const el = document.getElementById('headerAvatar');
+        if (APP.user.avatarUrl) el.innerHTML = `<img src="${APP.user.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+        else el.textContent = APP.user.avatar;
+    }
+
     function openSearchUserModal() {
         document.getElementById('searchUsernameInput').value = '';
         document.getElementById('searchUserResult').innerHTML = '';
@@ -1917,7 +2698,7 @@
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + lastMsg.text : 'Nenhuma mensagem';
             const isGroup = chat.type === 'group';
             const isAI = chat.type === 'ai';
-            const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
+            const avatarContent = chat.avatarUrl ? `<img src="${chat.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0))));
             const avatarClass = isAI ? 'avatar-ai' : (isGroup ? 'avatar-group' : 'avatar-user');
             const badgeClass = isAI ? 'badge badge-ai' : 'badge';
             const onlineDot = (!isAI && !isGroup) ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:${chat.online ? '#25d366' : '#8696a0'};"></span>` : '';
@@ -1954,14 +2735,21 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         updateEncryptionBadge();
-        const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
-        document.getElementById('chatAvatar').textContent = avatarContent;
+        const avatarContent = chat.avatarUrl ? `<img src="${chat.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0))));
+        document.getElementById('chatAvatar').innerHTML = avatarContent;
         const avatarEl = document.getElementById('chatAvatar');
         avatarEl.className = 'header-avatar';
         avatarEl.style.background = isAI ? 'linear-gradient(135deg, #f093fb, #f5576c)' : (isGroup ? 'linear-gradient(135deg, #4caf84, #2196a4)' : 'linear-gradient(135deg, #6c5ce7, #a29bfe)');
         renderMessages();
         document.getElementById('messageInput').focus();
         renderChatList();
+        // Sincroniza o estado desta conversa: mensagem fixada, botão de
+        // silenciar e fecha a barra de pesquisa que possa ter ficado aberta
+        // da conversa anterior.
+        updatePinnedBanner();
+        updateMuteButton();
+        document.getElementById('chatSearchBar').style.display = 'none';
+        document.getElementById('chatSearchInput').value = '';
         setTimeout(() => { const msgDiv = document.getElementById('chatMessages'); msgDiv.scrollTop = msgDiv.scrollHeight; }, 100);
     }
 
@@ -2676,6 +3464,127 @@
         lastKudosGiven: new Set()
     };
 
+    // ==================== ÁREA DE APLICAÇÕES ====================
+    function openAppsHub() { document.getElementById('appsHubScreen').classList.add('active'); }
+    function closeAppsHub() { document.getElementById('appsHubScreen').classList.remove('active'); }
+
+    // ---- Tarefas ----
+    // Ligadas à conversa aberta (partilhadas com quem lá está); sem conversa aberta, é uma lista pessoal
+    function todoRoomId() { return APP.currentChatId || ('personal_' + APP.user.phone); }
+
+    function openTodoApp() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        document.getElementById('todoTitle').textContent = APP.currentChatId ? `✅ Tarefas — ${chat?.name || ''}` : '✅ As minhas tarefas';
+        document.getElementById('todoScreen').classList.add('active');
+        socket.emit('todo_get', { roomId: todoRoomId() });
+    }
+    function closeTodoApp() { document.getElementById('todoScreen').classList.remove('active'); }
+
+    function addTodoItem() {
+        const input = document.getElementById('todoInput');
+        const text = input.value.trim();
+        if (!text) return;
+        socket.emit('todo_add', { roomId: todoRoomId(), text });
+        input.value = '';
+    }
+    function toggleTodoItem(itemId) { socket.emit('todo_toggle', { roomId: todoRoomId(), itemId }); }
+    function deleteTodoItem(itemId) { socket.emit('todo_delete', { roomId: todoRoomId(), itemId }); }
+
+    function renderTodoList(items) {
+        const box = document.getElementById('todoList');
+        if (!items || !items.length) { box.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Sem tarefas ainda — adiciona a primeira! ✅</p>'; return; }
+        box.innerHTML = items.map(it => `
+            <div style="display:flex;align-items:center;gap:10px;background:var(--bg-secondary);border-radius:8px;padding:10px;margin-bottom:6px;">
+                <input type="checkbox" ${it.done ? 'checked' : ''} onchange="toggleTodoItem('${it.id}')" style="width:20px;height:20px;">
+                <div style="flex:1;color:var(--text-primary);${it.done ? 'opacity:0.5;text-decoration:line-through;' : ''}">${it.text}<div style="font-size:10px;color:#8696a0;">adicionado por ${it.addedBy}</div></div>
+                <button onclick="deleteTodoItem('${it.id}')" style="background:none;border:none;color:#8696a0;font-size:16px;cursor:pointer;">🗑️</button>
+            </div>`).join('');
+    }
+    socket.on('todo_list', (data) => { if (data.roomId === todoRoomId()) renderTodoList(data.items); });
+    socket.on('todo_updated', (data) => { if (data.roomId === todoRoomId()) renderTodoList(data.items); });
+
+    // ---- Notas pessoais ----
+    let currentNotes = [];
+    let editingNoteId = null;
+
+    function openNotesApp() {
+        document.getElementById('notesScreen').classList.add('active');
+        backToNotesList();
+        socket.emit('notes_get');
+    }
+    function closeNotesApp() { document.getElementById('notesScreen').classList.remove('active'); }
+
+    socket.on('notes_list', (notes) => { currentNotes = notes || []; renderNotesList(); });
+
+    function renderNotesList() {
+        const box = document.getElementById('notesList');
+        if (!currentNotes.length) { box.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não tens notas.</p>'; return; }
+        box.innerHTML = currentNotes.map(n => `
+            <div class="activity-card" style="cursor:pointer;" onclick="editNote('${n.id}')">
+                <strong>${n.title || '(sem título)'}</strong>
+                <div style="color:#8696a0;font-size:12px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(n.text || '').substring(0, 60)}</div>
+                <button onclick="event.stopPropagation(); deleteNote('${n.id}')" style="background:none;border:none;color:#8696a0;font-size:13px;cursor:pointer;margin-top:6px;">🗑️ Apagar</button>
+            </div>`).join('');
+    }
+
+    function editNote(noteId) {
+        editingNoteId = noteId;
+        const note = currentNotes.find(n => n.id === noteId);
+        document.getElementById('noteTitleInput').value = note?.title || '';
+        document.getElementById('noteTextInput').value = note?.text || '';
+        document.getElementById('notesListView').style.display = 'none';
+        document.getElementById('notesEditView').style.display = 'flex';
+    }
+    function backToNotesList() {
+        editingNoteId = null;
+        document.getElementById('notesListView').style.display = 'block';
+        document.getElementById('notesEditView').style.display = 'none';
+    }
+    function saveCurrentNote() {
+        socket.emit('notes_save', { id: editingNoteId, title: document.getElementById('noteTitleInput').value.trim(), text: document.getElementById('noteTextInput').value.trim() });
+        backToNotesList();
+    }
+    function deleteNote(noteId) { socket.emit('notes_delete', { id: noteId }); }
+
+    // ---- Tempo/meteorologia ----
+    const WEATHER_ICONS = { 0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️', 45: '🌫️', 48: '🌫️', 51: '🌦️', 53: '🌦️', 55: '🌦️', 61: '🌧️', 63: '🌧️', 65: '🌧️', 71: '🌨️', 73: '🌨️', 75: '🌨️', 80: '🌦️', 81: '🌧️', 82: '⛈️', 95: '⛈️', 96: '⛈️', 99: '⛈️' };
+    function weatherIcon(code) { return WEATHER_ICONS[code] || '🌡️'; }
+
+    function openWeatherApp() {
+        document.getElementById('weatherScreen').classList.add('active');
+        const box = document.getElementById('weatherContent');
+        box.innerHTML = '<p style="color:#8696a0;">A obter a tua localização...</p>';
+        if (!navigator.geolocation) { box.innerHTML = '<p style="color:#8696a0;">Este dispositivo não tem GPS disponível.</p>'; return; }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => loadWeather(pos.coords.latitude, pos.coords.longitude),
+            () => { box.innerHTML = '<p style="color:#8696a0;">Não foi possível obter a localização. Autoriza o GPS e tenta outra vez.</p>'; },
+            { enableHighAccuracy: false, timeout: 10000 }
+        );
+    }
+    function closeWeatherApp() { document.getElementById('weatherScreen').classList.remove('active'); }
+
+    function loadWeather(lat, lon) {
+        const box = document.getElementById('weatherContent');
+        fetch(`/api/weather?lat=${lat}&lon=${lon}`).then(r => r.json()).then(data => {
+            if (data.error || !data.current) { box.innerHTML = '<p style="color:#8696a0;">Não foi possível obter o tempo agora.</p>'; return; }
+            const c = data.current;
+            const days = data.daily;
+            let html = `
+                <div style="font-size:60px;">${weatherIcon(c.weather_code)}</div>
+                <div style="font-size:42px;font-weight:600;">${Math.round(c.temperature_2m)}°C</div>
+                <div style="color:#8696a0;">Humidade ${c.relative_humidity_2m}% · Vento ${Math.round(c.wind_speed_10m)} km/h</div>
+                <div style="display:flex;justify-content:space-around;margin-top:24px;">`;
+            for (let i = 0; i < Math.min(5, days.time.length); i++) {
+                const d = new Date(days.time[i]);
+                html += `<div><div style="font-size:11px;color:#8696a0;">${d.toLocaleDateString('pt-PT', { weekday: 'short' })}</div>
+                    <div style="font-size:22px;">${weatherIcon(days.weather_code[i])}</div>
+                    <div style="font-size:12px;">${Math.round(days.temperature_2m_max[i])}°/${Math.round(days.temperature_2m_min[i])}°</div></div>`;
+            }
+            html += '</div>';
+            box.innerHTML = html;
+        }).catch(() => { box.innerHTML = '<p style="color:#8696a0;">Erro ao obter o tempo.</p>'; });
+    }
+
     function openActivitiesScreen() {
         document.getElementById('activitiesScreen').classList.add('active');
         if (!ACTIVITY.map) {
@@ -3032,6 +3941,9 @@
             return;
         }
         const msgs = APP.messages[APP.currentChatId];
+        // Conta quantas respostas cada mensagem tem, para mostrar o link "🧵 X respostas" (thread)
+        const replyCounts = {};
+        msgs.forEach(m => { if (m.replyTo?.id) replyCounts[m.replyTo.id] = (replyCounts[m.replyTo.id] || 0) + 1; });
         let html = '', lastDate = '';
         msgs.forEach(msg => {
             const msgDate = msg.time?.split(' ')[0] || '';
@@ -3042,23 +3954,30 @@
             const isSent = msg.type === 'sent';
             const currentChat = APP.chats.find(c => c.id === APP.currentChatId);
             const showSender = !isSent && currentChat && (currentChat.type === 'group' || currentChat.type === 'ai');
-            const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
+            const replyHtml = msg.replyTo ? `<div class="reply-quote" onclick="openThread('${msg.replyTo.id}')" style="cursor:pointer;"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
+            const threadCount = replyCounts[msg.id] || 0;
+            const threadHtml = threadCount ? `<div style="font-size:11px;color:var(--blue);cursor:pointer;margin-top:2px;" onclick="openThread('${msg.id}')">🧵 ${threadCount} resposta${threadCount > 1 ? 's' : ''}</div>` : '';
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
             const editedLabel = msg.edited ? '<span style="opacity:0.6;font-size:10px;"> (editada)</span>' : '';
+            const scheduledLabel = msg.scheduled ? '<span style="opacity:0.6;font-size:10px;"> (agendada)</span>' : '';
+            const isPinned = APP.pinnedByChatId[APP.currentChatId]?.messageId === msg.id;
             html += `
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
+                ${isPinned ? '<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">📌 Fixada</div>' : ''}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}${editedLabel}${scheduledLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
+                ${threadHtml}
                 <div class="time">
                     ${!msg.deleted ? `
                     <button onclick="replyToMessage('${msg.id}')" title="Responder" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↩️</button>
                     <button onclick="toggleReactionPicker('${msg.id}', this)" title="Reagir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">😀</button>
                     <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🌐</button>
+                    <button onclick="${isPinned ? 'unpinCurrentMessage()' : `pinMessage('${msg.id}')`}" title="${isPinned ? 'Desafixar' : 'Fixar'}" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">📌</button>
                     ${canEdit ? `<button onclick="editMessage('${msg.id}')" title="Editar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">✏️</button>` : ''}
                     ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Apagar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🗑️</button>` : ''}
                     ` : ''}
@@ -3544,10 +4463,12 @@
         peerConnection = new RTCPeerConnection(iceServers);
         peerConnection.onicecandidate = (e) => {
             if (e.candidate) {
-                socket.emit('ice_candidate', { targetRoomId: APP.currentChatId, candidate: e.candidate });
+                socket.emit('ice_candidate', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone, candidate: e.candidate });
             }
         };
         peerConnection.ontrack = (e) => {
+            if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
+            APP._callWasConnected = true; // para o histórico de chamadas saber que foi mesmo atendida
             const mainVideo = document.getElementById('mainVideo');
             mainVideo.srcObject = e.streams[0];
             mainVideo.style.display = 'block';
@@ -3591,7 +4512,10 @@
         if (chat?.type === 'group') return joinGroupCall(type); // grupos usam a chamada em malha (ver mais abaixo)
         APP.callType = type;
         APP.callActive = true;
+        APP.callDirection = 'outgoing';
+        APP._callWasConnected = false;
         pendingIceCandidates = [];
+        callPeerPhone = chat?.phone || null;
         document.getElementById('callTitle').textContent = chat?.name || 'Chamada';
         document.getElementById('callStatus').textContent = type === 'video' ? 'Chamando...' : 'Chamada de voz...';
         document.getElementById('callScreen').classList.add('active');
@@ -3611,10 +4535,23 @@
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
                 socket.emit('call_user', {
                     targetRoomId: APP.currentChatId,
+                    targetPhone: callPeerPhone,
+                    callerPhone: APP.user.phone,
                     callerName: APP.user.name,
                     callType: type,
                     offer: pc.localDescription
                 });
+                // Se ninguém atender (ou a chamada não chegar do outro lado) em 35s,
+                // desiste sozinho em vez de ficar preso em "Chamando..." para sempre —
+                // isto era o sintoma de "liga do meu lado mas o outro lado não entra".
+                if (callRingTimeout) clearTimeout(callRingTimeout);
+                callRingTimeout = setTimeout(() => {
+                    if (APP.callActive && document.getElementById('callStatus').textContent !== 'Conectado ✅') {
+                        document.getElementById('callStatus').textContent = 'Sem resposta';
+                        socket.emit('end_call', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone });
+                        setTimeout(() => endCall(true), 1200);
+                    }
+                }, 35000);
             });
         }).catch(err => {
             alert('Erro ao acessar câmera/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
@@ -3634,8 +4571,23 @@
         document.getElementById('modalIncomingCall').classList.add('active');
     });
 
+    // A pessoa para quem ligaste está offline / sem nenhum dispositivo ligado
+    // neste momento — antes disto a chamada ficava "Chamando..." para sempre
+    // sem nenhum aviso.
+    socket.on('call_unavailable', () => {
+        if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
+        if (APP.callActive) {
+            document.getElementById('callStatus').textContent = 'Utilizador indisponível';
+            logCallEvent('missed');
+            setTimeout(() => endCall(true), 1200);
+        }
+    });
+
     function declineIncomingCall() {
-        if (incomingCallData) socket.emit('end_call', { targetRoomId: incomingCallData.targetRoomId });
+        if (incomingCallData) {
+            socket.emit('end_call', { targetRoomId: incomingCallData.targetRoomId, targetPhone: incomingCallData.callerPhone });
+            socket.emit('call_log_entry', { peerPhone: incomingCallData.callerPhone, peerName: incomingCallData.callerName, type: incomingCallData.callType, direction: 'incoming', status: 'declined', durationSec: 0 });
+        }
         document.getElementById('modalIncomingCall').classList.remove('active');
         incomingCallData = null;
     }
@@ -3648,7 +4600,10 @@
         APP.currentChatId = data.targetRoomId;
         APP.callType = data.callType;
         APP.callActive = true;
+        APP.callDirection = 'incoming';
+        APP._callWasConnected = false;
         pendingIceCandidates = [];
+        callPeerPhone = data.callerPhone || null;
         document.getElementById('callTitle').textContent = data.callerName;
         document.getElementById('callStatus').textContent = 'Conectando...';
         document.getElementById('callScreen').classList.add('active');
@@ -3666,7 +4621,7 @@
             flushPendingIce(pc);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            socket.emit('answer_call', { targetRoomId: data.targetRoomId, answer: pc.localDescription });
+            socket.emit('answer_call', { targetRoomId: data.targetRoomId, targetPhone: data.callerPhone, answer: pc.localDescription });
         } catch (err) {
             alert('Erro ao aceder à câmara/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
             endCall();
@@ -3679,7 +4634,9 @@
     }
 
     socket.on('call_answered', async (data) => {
+        if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
         if (peerConnection) {
+            document.getElementById('callStatus').textContent = 'A ligar...';
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
             flushPendingIce(peerConnection);
         }
@@ -3699,6 +4656,13 @@
     });
 
     socket.on('call_ended', () => {
+        // Se o ecrã de "a chegar" ainda estava aberto, é uma chamada perdida — o
+        // outro lado desistiu antes de nós aceitarmos ou recusarmos.
+        if (incomingCallData) {
+            socket.emit('call_log_entry', { peerPhone: incomingCallData.callerPhone, peerName: incomingCallData.callerName, type: incomingCallData.callType, direction: 'incoming', status: 'missed', durationSec: 0 });
+            document.getElementById('modalIncomingCall').classList.remove('active');
+            incomingCallData = null;
+        }
         endCall(true); // encerrado pelo outro lado — não reenviar 'end_call' de volta
     });
 
@@ -3867,6 +4831,43 @@
         }
     }
 
+    // Troca entre câmara da frente e câmara traseira durante a chamada — funciona
+    // em telemóveis com mais do que uma câmara (a maioria). Em computadores com
+    // uma única câmara, simplesmente não há para onde trocar, e avisamos disso.
+    let currentFacingMode = 'user';
+    async function flipCamera() {
+        if (!APP.callStream || APP.callType !== 'video') return;
+        const newFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        try {
+            const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: newFacingMode } } });
+            const newTrack = newStream.getVideoTracks()[0];
+            const oldTrack = APP.callStream.getVideoTracks()[0];
+
+            // Atualiza a pré-visualização local (o pequeno vídeo com a tua própria imagem)
+            APP.callStream.removeTrack(oldTrack);
+            APP.callStream.addTrack(newTrack);
+            oldTrack.stop();
+            document.getElementById('pipVideo').srcObject = APP.callStream;
+            const meTile = document.getElementById('tile_me');
+            if (meTile) meTile.querySelector('video').srcObject = APP.callStream;
+
+            // Atualiza o que a outra pessoa (ou pessoas, em chamada de grupo) vê
+            if (peerConnection) {
+                const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (sender) await sender.replaceTrack(newTrack);
+            }
+            if (GROUP_CALL.active) {
+                Object.values(GROUP_CALL.peers).forEach(async (pc) => {
+                    const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (sender) await sender.replaceTrack(newTrack);
+                });
+            }
+            currentFacingMode = newFacingMode;
+        } catch (err) {
+            alert('Não foi possível trocar de câmara: ' + (err.name === 'OverconstrainedError' ? 'este dispositivo só tem uma câmara.' : err.message));
+        }
+    }
+
     function startCallTimer() {
         if (APP.callTimerInterval) return; // já rodando, evita duplicar
         APP.callStartTime = Date.now();
@@ -3898,7 +4899,23 @@
     function endCall(remoteInitiated) {
         if (!APP.callActive) return; // já foi encerrada — ignora chamadas duplicadas do evento
         APP.callActive = false;
-        if (!remoteInitiated && APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
+        currentFacingMode = 'user'; // a próxima chamada volta a começar com a câmara da frente
+        if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
+        // Só emite 'end_call' para chamadas 1-para-1 — numa chamada em GRUPO isto
+        // era emitido também, e como 'call_ended' chega a toda a sala, uma pessoa
+        // a sair sozinha desligava a chamada de toda a gente. Sair de uma chamada
+        // em grupo já é tratado à parte por leaveGroupCall()/'leave_call'.
+        if (!remoteInitiated && !GROUP_CALL.active && APP.currentChatId) {
+            socket.emit('end_call', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone });
+        }
+        // Regista no histórico de chamadas — só chamadas 1-para-1 que chegaram
+        // mesmo a este ecrã (uma chamada recusada ou perdida antes de aceitar já
+        // foi registada nos sítios próprios, para não duplicar a entrada).
+        if (!GROUP_CALL.active && APP.callDirection) {
+            logCallEvent(APP._callWasConnected ? 'answered' : 'missed');
+        }
+        APP._callWasConnected = false;
+        callPeerPhone = null;
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         pendingIceCandidates = [];
         if (GROUP_CALL.active) leaveGroupCall();
