@@ -37,6 +37,7 @@ const accountSchema = new mongoose.Schema({
   passwordHash: String,
   createdAt: String,
   publicKey: Object,
+  avatarUrl: String,
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
   pushSubscriptions: { type: [Object], default: [] } // inscrições de notificações push (um dispositivo pode ter mais do que uma)
 });
@@ -175,7 +176,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -391,28 +392,47 @@ app.post('/api/ai-chat', async (req, res) => {
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Mensagem vazia.' });
   }
-  try {
-    const r = await fetch('https://models.github.ai/inference/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN
-      },
-      body: JSON.stringify({
-        model: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
-        messages,
-        temperature: 1
-      })
-    });
-    const data = await r.json();
-    if (!r.ok) {
-      return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu.' });
+  // O GitHub Models é uma infraestrutura partilhada gratuita e às vezes fica
+  // sobrecarregada ou com o limite de pedidos atingido (erros 429/503) — nesses
+  // casos, muitas vezes uma segunda tentativa alguns segundos depois já resolve,
+  // por isso tentamos até 3 vezes antes de desistir e avisar o usuário.
+  const MAX_ATTEMPTS = 3;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const r = await fetch('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN
+        },
+        body: JSON.stringify({
+          model: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
+          messages,
+          temperature: 1
+        })
+      });
+      if (r.status === 429 || r.status === 503) {
+        lastError = { status: r.status, transient: true };
+        if (attempt < MAX_ATTEMPTS) { await new Promise(res => setTimeout(res, attempt * 1200)); continue; }
+        break;
+      }
+      const data = await r.json();
+      if (!r.ok) {
+        return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu.' });
+      }
+      const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
+      return res.json({ reply });
+    } catch (err) {
+      lastError = { message: err.message, transient: false };
+      if (attempt < MAX_ATTEMPTS) { await new Promise(res => setTimeout(res, attempt * 1000)); continue; }
     }
-    const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
-    res.json({ reply });
-  } catch (err) {
-    res.status(500).json({ error: 'Falha ao contactar o serviço de IA.' });
   }
+  console.error('IA indisponível após', MAX_ATTEMPTS, 'tentativas:', lastError);
+  const msg = lastError?.transient
+    ? 'O GitHub Models (a IA gratuita) está temporariamente sobrecarregado ou atingiu o limite de pedidos. É uma instabilidade do próprio serviço gratuito, não da nossa app — tenta novamente daqui a um ou dois minutos.'
+    : 'Falha ao contactar o serviço de IA. Tenta novamente em instantes.';
+  res.status(503).json({ error: msg });
 });
 
 // ==================== TRADUTOR ====================
@@ -613,7 +633,7 @@ const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
 function contactPublicInfo(u) {
-  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null };
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null };
 }
 
 function sendContactsTo(phone) {
@@ -674,6 +694,20 @@ io.on('connection', (socket) => {
       return socket.emit('search_user_result', { found: false, query });
     }
     socket.emit('search_user_result', { found: true, query, user: contactPublicInfo(accounts[targetPhone]) });
+  });
+
+  // Atualiza a foto de perfil e avisa quem te tem como contacto para verem a nova foto
+  socket.on('update_avatar', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.avatarUrl !== 'string') return;
+    accounts[myPhone].avatarUrl = data.avatarUrl;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { avatarUrl: data.avatarUrl }).catch(e => console.error('Erro Mongo (avatar):', e.message));
+    } else {
+      saveUsers();
+    }
+    notifyContactsOfStatusChange(myPhone);
+    socket.emit('avatar_updated', { avatarUrl: data.avatarUrl });
   });
 
   // Adiciona alguém encontrado por pesquisa aos teus contactos (início de conversa)

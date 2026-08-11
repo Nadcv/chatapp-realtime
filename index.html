@@ -1141,7 +1141,7 @@
     <div id="mainApp" style="display:none;flex-direction:column;flex:1;overflow:hidden;position:relative;width:100%;">
         <div class="app-header">
             <div class="header-user">
-                <div class="header-avatar" id="headerAvatar">U</div>
+                <div class="header-avatar" id="headerAvatar" onclick="openProfileModal()" style="cursor:pointer;">U</div>
                 <div class="header-info">
                     <h3 id="headerName">Usuário</h3>
                     <span>Online</span>
@@ -1155,6 +1155,7 @@
                 <div style="position:relative;">
                     <button class="btn-icon" onclick="toggleMoreMenu()" title="Mais opções">⋮</button>
                     <div id="moreMenu" class="more-menu">
+                        <button onclick="closeMoreMenu(); openProfileModal();">👤 O meu perfil</button>
                         <button onclick="closeMoreMenu(); openTranslatorModal();">🌐 Tradutor</button>
                         <button onclick="closeMoreMenu(); toggleMusicPlayer();">🎵 Música de fundo</button>
                         <button onclick="closeMoreMenu(); openActivitiesScreen();">🏃 Atividades</button>
@@ -1365,6 +1366,7 @@
                 <button class="call-btn call-btn-action" onclick="toggleCallChat()" title="Mensagens">💬</button>
                 <button class="call-btn call-btn-action" onclick="toggleLiveCaptions()" id="captionBtn" title="Legendas ao vivo traduzidas">💬🌐</button>
                 <button class="call-btn call-btn-end" onclick="endCall()">❌</button>
+                <button class="call-btn call-btn-action" onclick="flipCamera()" title="Trocar câmara (frente/trás)">🔄📷</button>
                 <button class="call-btn call-btn-action" onclick="toggleCamera()">📸</button>
             </div>
         </div>
@@ -1439,6 +1441,18 @@
                 <div class="modal-actions">
                     <button class="btn-small btn-danger" id="deleteGroupBtn" style="display:none;" onclick="deleteCurrentGroup()">🗑️ Apagar grupo</button>
                     <button class="btn-small" onclick="closeModal('modalManageGroup')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalProfile">
+            <div class="modal" style="text-align:center;">
+                <h3>👤 O meu perfil</h3>
+                <div id="profileAvatarPreview" class="chat-item-avatar avatar-user" style="width:90px;height:90px;font-size:36px;margin:14px auto;">U</div>
+                <input type="file" id="profilePhotoInput" accept="image/*" style="display:none;" onchange="handleProfilePhotoSelected(this)">
+                <button class="btn-small btn-accept" onclick="document.getElementById('profilePhotoInput').click()">📷 Escolher foto</button>
+                <p style="color:#8696a0;font-size:12px;margin-top:14px;" id="profileNameLine"></p>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -1584,7 +1598,7 @@
             .map(c => ({
                 id: dmRoomId(APP.user.phone, c.phone),
                 name: c.name, phone: c.phone, username: c.username || null, avatar: c.name.charAt(0).toUpperCase(),
-                type: 'user', online: c.online, publicKey: c.publicKey || null
+                type: 'user', online: c.online, publicKey: c.publicKey || null, avatarUrl: c.avatarUrl || null
             }));
         const groupChats = APP.groupsList
             .filter(g => !g.bannedPhones?.includes(APP.user.phone))
@@ -1783,13 +1797,13 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
-        document.getElementById('headerAvatar').textContent = APP.user.avatar;
+        applyHeaderAvatar();
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
@@ -1883,6 +1897,66 @@
         }
     });
 
+    function openProfileModal() {
+        renderProfileAvatarPreview();
+        document.getElementById('profileNameLine').textContent = APP.user.name + (APP.user.username ? ' · @' + APP.user.username : '');
+        document.getElementById('modalProfile').classList.add('active');
+    }
+
+    function renderProfileAvatarPreview() {
+        const el = document.getElementById('profileAvatarPreview');
+        if (APP.user.avatarUrl) el.innerHTML = `<img src="${APP.user.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+        else el.textContent = APP.user.name.charAt(0).toUpperCase();
+    }
+
+    function handleProfilePhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                // Reduz para no máximo 400x400 antes de enviar — uma foto de perfil
+                // não precisa de mais do que isso, e fica muito mais leve.
+                const size = 400;
+                const canvas = document.createElement('canvas');
+                canvas.width = size; canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                const scale = Math.max(size / img.width, size / img.height);
+                const w = img.width * scale, h = img.height * scale;
+                ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* sem internet momentânea — segue com o base64 mesmo */ }
+
+                socket.emit('update_avatar', { avatarUrl: finalUrl });
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    socket.on('avatar_updated', (data) => {
+        APP.user.avatarUrl = data.avatarUrl;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderProfileAvatarPreview();
+        applyHeaderAvatar();
+        renderChatList();
+    });
+
+    function applyHeaderAvatar() {
+        const el = document.getElementById('headerAvatar');
+        if (APP.user.avatarUrl) el.innerHTML = `<img src="${APP.user.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+        else el.textContent = APP.user.avatar;
+    }
+
     function openSearchUserModal() {
         document.getElementById('searchUsernameInput').value = '';
         document.getElementById('searchUserResult').innerHTML = '';
@@ -1960,7 +2034,7 @@
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + lastMsg.text : 'Nenhuma mensagem';
             const isGroup = chat.type === 'group';
             const isAI = chat.type === 'ai';
-            const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
+            const avatarContent = chat.avatarUrl ? `<img src="${chat.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0))));
             const avatarClass = isAI ? 'avatar-ai' : (isGroup ? 'avatar-group' : 'avatar-user');
             const badgeClass = isAI ? 'badge badge-ai' : 'badge';
             const onlineDot = (!isAI && !isGroup) ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:${chat.online ? '#25d366' : '#8696a0'};"></span>` : '';
@@ -1997,8 +2071,8 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         updateEncryptionBadge();
-        const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
-        document.getElementById('chatAvatar').textContent = avatarContent;
+        const avatarContent = chat.avatarUrl ? `<img src="${chat.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0))));
+        document.getElementById('chatAvatar').innerHTML = avatarContent;
         const avatarEl = document.getElementById('chatAvatar');
         avatarEl.className = 'header-avatar';
         avatarEl.style.background = isAI ? 'linear-gradient(135deg, #f093fb, #f5576c)' : (isGroup ? 'linear-gradient(135deg, #4caf84, #2196a4)' : 'linear-gradient(135deg, #6c5ce7, #a29bfe)');
@@ -3910,6 +3984,43 @@
         }
     }
 
+    // Troca entre câmara da frente e câmara traseira durante a chamada — funciona
+    // em telemóveis com mais do que uma câmara (a maioria). Em computadores com
+    // uma única câmara, simplesmente não há para onde trocar, e avisamos disso.
+    let currentFacingMode = 'user';
+    async function flipCamera() {
+        if (!APP.callStream || APP.callType !== 'video') return;
+        const newFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        try {
+            const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: newFacingMode } } });
+            const newTrack = newStream.getVideoTracks()[0];
+            const oldTrack = APP.callStream.getVideoTracks()[0];
+
+            // Atualiza a pré-visualização local (o pequeno vídeo com a tua própria imagem)
+            APP.callStream.removeTrack(oldTrack);
+            APP.callStream.addTrack(newTrack);
+            oldTrack.stop();
+            document.getElementById('pipVideo').srcObject = APP.callStream;
+            const meTile = document.getElementById('tile_me');
+            if (meTile) meTile.querySelector('video').srcObject = APP.callStream;
+
+            // Atualiza o que a outra pessoa (ou pessoas, em chamada de grupo) vê
+            if (peerConnection) {
+                const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (sender) await sender.replaceTrack(newTrack);
+            }
+            if (GROUP_CALL.active) {
+                Object.values(GROUP_CALL.peers).forEach(async (pc) => {
+                    const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (sender) await sender.replaceTrack(newTrack);
+                });
+            }
+            currentFacingMode = newFacingMode;
+        } catch (err) {
+            alert('Não foi possível trocar de câmara: ' + (err.name === 'OverconstrainedError' ? 'este dispositivo só tem uma câmara.' : err.message));
+        }
+    }
+
     function startCallTimer() {
         if (APP.callTimerInterval) return; // já rodando, evita duplicar
         APP.callStartTime = Date.now();
@@ -3941,6 +4052,7 @@
     function endCall(remoteInitiated) {
         if (!APP.callActive) return; // já foi encerrada — ignora chamadas duplicadas do evento
         APP.callActive = false;
+        currentFacingMode = 'user'; // a próxima chamada volta a começar com a câmara da frente
         if (!remoteInitiated && APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         pendingIceCandidates = [];
