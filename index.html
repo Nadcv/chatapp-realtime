@@ -235,6 +235,7 @@
             border-radius: 8px;
         }
         #transportMap { flex: 1; width: 100%; }
+        #navMap { flex: 1; width: 100%; }
         .transport-tab.active, .activities-tab.active {
             background: var(--green, #00a884);
             color: #fff;
@@ -1337,6 +1338,9 @@
                     <div class="app-tile" onclick="closeAppsHub(); openTransportScreen();">
                         <div class="app-tile-icon">🚌</div><div>Transportes</div>
                     </div>
+                    <div class="app-tile" onclick="closeAppsHub(); openNavScreen();">
+                        <div class="app-tile-icon">🧭</div><div>Navegação GPS</div>
+                    </div>
                     <div class="app-tile" onclick="closeAppsHub(); openDriveListenScreen();">
                         <div class="app-tile-icon">🚗</div><div>Conduzir e Ouvir</div>
                     </div>
@@ -1416,6 +1420,52 @@
             </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
+        </div>
+        <div class="location-screen" id="navScreen">
+            <div class="location-header">
+                <strong>🧭 Navegação GPS · Portugal e Espanha</strong>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <button id="navVoiceBtn" onclick="toggleNavVoice()" title="Ligar/desligar voz" style="background:none;border:none;color:var(--text-primary);font-size:18px;cursor:pointer;">🔊</button>
+                    <button onclick="closeNavScreen()">✖️</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="navDestInput" placeholder="Para onde vamos?" style="flex:1;padding:8px 12px;border-radius:20px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);outline:none;" onkeypress="if(event.key==='Enter'){event.preventDefault();searchNavDestination();}">
+                <button class="btn-small btn-accept" onclick="searchNavDestination()">🔍</button>
+            </div>
+            <div id="navResultsList" style="display:none;max-height:160px;overflow-y:auto;background:var(--bg-secondary);"></div>
+            <div id="navAlertBanner" style="display:none;background:#c0392b;color:#fff;padding:8px 14px;align-items:center;gap:8px;">
+                <span id="navAlertBannerIcon" style="font-size:20px;"></span>
+                <span id="navAlertBannerText" style="flex:1;font-size:13px;"></span>
+            </div>
+            <div id="navTrafficBanner" style="display:none;background:#e67e22;color:#fff;padding:6px 14px;font-size:12px;text-align:center;">🐌 Trânsito reportado na tua rota — ETA ajustado</div>
+            <div style="position:relative;flex:1;overflow:hidden;">
+                <div id="navMap" style="position:absolute;inset:0;"></div>
+                <button onclick="toggleAlertMenu()" title="Reportar" style="position:absolute;bottom:14px;right:14px;z-index:500;width:50px;height:50px;border-radius:50%;background:var(--red);border:none;color:#fff;font-size:22px;box-shadow:var(--shadow);cursor:pointer;">⚠️</button>
+                <div id="navAlertMenu" style="display:none;position:absolute;bottom:74px;right:14px;z-index:500;background:var(--bg-secondary);border-radius:12px;box-shadow:var(--shadow);padding:8px;flex-direction:column;gap:4px;min-width:170px;">
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('police')">🚓 Polícia</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('accident')">💥 Acidente</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('roadwork')">🚧 Obras na via</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('traffic')">🐌 Trânsito</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('hazard')">⚠️ Perigo/objeto na via</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('camera')">📷 Radar</button>
+                </div>
+            </div>
+            <div id="navInstructionBar" style="display:none;background:var(--green);color:#fff;padding:10px 14px;align-items:center;gap:10px;">
+                <span id="navInstructionIcon" style="font-size:24px;">➡️</span>
+                <div style="flex:1;">
+                    <div id="navInstructionText" style="font-weight:600;font-size:14px;"></div>
+                    <div id="navInstructionDist" style="font-size:12px;opacity:0.9;"></div>
+                </div>
+            </div>
+            <div id="navAltBar" style="display:none;padding:6px 10px;background:var(--bg-secondary);gap:6px;overflow-x:auto;"></div>
+            <div class="location-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
+                <div id="navRouteSummary" style="display:none;font-size:13px;color:var(--text-secondary);text-align:center;"></div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn-small" onclick="recenterNavMap()" style="flex:0 0 auto;">📍</button>
+                    <button class="btn btn-primary" id="navStartBtn" onclick="toggleNavigation()" style="flex:1;" disabled>▶️ Escolha um destino</button>
+                </div>
+            </div>
         </div>
         <div class="location-screen" id="driveListenScreen">
             <div class="location-header">
@@ -2782,6 +2832,378 @@
     function closeTransportScreen() {
         document.getElementById('transportScreen').classList.remove('active');
         if (TRANSPORT.pollInterval) { clearInterval(TRANSPORT.pollInterval); TRANSPORT.pollInterval = null; }
+    }
+
+    // ==================== NAVEGAÇÃO GPS (tipo Waze — Portugal e Espanha) ====================
+    const NAV = {
+        map: null,
+        userMarker: null,
+        destMarker: null,
+        routeLines: [],   // uma L.polyline por rota (a escolhida + alternativas)
+        routes: [],        // dados brutos devolvidos pelo OSRM
+        selectedRouteIndex: 0,
+        steps: [],         // passos (instruções) da rota escolhida
+        currentStepIndex: 0,
+        origin: null,       // { lat, lng }
+        destination: null,  // { lat, lng, label }
+        watchId: null,
+        navigating: false,
+        recalcCooldown: 0,   // evita recalcular a rota repetidamente em sequência
+        alerts: [],          // vem do servidor: alertas de estrada ativos (polícia, acidente, etc.)
+        alertMarkers: {},    // id -> L.marker
+        announcedAlertIds: new Set(), // alertas já avisados por voz/banner nesta navegação
+        voiceEnabled: localStorage.getItem('navVoiceEnabled') !== 'off'
+    };
+
+    const ALERT_ICONS = { police: '🚓', accident: '💥', roadwork: '🚧', traffic: '🐌', hazard: '⚠️', camera: '📷' };
+    const ALERT_LABELS = { police: 'Polícia', accident: 'Acidente', roadwork: 'Obras na via', traffic: 'Trânsito', hazard: 'Perigo na via', camera: 'Radar' };
+
+    function openNavScreen() {
+        if (!navigator.geolocation) return alert('Este navegador não suporta geolocalização.');
+        document.getElementById('navScreen').classList.add('active');
+        document.getElementById('navVoiceBtn').textContent = NAV.voiceEnabled ? '🔊' : '🔇';
+        if (!NAV.map) {
+            NAV.map = L.map('navMap').setView([40.0, -4.5], 6); // centrado na Península Ibérica
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(NAV.map);
+        }
+        setTimeout(() => NAV.map.invalidateSize(), 200);
+        navigator.geolocation.getCurrentPosition((pos) => {
+            NAV.origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            placeUserMarker(NAV.origin.lat, NAV.origin.lng, pos.coords.heading);
+            NAV.map.setView([NAV.origin.lat, NAV.origin.lng], 14);
+        }, (err) => {
+            console.warn('Não foi possível obter a localização inicial:', err.message);
+        }, { enableHighAccuracy: true, timeout: 10000 });
+        socket.emit('get_road_alerts');
+    }
+
+    function closeNavScreen() {
+        document.getElementById('navScreen').classList.remove('active');
+        document.getElementById('navAlertMenu').style.display = 'none';
+        if (NAV.navigating) toggleNavigation(); // para o GPS ao sair, para poupar bateria
+        if (window.speechSynthesis) speechSynthesis.cancel();
+    }
+
+    // ---- Voz (instruções faladas em português) ----
+    function toggleNavVoice() {
+        NAV.voiceEnabled = !NAV.voiceEnabled;
+        localStorage.setItem('navVoiceEnabled', NAV.voiceEnabled ? 'on' : 'off');
+        document.getElementById('navVoiceBtn').textContent = NAV.voiceEnabled ? '🔊' : '🔇';
+        if (!NAV.voiceEnabled && window.speechSynthesis) speechSynthesis.cancel();
+    }
+    function speak(text) {
+        if (!NAV.voiceEnabled || !window.speechSynthesis) return;
+        try {
+            speechSynthesis.cancel(); // não deixa instruções antigas acumularem-se em fila
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'pt-PT';
+            u.rate = 1.0;
+            speechSynthesis.speak(u);
+        } catch (e) { console.warn('Voz indisponível:', e.message); }
+    }
+
+    // ---- Alertas de estrada (comunitários, tipo Waze) ----
+    function toggleAlertMenu() {
+        const menu = document.getElementById('navAlertMenu');
+        menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+    }
+    function reportAlert(type) {
+        document.getElementById('navAlertMenu').style.display = 'none';
+        if (!NAV.origin) return alert('Ainda não sei a tua localização — espera um momento e tenta outra vez.');
+        socket.emit('report_alert', { type, lat: NAV.origin.lat, lng: NAV.origin.lng });
+    }
+    socket.on('road_alerts_update', (alerts) => {
+        NAV.alerts = alerts || [];
+        renderAlertMarkers();
+        if (NAV.routes.length) checkTrafficOnRoute();
+    });
+    function renderAlertMarkers() {
+        if (!NAV.map) return;
+        const activeIds = new Set(NAV.alerts.map(a => a.id));
+        Object.keys(NAV.alertMarkers).forEach((id) => {
+            if (!activeIds.has(id)) { NAV.map.removeLayer(NAV.alertMarkers[id]); delete NAV.alertMarkers[id]; }
+        });
+        NAV.alerts.forEach((a) => {
+            const popupHtml = `
+                <div style="text-align:center;min-width:150px;">
+                    <strong>${ALERT_ICONS[a.type] || '⚠️'} ${ALERT_LABELS[a.type] || a.type}</strong><br>
+                    <span style="font-size:11px;color:#666;">reportado por ${a.reportedBy}</span><br><br>
+                    <button class="btn-small btn-accept" style="font-size:11px;padding:4px 8px;" onclick="socket.emit('confirm_alert',{id:'${a.id}'})">✅ Ainda aqui</button>
+                    <button class="btn-small" style="font-size:11px;padding:4px 8px;" onclick="socket.emit('dismiss_alert',{id:'${a.id}'})">❌ Já não está</button>
+                </div>`;
+            if (NAV.alertMarkers[a.id]) {
+                NAV.alertMarkers[a.id].setPopupContent(popupHtml);
+            } else {
+                const icon = L.divIcon({ className: '', html: `<div style="font-size:22px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.5));">${ALERT_ICONS[a.type] || '⚠️'}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+                NAV.alertMarkers[a.id] = L.marker([a.lat, a.lng], { icon }).addTo(NAV.map).bindPopup(popupHtml);
+            }
+        });
+    }
+    // Aproxima-se de um alerta durante a navegação: mostra o banner e avisa por voz
+    function checkAlertsProximity(lat, lng) {
+        const banner = document.getElementById('navAlertBanner');
+        let nearest = null, nearestDist = Infinity;
+        NAV.alerts.forEach((a) => {
+            const d = haversineMeters(lat, lng, a.lat, a.lng);
+            if (d < 400 && d < nearestDist) { nearest = a; nearestDist = d; }
+        });
+        if (nearest) {
+            banner.style.display = 'flex';
+            document.getElementById('navAlertBannerIcon').textContent = ALERT_ICONS[nearest.type] || '⚠️';
+            document.getElementById('navAlertBannerText').textContent = `${ALERT_LABELS[nearest.type]} a ${Math.round(nearestDist)}m`;
+            if (!NAV.announcedAlertIds.has(nearest.id)) {
+                NAV.announcedAlertIds.add(nearest.id);
+                speak(`Atenção, ${ALERT_LABELS[nearest.type]} daqui a ${Math.round(nearestDist)} metros`);
+            }
+        } else {
+            banner.style.display = 'none';
+        }
+    }
+    // Trânsito reportado perto da rota escolhida — não há dados de trânsito ao
+    // vivo gratuitos, por isso isto é uma aproximação a partir dos alertas 🐌
+    // que as próprias pessoas reportam ao longo do caminho (tal como as
+    // primeiras versões do Waze também dependiam da comunidade).
+    function checkTrafficOnRoute() {
+        const line = NAV.routeLines[NAV.selectedRouteIndex];
+        const banner = document.getElementById('navTrafficBanner');
+        if (!line) { banner.style.display = 'none'; return; }
+        const latlngs = line.getLatLngs();
+        const trafficAlerts = NAV.alerts.filter(a => a.type === 'traffic');
+        let hits = 0;
+        trafficAlerts.forEach((a) => { if (distanceToPolyline(a.lat, a.lng, latlngs) < 150) hits++; });
+        banner.style.display = hits > 0 ? 'block' : 'none';
+        return hits;
+    }
+
+    function placeUserMarker(lat, lng, heading) {
+        const rotation = (typeof heading === 'number' && !isNaN(heading)) ? heading : 0;
+        const icon = L.divIcon({
+            className: '',
+            html: `<div style="width:22px;height:22px;transform:rotate(${rotation}deg);font-size:22px;line-height:22px;text-align:center;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🧭</div>`,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+        });
+        if (NAV.userMarker) NAV.userMarker.setLatLng([lat, lng]).setIcon(icon);
+        else NAV.userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(NAV.map);
+    }
+
+    // ---- Pesquisar destino (geocodificação via Nominatim, através do servidor) ----
+    async function searchNavDestination() {
+        const q = document.getElementById('navDestInput').value.trim();
+        if (!q) return;
+        const list = document.getElementById('navResultsList');
+        list.style.display = 'block';
+        list.innerHTML = '<p style="padding:12px;color:var(--text-secondary);font-size:13px;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/nav/geocode?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha na pesquisa');
+            if (!data.length) { list.innerHTML = '<p style="padding:12px;color:var(--text-secondary);font-size:13px;">Nada encontrado em Portugal/Espanha para essa pesquisa.</p>'; return; }
+            list.innerHTML = data.map((r, i) => `
+                <div class="chat-item" style="cursor:pointer;" onclick='selectNavResult(${JSON.stringify(r.lat)}, ${JSON.stringify(r.lon)}, ${JSON.stringify(r.display_name)})'>
+                    <div class="chat-item-avatar avatar-user">📍</div>
+                    <div class="chat-item-info"><h4>${(r.display_name || '').split(',')[0]}</h4><p>${r.display_name}</p></div>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = `<p style="padding:12px;color:var(--red);font-size:13px;">⚠️ ${err.message}</p>`;
+        }
+    }
+
+    async function selectNavResult(lat, lng, label) {
+        document.getElementById('navResultsList').style.display = 'none';
+        document.getElementById('navDestInput').value = label.split(',')[0];
+        NAV.destination = { lat: parseFloat(lat), lng: parseFloat(lng), label };
+        if (NAV.destMarker) NAV.map.removeLayer(NAV.destMarker);
+        NAV.destMarker = L.marker([NAV.destination.lat, NAV.destination.lng]).addTo(NAV.map).bindPopup(label.split(',')[0]);
+        if (!NAV.origin) {
+            await new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    NAV.origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    placeUserMarker(NAV.origin.lat, NAV.origin.lng, pos.coords.heading);
+                    resolve();
+                }, () => resolve(), { enableHighAccuracy: true, timeout: 10000 });
+            });
+        }
+        if (!NAV.origin) return alert('Não foi possível obter a tua localização atual.');
+        await computeRoute();
+    }
+
+    // ---- Calcular rota (com alternativas, tal como o Waze/Google Maps) ----
+    async function computeRoute() {
+        if (!NAV.origin || !NAV.destination) return;
+        document.getElementById('navRouteSummary').style.display = 'block';
+        document.getElementById('navRouteSummary').textContent = 'A calcular rota...';
+        try {
+            const url = `/api/nav/route?fromLat=${NAV.origin.lat}&fromLng=${NAV.origin.lng}&toLat=${NAV.destination.lat}&toLng=${NAV.destination.lng}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha ao calcular a rota');
+            NAV.routes = data.routes;
+            NAV.selectedRouteIndex = 0;
+            drawRoutes();
+            renderAltBar();
+            selectRoute(0);
+            document.getElementById('navStartBtn').disabled = false;
+            document.getElementById('navStartBtn').textContent = '▶️ Iniciar navegação';
+        } catch (err) {
+            document.getElementById('navRouteSummary').textContent = '⚠️ ' + err.message;
+        }
+    }
+
+    function drawRoutes() {
+        NAV.routeLines.forEach(l => NAV.map.removeLayer(l));
+        NAV.routeLines = NAV.routes.map((r, i) => {
+            const latlngs = r.geometry.coordinates.map(c => [c[1], c[0]]);
+            const line = L.polyline(latlngs, {
+                color: i === NAV.selectedRouteIndex ? '#00a884' : '#8696a0',
+                weight: i === NAV.selectedRouteIndex ? 6 : 4,
+                opacity: i === NAV.selectedRouteIndex ? 0.95 : 0.6
+            }).addTo(NAV.map);
+            line.on('click', () => selectRoute(i));
+            return line;
+        });
+        // A rota escolhida fica sempre por cima das alternativas, para se poder clicar nela
+        NAV.routeLines[NAV.selectedRouteIndex]?.bringToFront();
+        const bounds = NAV.routeLines[NAV.selectedRouteIndex]?.getBounds();
+        if (bounds) NAV.map.fitBounds(bounds, { padding: [30, 30] });
+    }
+
+    function renderAltBar() {
+        const bar = document.getElementById('navAltBar');
+        if (NAV.routes.length < 2) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        bar.innerHTML = NAV.routes.map((r, i) => {
+            const mins = Math.round(r.duration / 60);
+            const km = (r.distance / 1000).toFixed(1);
+            return `<button class="btn-small ${i === NAV.selectedRouteIndex ? 'btn-accept' : ''}" style="flex:0 0 auto;" onclick="selectRoute(${i})">${i === 0 ? '⭐ ' : ''}${mins} min · ${km} km</button>`;
+        }).join('');
+    }
+
+    function selectRoute(index) {
+        NAV.selectedRouteIndex = index;
+        const route = NAV.routes[index];
+        NAV.steps = route.legs.flatMap(leg => leg.steps);
+        NAV.currentStepIndex = 0;
+        drawRoutes();
+        renderAltBar();
+        const hits = checkTrafficOnRoute();
+        const mins = Math.round(route.duration / 60) + (hits ? hits * 5 : 0); // +5min por trânsito reportado na rota
+        const km = (route.distance / 1000).toFixed(1);
+        document.getElementById('navRouteSummary').textContent = hits
+            ? `🕐 ~${mins} min (com trânsito) · 📏 ${km} km`
+            : `🕐 ${mins} min · 📏 ${km} km`;
+        showCurrentInstruction();
+    }
+
+    // ---- Instruções de navegação (traduzidas para português) ----
+    const NAV_MODIFIER_PT = { left: 'à esquerda', right: 'à direita', 'slight left': 'ligeiramente à esquerda', 'slight right': 'ligeiramente à direita', 'sharp left': 'com força à esquerda', 'sharp right': 'com força à direita', straight: 'em frente', uturn: 'inversão de marcha' };
+    function maneuverText(step) {
+        const type = step.maneuver?.type;
+        const mod = NAV_MODIFIER_PT[step.maneuver?.modifier] || '';
+        const streetName = step.name ? ` para ${step.name}` : '';
+        if (type === 'depart') return 'Siga em frente' + streetName;
+        if (type === 'arrive') return 'Chegou ao destino 🎉';
+        if (type === 'roundabout' || type === 'rotary') return `Na rotunda, saia na saída ${step.maneuver.exit || ''}` + streetName;
+        if (type === 'merge') return 'Junte-se à via' + streetName;
+        if (type === 'fork') return `Mantenha-se ${mod || 'em frente'}` + streetName;
+        if (type === 'end of road') return `No final da via, vire ${mod}` + streetName;
+        if (type === 'continue') return 'Continue em frente' + streetName;
+        if (type === 'on ramp' || type === 'off ramp') return `Entre ${mod} na rampa` + streetName;
+        if (mod) return `Vire ${mod}` + streetName;
+        return 'Siga' + streetName;
+    }
+    function maneuverIcon(step) {
+        const mod = step.maneuver?.modifier || '';
+        if (step.maneuver?.type === 'arrive') return '🏁';
+        if (step.maneuver?.type === 'roundabout' || step.maneuver?.type === 'rotary') return '🔄';
+        if (mod.includes('left')) return '⬅️';
+        if (mod.includes('right')) return '➡️';
+        if (mod === 'uturn') return '↩️';
+        return '⬆️';
+    }
+    function showCurrentInstruction(spokenAloud) {
+        const step = NAV.steps[NAV.currentStepIndex];
+        const bar = document.getElementById('navInstructionBar');
+        if (!step) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        document.getElementById('navInstructionIcon').textContent = maneuverIcon(step);
+        document.getElementById('navInstructionText').textContent = maneuverText(step);
+        document.getElementById('navInstructionDist').textContent = step.distance >= 1000 ? `${(step.distance / 1000).toFixed(1)} km` : `${Math.round(step.distance)} m`;
+        if (spokenAloud) speak(maneuverText(step));
+    }
+
+    function recenterNavMap() {
+        if (NAV.origin) NAV.map.setView([NAV.origin.lat, NAV.origin.lng], NAV.navigating ? 17 : 14);
+    }
+
+    // ---- Iniciar/parar o seguimento GPS em tempo real ----
+    function toggleNavigation() {
+        if (NAV.navigating) {
+            if (NAV.watchId) navigator.geolocation.clearWatch(NAV.watchId);
+            NAV.watchId = null;
+            NAV.navigating = false;
+            document.getElementById('navStartBtn').textContent = '▶️ Iniciar navegação';
+            document.getElementById('navAlertBanner').style.display = 'none';
+            if (window.speechSynthesis) speechSynthesis.cancel();
+            return;
+        }
+        if (!NAV.steps.length) return;
+        NAV.navigating = true;
+        NAV.announcedAlertIds.clear(); // nova viagem, avisa outra vez os alertas no caminho
+        document.getElementById('navStartBtn').textContent = '⏹️ Parar navegação';
+        NAV.map.setView([NAV.origin.lat, NAV.origin.lng], 17);
+        showCurrentInstruction(true); // fala logo a primeira instrução
+        NAV.watchId = navigator.geolocation.watchPosition(onNavPositionUpdate, (err) => {
+            console.warn('Erro no GPS durante a navegação:', err.message);
+        }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+    }
+
+    function onNavPositionUpdate(pos) {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude, heading = pos.coords.heading;
+        NAV.origin = { lat, lng };
+        placeUserMarker(lat, lng, heading);
+        if (NAV.navigating) {
+            NAV.map.setView([lat, lng], NAV.map.getZoom() < 15 ? 17 : NAV.map.getZoom());
+            checkAlertsProximity(lat, lng);
+        }
+
+        // Avança para a próxima instrução quando chega perto do ponto de manobra
+        const step = NAV.steps[NAV.currentStepIndex];
+        if (step) {
+            const loc = step.maneuver.location; // [lon, lat]
+            const distToManeuver = haversineMeters(lat, lng, loc[1], loc[0]);
+            if (distToManeuver < 35 && NAV.currentStepIndex < NAV.steps.length - 1) {
+                NAV.currentStepIndex++;
+                showCurrentInstruction(true);
+            } else {
+                document.getElementById('navInstructionDist').textContent = distToManeuver >= 1000 ? `${(distToManeuver / 1000).toFixed(1)} km` : `${Math.round(distToManeuver)} m`;
+                // Avisa por voz uns segundos antes de chegar à manobra (tal como o Waze)
+                if (NAV.navigating && distToManeuver < 150 && !step._warned150) {
+                    step._warned150 = true;
+                    speak(maneuverText(step));
+                }
+            }
+        }
+
+        // Recalcula a rota sozinho se a pessoa se desviar bastante do trajeto —
+        // tal como o Waze faz quando erras uma saída.
+        const line = NAV.routeLines[NAV.selectedRouteIndex];
+        if (line && Date.now() > NAV.recalcCooldown) {
+            const nearest = distanceToPolyline(lat, lng, line.getLatLngs());
+            if (nearest > 60) {
+                NAV.recalcCooldown = Date.now() + 15000; // não recalcula outra vez nos próximos 15s
+                computeRoute();
+            }
+        }
+    }
+
+    function distanceToPolyline(lat, lng, latlngs) {
+        let min = Infinity;
+        for (const p of latlngs) {
+            const d = haversineMeters(lat, lng, p.lat, p.lng);
+            if (d < min) min = d;
+        }
+        return min;
     }
 
     // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================

@@ -143,7 +143,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -386,6 +386,42 @@ app.get('/api/weather', async (req, res) => {
   } catch (err) {
     console.error('Erro meteorologia:', err.message);
     res.status(502).json({ error: 'Não foi possível obter o tempo agora.' });
+  }
+});
+
+// ==================== NAVEGAÇÃO GPS (tipo Waze, Portugal e Espanha) ====================
+// Endereço -> coordenadas, via Nominatim (OpenStreetMap) — gratuita, mas exige
+// um User-Agent identificável e pede para não bombardear com pedidos; aqui é
+// sempre 1 pedido por pesquisa feita pelo utilizador, com cache de 1 minuto.
+app.get('/api/nav/geocode', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Escreve um endereço para procurar.' });
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=pt,es&limit=6&addressdetails=1&q=${encodeURIComponent(q)}`;
+    const data = await cachedFetch('geocode_' + q.toLowerCase(), url, 60000, { headers: { 'User-Agent': 'SinalApp/1.0 (navegacao dentro da app de mensagens)' } });
+    res.json(data);
+  } catch (err) {
+    console.error('Erro geocodificação:', err.message);
+    res.status(502).json({ error: 'Não foi possível procurar esse endereço agora.' });
+  }
+});
+
+// Cálculo de rota de condução — OSRM (servidor público de demonstração,
+// gratuito mas com uso justo/limitado; adequado para uma app pessoal, não
+// para tráfego pesado de produção). Pede sempre 2 alternativas quando existem,
+// para a pessoa poder escolher entre rotas — como no Waze/Google Maps.
+app.get('/api/nav/route', async (req, res) => {
+  const { fromLat, fromLng, toLat, toLng } = req.query;
+  if (!fromLat || !fromLng || !toLat || !toLng) return res.status(400).json({ error: 'Coordenadas em falta.' });
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+    const cacheKey = `route_${fromLat}_${fromLng}_${toLat}_${toLng}`;
+    const data = await cachedFetch(cacheKey, url, 20000);
+    if (data.code !== 'Ok' || !data.routes?.length) return res.status(404).json({ error: 'Não foi possível calcular uma rota entre estes dois pontos.' });
+    res.json(data);
+  } catch (err) {
+    console.error('Erro rota:', err.message);
+    res.status(502).json({ error: 'Não foi possível calcular a rota agora.' });
   }
 });
 
@@ -787,6 +823,36 @@ function loadMutedLocal() {
 }
 function saveMutedLocal() {
   fs.writeFile(MUTED_FILE, JSON.stringify(mutedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas silenciadas:', err.message); });
+}
+
+// ==================== ALERTAS DE ESTRADA (tipo Waze — comunitários) ====================
+// Polícia, acidente, obras, trânsito, perigo/objeto na via, radar — reportados
+// pelos próprios utilizadores e visíveis a todos enquanto navegam, tal como no
+// Waze. Cada tipo expira sozinho ao fim de um tempo (mais curto para o que
+// muda rápido, como trânsito; mais longo para obras).
+const ALERTS_FILE = path.join(__dirname, 'roadalerts.json');
+let roadAlerts = []; // [{id, type, lat, lng, reportedBy, reportedAt, expiresAt, confirms, denies}]
+const ALERT_TYPE_TTL_MS = {
+  police: 45 * 60 * 1000,
+  accident: 2 * 60 * 60 * 1000,
+  roadwork: 12 * 60 * 60 * 1000,
+  traffic: 45 * 60 * 1000,
+  hazard: 3 * 60 * 60 * 1000,
+  camera: 30 * 24 * 60 * 60 * 1000 // radar fixo — dura muito mais
+};
+function loadAlertsLocal() {
+  try { if (fs.existsSync(ALERTS_FILE)) roadAlerts = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar alertas de estrada:', err.message); }
+}
+function saveAlertsLocal() {
+  fs.writeFile(ALERTS_FILE, JSON.stringify(roadAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de estrada:', err.message); });
+}
+function pruneExpiredAlerts() {
+  const now = Date.now();
+  const before = roadAlerts.length;
+  roadAlerts = roadAlerts.filter((a) => a.expiresAt > now && a.denies < 3);
+  if (roadAlerts.length !== before) { saveAlertsLocal(); return true; }
+  return false;
 }
 
 // ==================== CONTATOS (por pesquisa, não automáticos) ====================
@@ -1330,6 +1396,46 @@ io.on('connection', (socket) => {
     socket.emit('muted_list', mutedByPhone[myPhone] || []);
   });
 
+  // ==================== ALERTAS DE ESTRADA (comunitários, tipo Waze) ====================
+  const ALERT_TYPES = new Set(['police', 'accident', 'roadwork', 'traffic', 'hazard', 'camera']);
+  socket.on('report_alert', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { type, lat, lng } = data || {};
+    if (!myPhone || !ALERT_TYPES.has(type) || typeof lat !== 'number' || typeof lng !== 'number') return;
+    const now = Date.now();
+    const alert = {
+      id: 'al' + now + '_' + Math.random().toString(36).slice(2, 7),
+      type, lat, lng,
+      reportedBy: users[socket.id]?.name || 'Alguém',
+      reportedAt: now,
+      expiresAt: now + (ALERT_TYPE_TTL_MS[type] || 60 * 60 * 1000),
+      confirms: 1, denies: 0
+    };
+    roadAlerts.push(alert);
+    saveAlertsLocal();
+    io.emit('road_alerts_update', roadAlerts);
+  });
+  socket.on('confirm_alert', (data) => {
+    const alert = roadAlerts.find((a) => a.id === data?.id);
+    if (!alert) return;
+    alert.confirms++;
+    alert.expiresAt = Math.max(alert.expiresAt, Date.now() + 15 * 60 * 1000); // "ainda lá" renova pelo menos 15min
+    saveAlertsLocal();
+    io.emit('road_alerts_update', roadAlerts);
+  });
+  socket.on('dismiss_alert', (data) => {
+    const alert = roadAlerts.find((a) => a.id === data?.id);
+    if (!alert) return;
+    alert.denies++;
+    if (alert.denies >= 3) roadAlerts = roadAlerts.filter((a) => a.id !== alert.id); // "já não está" de 3 pessoas remove
+    saveAlertsLocal();
+    io.emit('road_alerts_update', roadAlerts);
+  });
+  socket.on('get_road_alerts', () => {
+    pruneExpiredAlerts();
+    socket.emit('road_alerts_update', roadAlerts);
+  });
+
   // ==================== CONFERÊNCIAS EM GRUPO (Até 20+ participantes em simultâneo) ====================
   socket.on('join_call', (data) => {
     const { roomId, callType } = data || {};
@@ -1629,6 +1735,12 @@ connectDatabase().then(async () => {
   setInterval(() => {
     if (pruneExpiredStatuses()) io.emit('statuses_update', buildStatusFeed());
   }, 5 * 60 * 1000);
+
+  // Alertas de estrada: limpa os que expiraram (ou foram muito negados) e
+  // avisa quem está a navegar para tirar o marcador do mapa.
+  setInterval(() => {
+    if (pruneExpiredAlerts()) io.emit('road_alerts_update', roadAlerts);
+  }, 2 * 60 * 1000);
 
   // Mensagens agendadas: dispara as que já chegaram à hora marcada.
   setInterval(async () => {
