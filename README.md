@@ -174,6 +174,24 @@ Também troquei o `confirm()` do navegador (uma caixa de diálogo simples) por u
 
 A "Conferência" antes usava a mesma ligação 1-para-1 de sempre (só funcionava entre 2 pessoas, mesmo em grupos). Agora, para grupos, cada participante liga diretamente a todos os outros que já estão na chamada (uma "malha" de ligações) — funciona bem até **cerca de 6-8 pessoas com vídeo ligado**. Quando alguém inicia uma chamada num grupo, os outros membros recebem um aviso para entrar. Passar disto (dezenas de pessoas) exigiria um servidor central de vídeo (SFU), que não existe numa opção gratuita — se um dia precisares de mais participantes em simultâneo, terias de contratar um serviço deste tipo.
 
+## Assistente de IA mais resistente a instabilidades
+
+O GitHub Models é uma infraestrutura gratuita partilhada, e às vezes fica temporariamente sobrecarregada ou atinge o limite de pedidos — não é um problema da nossa app. Agora, quando isso acontece, o servidor tenta automaticamente até 3 vezes antes de desistir, e se mesmo assim continuar indisponível, mostra uma mensagem clara a explicar que é uma instabilidade temporária do serviço gratuito, sugerindo tentar de novo dentro de um ou dois minutos.
+
+## 👤 Foto de perfil
+
+Toca no teu avatar no canto superior esquerdo (ou "O meu perfil" no menu ⋮) para escolher uma foto. É redimensionada automaticamente antes de enviar, e aparece para ti e para os teus contactos em todo o lado — cabeçalho, lista de conversas, conversa aberta. Se tiveres o Cloudinary configurado, a foto vai para lá; senão, fica guardada como as outras imagens da app.
+
+
+Novo botão na barra da chamada de vídeo — troca entre a câmara da frente e a de trás em tempo real (a outra pessoa também vê a mudança). Funciona em telemóveis com mais do que uma câmara. Em computadores com uma única câmara, mostra um aviso claro em vez de falhar silenciosamente.
+
+## Sobre a partilha de ecrã em todos os dispositivos
+
+Isto não depende de nós — é uma limitação de cada navegador:
+- **Android (Chrome/Firefox)**: funciona
+- **Computador (Windows/Mac/Linux, qualquer navegador atual)**: funciona
+- **iPhone/iPad (Safari, e por extensão todos os navegadores no iOS, que são obrigados a usar o motor do Safari)**: a Apple **nunca implementou esta função no iOS** — nenhuma app feita para navegador consegue contornar isto, só apps nativas da App Store o conseguem fazer (usando uma API diferente do sistema operativo, não do navegador). Se o iPhone tentar partilhar o ecrã, a app já deteta isso e avisa com uma mensagem clara em vez de falhar sem explicação.
+
 ## Fotos, documentos e mensagens de voz
 
 - **📎 Fotos e documentos** — botão ao lado da caixa de mensagem, limite de **10MB** por ficheiro.
@@ -297,3 +315,13 @@ Novo botão ao lado de "Apagar" — só nas tuas próprias mensagens de texto si
 
 
 
+
+## 🧩 Área de Aplicações
+
+Novo ponto central para encontrar tudo — **⋮ Mais → 🧩 Aplicações** — com uma grelha de blocos. Reorganizei o que já existia (Atividades, Transportes, Conduzir e Ouvir, Sala Virtual) para aqui, e construí três aplicações novas de raiz:
+
+- **✅ Tarefas** — lista de tarefas partilhada. Se abrires a partir de dentro de uma conversa, é partilhada com quem lá está (todos veem e marcam); se abrires sem nenhuma conversa aberta, é a tua lista pessoal.
+- **📔 Notas** — notas/diário privado, só teu, com título e texto livre.
+- **🌦️ Tempo** — usa o GPS para mostrar o tempo atual e previsão de 5 dias no teu local (Open-Meteo, gratuita, sem chave).
+
+Ficaram marcadas como "brevemente disponível" (ainda não construídas): 💰 Dividir despesas, 📅 Agenda de grupo, 🎮 Jogos, 🍽️ Recomendações perto de ti, 🏆 Ranking semanal.
