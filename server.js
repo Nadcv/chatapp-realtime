@@ -37,6 +37,7 @@ const accountSchema = new mongoose.Schema({
   passwordHash: String,
   createdAt: String,
   publicKey: Object,
+  avatarUrl: String,
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
   pushSubscriptions: { type: [Object], default: [] } // inscrições de notificações push (um dispositivo pode ter mais do que uma)
 });
@@ -93,12 +94,29 @@ const activitySchema = new mongoose.Schema({
 }, { strict: false });
 const ActivityModel = mongoose.model('Activity', activitySchema);
 
+const todoSchema = new mongoose.Schema({
+  roomId: { type: String, required: true, unique: true },
+  items: { type: [Object], default: [] } // {id, text, done, addedBy}
+}, { strict: false });
+const TodoModel = mongoose.model('Todo', todoSchema);
+
+const noteSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  phone: { type: String, required: true, index: true },
+  title: String,
+  text: String,
+  updatedAt: { type: Date, default: Date.now }
+}, { strict: false });
+const NoteModel = mongoose.model('Note', noteSchema);
+
 async function loadDataFromMongo() {
-  const [dbAccounts, dbGroups, dbMsgs, dbActivities] = await Promise.all([
+  const [dbAccounts, dbGroups, dbMsgs, dbActivities, dbTodos, dbNotes] = await Promise.all([
     AccountModel.find({}),
     GroupModel.find({}),
     MessageModel.find({}).sort({ createdAt: 1 }),
-    ActivityModel.find({}).sort({ createdAt: -1 }).limit(500)
+    ActivityModel.find({}).sort({ createdAt: -1 }).limit(500),
+    TodoModel.find({}),
+    NoteModel.find({})
   ]);
   dbAccounts.forEach(acc => {
     accounts[acc.phone] = acc.toObject();
@@ -112,7 +130,9 @@ async function loadDataFromMongo() {
     messagesByRoom[obj.chatId].push(obj);
   });
   dbActivities.forEach(a => { activities.push(a.toObject()); });
-  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s).`);
+  dbTodos.forEach(t => { todosByRoom[t.roomId] = t.toObject().items || []; });
+  dbNotes.forEach(n => { notesByPhone[n.phone] = notesByPhone[n.phone] || []; notesByPhone[n.phone].push(n.toObject()); });
+  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s), ${dbTodos.length} lista(s) de tarefas, ${dbNotes.length} nota(s).`);
 }
 
 // Liga à base de dados ANTES do servidor começar a aceitar pedidos — sem isto,
@@ -120,9 +140,13 @@ async function loadDataFromMongo() {
 // aos ficheiros locais em vez de à base de dados (e depois pareciam ter
 // desaparecido), por causa do tempo que a ligação ao Mongo demora a estabelecer.
 async function connectDatabase() {
+  // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
+  // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
+  // independentemente do Mongo estar ligado — mantém a implementação simples.
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
     return;
   }
   try {
@@ -133,7 +157,7 @@ async function connectDatabase() {
   } catch (err) {
     console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
     isDbConnected = false;
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
   }
 }
 
@@ -175,7 +199,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -348,6 +372,59 @@ app.get('/api/drivelisten/radio', async (req, res) => {
 // ==================== SERVIDOR TURN ====================
 let turnCache = null;
 let turnCacheAt = 0;
+// ==================== TEMPO/METEOROLOGIA ====================
+// Open-Meteo — gratuita, sem chave, sem limite de pedidos para uso normal.
+app.get('/api/weather', async (req, res) => {
+  const { lat, lon } = req.query;
+  if (!lat || !lon) return res.status(400).json({ error: 'Localização em falta.' });
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    console.error('Erro meteorologia:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter o tempo agora.' });
+  }
+});
+
+// ==================== NAVEGAÇÃO GPS (tipo Waze, Portugal e Espanha) ====================
+// Endereço -> coordenadas, via Nominatim (OpenStreetMap) — gratuita, mas exige
+// um User-Agent identificável e pede para não bombardear com pedidos; aqui é
+// sempre 1 pedido por pesquisa feita pelo utilizador, com cache de 1 minuto.
+app.get('/api/nav/geocode', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Escreve um endereço para procurar.' });
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=pt,es&limit=6&addressdetails=1&q=${encodeURIComponent(q)}`;
+    const data = await cachedFetch('geocode_' + q.toLowerCase(), url, 60000, { headers: { 'User-Agent': 'SinalApp/1.0 (navegacao dentro da app de mensagens)' } });
+    res.json(data);
+  } catch (err) {
+    console.error('Erro geocodificação:', err.message);
+    res.status(502).json({ error: 'Não foi possível procurar esse endereço agora.' });
+  }
+});
+
+// Cálculo de rota de condução — OSRM (servidor público de demonstração,
+// gratuito mas com uso justo/limitado; adequado para uma app pessoal, não
+// para tráfego pesado de produção). Pede sempre 2 alternativas quando existem,
+// para a pessoa poder escolher entre rotas — como no Waze/Google Maps.
+app.get('/api/nav/route', async (req, res) => {
+  const { fromLat, fromLng, toLat, toLng } = req.query;
+  if (!fromLat || !fromLng || !toLat || !toLng) return res.status(400).json({ error: 'Coordenadas em falta.' });
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+    const cacheKey = `route_${fromLat}_${fromLng}_${toLat}_${toLng}`;
+    const data = await cachedFetch(cacheKey, url, 20000);
+    if (data.code !== 'Ok' || !data.routes?.length) return res.status(404).json({ error: 'Não foi possível calcular uma rota entre estes dois pontos.' });
+    res.json(data);
+  } catch (err) {
+    console.error('Erro rota:', err.message);
+    res.status(502).json({ error: 'Não foi possível calcular a rota agora.' });
+  }
+});
+
 app.get('/api/turn-credentials', async (req, res) => {
   const FALLBACK = {
     iceServers: [
@@ -391,28 +468,47 @@ app.post('/api/ai-chat', async (req, res) => {
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Mensagem vazia.' });
   }
-  try {
-    const r = await fetch('https://models.github.ai/inference/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN
-      },
-      body: JSON.stringify({
-        model: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
-        messages,
-        temperature: 1
-      })
-    });
-    const data = await r.json();
-    if (!r.ok) {
-      return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu.' });
+  // O GitHub Models é uma infraestrutura partilhada gratuita e às vezes fica
+  // sobrecarregada ou com o limite de pedidos atingido (erros 429/503) — nesses
+  // casos, muitas vezes uma segunda tentativa alguns segundos depois já resolve,
+  // por isso tentamos até 3 vezes antes de desistir e avisar o usuário.
+  const MAX_ATTEMPTS = 3;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const r = await fetch('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN
+        },
+        body: JSON.stringify({
+          model: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
+          messages,
+          temperature: 1
+        })
+      });
+      if (r.status === 429 || r.status === 503) {
+        lastError = { status: r.status, transient: true };
+        if (attempt < MAX_ATTEMPTS) { await new Promise(res => setTimeout(res, attempt * 1200)); continue; }
+        break;
+      }
+      const data = await r.json();
+      if (!r.ok) {
+        return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu.' });
+      }
+      const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
+      return res.json({ reply });
+    } catch (err) {
+      lastError = { message: err.message, transient: false };
+      if (attempt < MAX_ATTEMPTS) { await new Promise(res => setTimeout(res, attempt * 1000)); continue; }
     }
-    const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
-    res.json({ reply });
-  } catch (err) {
-    res.status(500).json({ error: 'Falha ao contactar o serviço de IA.' });
   }
+  console.error('IA indisponível após', MAX_ATTEMPTS, 'tentativas:', lastError);
+  const msg = lastError?.transient
+    ? 'O GitHub Models (a IA gratuita) está temporariamente sobrecarregado ou atingiu o limite de pedidos. É uma instabilidade do próprio serviço gratuito, não da nossa app — tenta novamente daqui a um ou dois minutos.'
+    : 'Falha ao contactar o serviço de IA. Tenta novamente em instantes.';
+  res.status(503).json({ error: msg });
 });
 
 // ==================== TRADUTOR ====================
@@ -603,17 +699,206 @@ function saveActivitiesLocal() {
   });
 }
 
+// ==================== TAREFAS (lista partilhada por conversa) ====================
+const TODOS_FILE = path.join(__dirname, 'todos.json');
+let todosByRoom = {}; // roomId -> [{id, text, done, addedBy}]
+
+function loadTodosLocal() {
+  try {
+    if (fs.existsSync(TODOS_FILE)) todosByRoom = JSON.parse(fs.readFileSync(TODOS_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar tarefas localmente:', err.message);
+  }
+}
+function saveTodosLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(TODOS_FILE, JSON.stringify(todosByRoom), (err) => {
+    if (err) console.error('Erro ao salvar tarefas localmente:', err.message);
+  });
+}
+async function persistTodoRoom(roomId) {
+  if (isDbConnected) {
+    await TodoModel.updateOne({ roomId }, { roomId, items: todosByRoom[roomId] || [] }, { upsert: true }).catch(e => console.error('Erro Mongo (tarefas):', e.message));
+  } else {
+    saveTodosLocal();
+  }
+}
+
+// ==================== NOTAS PESSOAIS (privadas) ====================
+const NOTES_FILE = path.join(__dirname, 'notes.json');
+let notesByPhone = {}; // phone -> [{id, title, text, updatedAt}]
+
+function loadNotesLocal() {
+  try {
+    if (fs.existsSync(NOTES_FILE)) notesByPhone = JSON.parse(fs.readFileSync(NOTES_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar notas localmente:', err.message);
+  }
+}
+function saveNotesLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(NOTES_FILE, JSON.stringify(notesByPhone), (err) => {
+    if (err) console.error('Erro ao salvar notas localmente:', err.message);
+  });
+}
+
+// ==================== MENSAGENS FIXADAS (uma por conversa) ====================
+const PINS_FILE = path.join(__dirname, 'pins.json');
+let pinnedByRoom = {}; // roomId -> { messageId, text, sender }
+function loadPinsLocal() {
+  try { if (fs.existsSync(PINS_FILE)) pinnedByRoom = JSON.parse(fs.readFileSync(PINS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar mensagens fixadas:', err.message); }
+}
+function savePinsLocal() {
+  fs.writeFile(PINS_FILE, JSON.stringify(pinnedByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens fixadas:', err.message); });
+}
+
+// ==================== MENSAGENS TEMPORÁRIAS (autodestrutivas) ====================
+const DISAPPEAR_FILE = path.join(__dirname, 'disappearing.json');
+let disappearingByRoom = {}; // roomId -> segundos até apagar (ausente/0 = desligado)
+function loadDisappearingLocal() {
+  try { if (fs.existsSync(DISAPPEAR_FILE)) disappearingByRoom = JSON.parse(fs.readFileSync(DISAPPEAR_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar mensagens temporárias:', err.message); }
+}
+function saveDisappearingLocal() {
+  fs.writeFile(DISAPPEAR_FILE, JSON.stringify(disappearingByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens temporárias:', err.message); });
+}
+
+// ==================== ESTADOS (tipo "stories", expiram em 24h) ====================
+const STATUSES_FILE = path.join(__dirname, 'statuses.json');
+let statusesByPhone = {}; // phone -> [{id, text, photoData, postedAt, expiresAt}]
+function loadStatusesLocal() {
+  try { if (fs.existsSync(STATUSES_FILE)) statusesByPhone = JSON.parse(fs.readFileSync(STATUSES_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar estados:', err.message); }
+}
+function saveStatusesLocal() {
+  fs.writeFile(STATUSES_FILE, JSON.stringify(statusesByPhone), (err) => { if (err) console.error('Erro ao salvar estados:', err.message); });
+}
+function pruneExpiredStatuses() {
+  const now = Date.now();
+  let changed = false;
+  Object.keys(statusesByPhone).forEach((phone) => {
+    const before = statusesByPhone[phone].length;
+    statusesByPhone[phone] = statusesByPhone[phone].filter((s) => s.expiresAt > now);
+    if (statusesByPhone[phone].length !== before) changed = true;
+    if (statusesByPhone[phone].length === 0) delete statusesByPhone[phone];
+  });
+  if (changed) saveStatusesLocal();
+  return changed;
+}
+function buildStatusFeed() {
+  return Object.entries(statusesByPhone).map(([phone, items]) => ({
+    phone, name: accounts[phone]?.name || 'Alguém', avatarUrl: accounts[phone]?.avatarUrl || null, items
+  }));
+}
+
+// ==================== HISTÓRICO DE CHAMADAS ====================
+const CALLLOG_FILE = path.join(__dirname, 'calllog.json');
+let callLogByPhone = {}; // phone -> [{id, peerPhone, peerName, type, direction, status, durationSec, timestamp}]
+function loadCallLogLocal() {
+  try { if (fs.existsSync(CALLLOG_FILE)) callLogByPhone = JSON.parse(fs.readFileSync(CALLLOG_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar histórico de chamadas:', err.message); }
+}
+function saveCallLogLocal() {
+  fs.writeFile(CALLLOG_FILE, JSON.stringify(callLogByPhone), (err) => { if (err) console.error('Erro ao salvar histórico de chamadas:', err.message); });
+}
+
+// ==================== MENSAGENS AGENDADAS ====================
+const SCHEDULED_FILE = path.join(__dirname, 'scheduled.json');
+let scheduledMessages = []; // [{id, chatId, senderPhone, senderName, toPhone, text, sendAt}]
+function loadScheduledLocal() {
+  try { if (fs.existsSync(SCHEDULED_FILE)) scheduledMessages = JSON.parse(fs.readFileSync(SCHEDULED_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar mensagens agendadas:', err.message); }
+}
+function saveScheduledLocal() {
+  fs.writeFile(SCHEDULED_FILE, JSON.stringify(scheduledMessages), (err) => { if (err) console.error('Erro ao salvar mensagens agendadas:', err.message); });
+}
+
+// ==================== CONVERSAS SILENCIADAS ====================
+const MUTED_FILE = path.join(__dirname, 'muted.json');
+let mutedByPhone = {}; // phone -> [chatId, ...]
+function loadMutedLocal() {
+  try { if (fs.existsSync(MUTED_FILE)) mutedByPhone = JSON.parse(fs.readFileSync(MUTED_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar conversas silenciadas:', err.message); }
+}
+function saveMutedLocal() {
+  fs.writeFile(MUTED_FILE, JSON.stringify(mutedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas silenciadas:', err.message); });
+}
+
+// ==================== ALERTAS DE ESTRADA (tipo Waze — comunitários) ====================
+// Polícia, acidente, obras, trânsito, perigo/objeto na via, radar — reportados
+// pelos próprios utilizadores e visíveis a todos enquanto navegam, tal como no
+// Waze. Cada tipo expira sozinho ao fim de um tempo (mais curto para o que
+// muda rápido, como trânsito; mais longo para obras).
+const ALERTS_FILE = path.join(__dirname, 'roadalerts.json');
+let roadAlerts = []; // [{id, type, lat, lng, reportedBy, reportedAt, expiresAt, confirms, denies}]
+const ALERT_TYPE_TTL_MS = {
+  police: 45 * 60 * 1000,
+  accident: 2 * 60 * 60 * 1000,
+  roadwork: 12 * 60 * 60 * 1000,
+  traffic: 45 * 60 * 1000,
+  hazard: 3 * 60 * 60 * 1000,
+  camera: 30 * 24 * 60 * 60 * 1000 // radar fixo — dura muito mais
+};
+function loadAlertsLocal() {
+  try { if (fs.existsSync(ALERTS_FILE)) roadAlerts = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar alertas de estrada:', err.message); }
+}
+function saveAlertsLocal() {
+  fs.writeFile(ALERTS_FILE, JSON.stringify(roadAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de estrada:', err.message); });
+}
+function pruneExpiredAlerts() {
+  const now = Date.now();
+  const before = roadAlerts.length;
+  roadAlerts = roadAlerts.filter((a) => a.expiresAt > now && a.denies < 3);
+  if (roadAlerts.length !== before) { saveAlertsLocal(); return true; }
+  return false;
+}
+
 // ==================== CONTATOS (por pesquisa, não automáticos) ====================
 // Antes, todo usuário cadastrado aparecia na lista de todo mundo. Agora só
 // aparece quem procuraste pelo nome de utilizador (@username) e escolheste
 // "Iniciar conversa", ou quem já te mandou uma mensagem — tal como no
 // WhatsApp/Telegram, é preciso saber quem procurar; ninguém aparece sozinho.
 const onlinePhones = new Set();
+// telefone -> Set de socket.ids ativos dessa pessoa (pode ter mais de um: várias
+// abas/dispositivos). Usado para entregar chamadas diretamente à pessoa certa,
+// em vez de depender só de "salas" do Socket.IO — que exigiam que o outro lado
+// já tivesse (re)entrado na sala daquela conversa. Isso falhava sempre que o
+// socket reconectava (ex.: app em segundo plano no telemóvel, Wi-Fi -> 4G,
+// servidor reiniciou) porque o socket novo tinha um id novo e ainda não tinha
+// entrado em sala nenhuma: a pessoa continuava a parecer "online" mas ficava
+// muda para chamadas a chegar — exatamente o sintoma de "toca de um lado só".
+const phoneToSockets = {};
+function registerPhoneSocket(phone, socketId) {
+  if (!phone) return;
+  if (!phoneToSockets[phone]) phoneToSockets[phone] = new Set();
+  phoneToSockets[phone].add(socketId);
+}
+function unregisterPhoneSocket(phone, socketId) {
+  if (!phone || !phoneToSockets[phone]) return;
+  phoneToSockets[phone].delete(socketId);
+  if (phoneToSockets[phone].size === 0) delete phoneToSockets[phone];
+}
+// Entrega um evento diretamente a todos os sockets ativos de um telefone
+// (normalmente 1, pode ser mais com várias abas). Devolve true se entregou a
+// pelo menos um socket, para o chamador saber se a pessoa está mesmo alcançável.
+function deliverToPhone(phone, event, payload, excludeSocketId) {
+  const sockets = phoneToSockets[phone];
+  if (!sockets || sockets.size === 0) return false;
+  let delivered = false;
+  sockets.forEach((sid) => {
+    if (sid === excludeSocketId) return;
+    io.to(sid).emit(event, payload);
+    delivered = true;
+  });
+  return delivered;
+}
 const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20+ pessoas em simultâneo)
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
 function contactPublicInfo(u) {
-  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null };
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null };
 }
 
 function sendContactsTo(phone) {
@@ -655,10 +940,20 @@ io.on('connection', (socket) => {
   socket.on('user_login', (userData) => {
     users[socket.id].name = userData?.name || 'Anônimo';
     users[socket.id].phone = userData?.phone || null;
-    if (users[socket.id].phone) {
-      onlinePhones.add(users[socket.id].phone);
-      sendContactsTo(users[socket.id].phone);
-      notifyContactsOfStatusChange(users[socket.id].phone);
+    const myPhone = users[socket.id].phone;
+    if (myPhone) {
+      onlinePhones.add(myPhone);
+      registerPhoneSocket(myPhone, socket.id);
+      sendContactsTo(myPhone);
+      notifyContactsOfStatusChange(myPhone);
+      // Sincroniza de imediato o que é "meu" (não depende de sala nenhuma):
+      // histórico de chamadas, mensagens agendadas pendentes, conversas
+      // silenciadas e o mural de estados.
+      socket.emit('call_log_update', callLogByPhone[myPhone] || []);
+      socket.emit('scheduled_messages_list', scheduledMessages.filter((s) => s.senderPhone === myPhone));
+      socket.emit('muted_list', mutedByPhone[myPhone] || []);
+      pruneExpiredStatuses();
+      socket.emit('statuses_update', buildStatusFeed());
     }
     socket.broadcast.emit('user_online', { id: socket.id, name: users[socket.id].name });
   });
@@ -674,6 +969,20 @@ io.on('connection', (socket) => {
       return socket.emit('search_user_result', { found: false, query });
     }
     socket.emit('search_user_result', { found: true, query, user: contactPublicInfo(accounts[targetPhone]) });
+  });
+
+  // Atualiza a foto de perfil e avisa quem te tem como contacto para verem a nova foto
+  socket.on('update_avatar', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.avatarUrl !== 'string') return;
+    accounts[myPhone].avatarUrl = data.avatarUrl;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { avatarUrl: data.avatarUrl }).catch(e => console.error('Erro Mongo (avatar):', e.message));
+    } else {
+      saveUsers();
+    }
+    notifyContactsOfStatusChange(myPhone);
+    socket.emit('avatar_updated', { avatarUrl: data.avatarUrl });
   });
 
   // Adiciona alguém encontrado por pesquisa aos teus contactos (início de conversa)
@@ -800,6 +1109,10 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     user.rooms.add(roomId);
     socket.emit('room_history', { chatId: roomId, messages: messagesByRoom[roomId] || [] });
+    // Aproveita a entrada na sala para sincronizar o estado dessa conversa que
+    // não vem no histórico de mensagens: mensagem fixada e mensagens temporárias.
+    if (pinnedByRoom[roomId]) socket.emit('message_pinned_received', { chatId: roomId, pin: pinnedByRoom[roomId] });
+    if (disappearingByRoom[roomId]) socket.emit('disappearing_updated', { chatId: roomId, seconds: disappearingByRoom[roomId] });
   });
 
   socket.on('send_message', async (data) => {
@@ -818,6 +1131,12 @@ io.on('connection', (socket) => {
     // precisar de o procurar primeiro (tal como receber um SMS de um número novo).
     if (!group && data.toPhone && myPhone) {
       if (await addContact(data.toPhone, myPhone)) sendContactsTo(data.toPhone);
+    }
+    // Mensagens temporárias: se esta conversa tem "mensagens temporárias"
+    // ativas, marca já quando esta mensagem deve desaparecer (ver o
+    // intervalo de limpeza mais abaixo).
+    if (disappearingByRoom[data.chatId]) {
+      data.expiresAt = Date.now() + disappearingByRoom[data.chatId] * 1000;
     }
     if (!messagesByRoom[data.chatId]) messagesByRoom[data.chatId] = [];
     messagesByRoom[data.chatId].push(data);
@@ -839,9 +1158,12 @@ io.on('connection', (socket) => {
 
     // Notificação push (mesmo com a app fechada) — só para conversas 1-para-1 por agora
     if (!group && data.toPhone) {
-      const senderName = data.sender || 'Alguém';
-      const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100))));
-      sendPushToPhone(data.toPhone, { title: senderName, body: preview, chatId: data.chatId }).catch(() => {});
+      const recipientMuted = (mutedByPhone[data.toPhone] || []).includes(data.chatId);
+      if (!recipientMuted) {
+        const senderName = data.sender || 'Alguém';
+        const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100))));
+        sendPushToPhone(data.toPhone, { title: senderName, body: preview, chatId: data.chatId }).catch(() => {});
+      }
     }
   });
 
@@ -916,17 +1238,213 @@ io.on('connection', (socket) => {
     socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: users[socket.id]?.phone });
   });
 
+  // Chamadas 1-para-1: entregues diretamente ao(s) socket(s) do telefone-alvo
+  // (ver phoneToSockets acima), não por sala — assim funciona mesmo que o
+  // outro lado ainda não tenha (re)entrado na sala daquela conversa. Se
+  // 'targetPhone' não vier (cliente antigo em cache), cai para o
+  // comportamento antigo por sala.
   socket.on('call_user', (data) => {
-    socket.to(data.targetRoomId).emit('incoming_call', data);
+    const delivered = data.targetPhone
+      ? deliverToPhone(data.targetPhone, 'incoming_call', data, socket.id)
+      : (socket.to(data.targetRoomId).emit('incoming_call', data), true);
+    if (!delivered) {
+      socket.emit('call_unavailable', { targetRoomId: data.targetRoomId, reason: 'offline' });
+      log(`📵 Chamada para ${data.targetPhone || data.targetRoomId} não entregue — utilizador offline/sem socket ativo`, 'WEBRTC');
+    }
   });
-  socket.on('answer_call', (data) => socket.to(data.targetRoomId).emit('call_answered', data));
-  socket.on('ice_candidate', (data) => socket.to(data.targetRoomId).emit('ice_candidate_received', data));
-  socket.on('end_call', (data) => socket.to(data.targetRoomId).emit('call_ended', data));
+  socket.on('answer_call', (data) => {
+    if (data.targetPhone) deliverToPhone(data.targetPhone, 'call_answered', data, socket.id);
+    else socket.to(data.targetRoomId).emit('call_answered', data);
+  });
+  socket.on('ice_candidate', (data) => {
+    if (data.targetPhone) deliverToPhone(data.targetPhone, 'ice_candidate_received', data, socket.id);
+    else socket.to(data.targetRoomId).emit('ice_candidate_received', data);
+  });
+  socket.on('end_call', (data) => {
+    if (data.targetPhone) deliverToPhone(data.targetPhone, 'call_ended', data, socket.id);
+    else socket.to(data.targetRoomId).emit('call_ended', data);
+  });
+
+  // ==================== MENSAGENS FIXADAS ====================
+  socket.on('pin_message', (data) => {
+    const { chatId, messageId, text, sender } = data || {};
+    if (!chatId || !messageId) return;
+    pinnedByRoom[chatId] = { messageId, text: (text || '').substring(0, 300), sender: sender || 'Alguém' };
+    savePinsLocal();
+    io.to(chatId).emit('message_pinned_received', { chatId, pin: pinnedByRoom[chatId] });
+  });
+  socket.on('unpin_message', (data) => {
+    const { chatId } = data || {};
+    if (!chatId) return;
+    delete pinnedByRoom[chatId];
+    savePinsLocal();
+    io.to(chatId).emit('message_pinned_received', { chatId, pin: null });
+  });
+
+  // ==================== MENSAGENS TEMPORÁRIAS ====================
+  socket.on('set_disappearing', (data) => {
+    const { chatId, seconds } = data || {};
+    if (!chatId) return;
+    if (seconds > 0) disappearingByRoom[chatId] = seconds; else delete disappearingByRoom[chatId];
+    saveDisappearingLocal();
+    io.to(chatId).emit('disappearing_updated', { chatId, seconds: disappearingByRoom[chatId] || 0, byName: users[socket.id]?.name || 'Alguém' });
+  });
+
+  // ==================== ESTADOS (tipo "stories") ====================
+  socket.on('post_status', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || (!data?.text && !data?.photoData)) return;
+    if (!statusesByPhone[myPhone]) statusesByPhone[myPhone] = [];
+    const item = {
+      id: 'st' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      text: (data.text || '').substring(0, 300),
+      photoData: data.photoData || null,
+      postedAt: Date.now(),
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000
+    };
+    statusesByPhone[myPhone].push(item);
+    saveStatusesLocal();
+    io.emit('statuses_update', buildStatusFeed());
+  });
+  socket.on('delete_status', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { statusId } = data || {};
+    if (!myPhone || !statusId || !statusesByPhone[myPhone]) return;
+    statusesByPhone[myPhone] = statusesByPhone[myPhone].filter((s) => s.id !== statusId);
+    if (!statusesByPhone[myPhone].length) delete statusesByPhone[myPhone];
+    saveStatusesLocal();
+    io.emit('statuses_update', buildStatusFeed());
+  });
+  socket.on('get_statuses', () => {
+    pruneExpiredStatuses();
+    socket.emit('statuses_update', buildStatusFeed());
+  });
+
+  // ==================== HISTÓRICO DE CHAMADAS ====================
+  socket.on('call_log_entry', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data) return;
+    const entry = {
+      id: 'cl' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      peerPhone: data.peerPhone || null,
+      peerName: data.peerName || 'Alguém',
+      type: data.type === 'video' ? 'video' : 'voice',
+      direction: data.direction === 'incoming' ? 'incoming' : 'outgoing',
+      status: data.status || 'answered', // 'answered' | 'missed' | 'declined'
+      durationSec: data.durationSec || 0,
+      timestamp: Date.now()
+    };
+    if (!callLogByPhone[myPhone]) callLogByPhone[myPhone] = [];
+    callLogByPhone[myPhone].unshift(entry);
+    callLogByPhone[myPhone] = callLogByPhone[myPhone].slice(0, 200);
+    saveCallLogLocal();
+    deliverToPhone(myPhone, 'call_log_update', callLogByPhone[myPhone], null);
+  });
+  socket.on('get_call_log', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    socket.emit('call_log_update', callLogByPhone[myPhone] || []);
+  });
+  socket.on('clear_call_log', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    callLogByPhone[myPhone] = [];
+    saveCallLogLocal();
+    socket.emit('call_log_update', []);
+  });
+
+  // ==================== MENSAGENS AGENDADAS ====================
+  socket.on('schedule_message', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { chatId, text, sendAt, toPhone } = data || {};
+    if (!myPhone || !chatId || !text || !sendAt) return;
+    const entry = {
+      id: 'sc' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      chatId, senderPhone: myPhone, senderName: users[socket.id]?.name || 'Alguém',
+      toPhone: toPhone || null, text: text.substring(0, 2000), sendAt: Number(sendAt)
+    };
+    scheduledMessages.push(entry);
+    saveScheduledLocal();
+    socket.emit('scheduled_message_saved', entry);
+  });
+  socket.on('cancel_scheduled_message', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { id } = data || {};
+    if (!myPhone || !id) return;
+    scheduledMessages = scheduledMessages.filter((s) => !(s.id === id && s.senderPhone === myPhone));
+    saveScheduledLocal();
+    socket.emit('scheduled_message_cancelled', { id });
+  });
+  socket.on('get_scheduled_messages', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    socket.emit('scheduled_messages_list', scheduledMessages.filter((s) => s.senderPhone === myPhone));
+  });
+
+  // ==================== SILENCIAR CONVERSA ====================
+  socket.on('set_muted', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { chatId, muted } = data || {};
+    if (!myPhone || !chatId) return;
+    if (!mutedByPhone[myPhone]) mutedByPhone[myPhone] = [];
+    if (muted) { if (!mutedByPhone[myPhone].includes(chatId)) mutedByPhone[myPhone].push(chatId); }
+    else { mutedByPhone[myPhone] = mutedByPhone[myPhone].filter((c) => c !== chatId); }
+    saveMutedLocal();
+  });
+  socket.on('get_muted', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('muted_list', mutedByPhone[myPhone] || []);
+  });
+
+  // ==================== ALERTAS DE ESTRADA (comunitários, tipo Waze) ====================
+  const ALERT_TYPES = new Set(['police', 'accident', 'roadwork', 'traffic', 'hazard', 'camera']);
+  socket.on('report_alert', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { type, lat, lng } = data || {};
+    if (!myPhone || !ALERT_TYPES.has(type) || typeof lat !== 'number' || typeof lng !== 'number') return;
+    const now = Date.now();
+    const alert = {
+      id: 'al' + now + '_' + Math.random().toString(36).slice(2, 7),
+      type, lat, lng,
+      reportedBy: users[socket.id]?.name || 'Alguém',
+      reportedAt: now,
+      expiresAt: now + (ALERT_TYPE_TTL_MS[type] || 60 * 60 * 1000),
+      confirms: 1, denies: 0
+    };
+    roadAlerts.push(alert);
+    saveAlertsLocal();
+    io.emit('road_alerts_update', roadAlerts);
+  });
+  socket.on('confirm_alert', (data) => {
+    const alert = roadAlerts.find((a) => a.id === data?.id);
+    if (!alert) return;
+    alert.confirms++;
+    alert.expiresAt = Math.max(alert.expiresAt, Date.now() + 15 * 60 * 1000); // "ainda lá" renova pelo menos 15min
+    saveAlertsLocal();
+    io.emit('road_alerts_update', roadAlerts);
+  });
+  socket.on('dismiss_alert', (data) => {
+    const alert = roadAlerts.find((a) => a.id === data?.id);
+    if (!alert) return;
+    alert.denies++;
+    if (alert.denies >= 3) roadAlerts = roadAlerts.filter((a) => a.id !== alert.id); // "já não está" de 3 pessoas remove
+    saveAlertsLocal();
+    io.emit('road_alerts_update', roadAlerts);
+  });
+  socket.on('get_road_alerts', () => {
+    pruneExpiredAlerts();
+    socket.emit('road_alerts_update', roadAlerts);
+  });
 
   // ==================== CONFERÊNCIAS EM GRUPO (Até 20+ participantes em simultâneo) ====================
   socket.on('join_call', (data) => {
     const { roomId, callType } = data || {};
     if (!roomId) return;
+    // Garante que este socket está mesmo na sala da conversa/grupo antes de
+    // avisar quem lá está — cobre o caso de o cliente ainda não ter reenviado
+    // 'join_room' depois de uma reconexão (mesmo problema de fundo das
+    // chamadas individuais, ver phoneToSockets acima).
+    socket.join(roomId);
     if (!roomCallParticipants[roomId]) roomCallParticipants[roomId] = new Set();
     const isFirst = roomCallParticipants[roomId].size === 0;
     const existing = [...roomCallParticipants[roomId]].map(id => ({ socketId: id, name: users[id]?.name || 'Alguém' }));
@@ -1064,6 +1582,87 @@ io.on('connection', (socket) => {
     io.emit('activity_kudos_updated', { activityId: activity.id, kudos: activity.kudos });
   });
 
+  // ==================== TAREFAS (lista partilhada por conversa, ou pessoal) ====================
+  socket.on('todo_get', (data) => {
+    const roomId = data?.roomId;
+    if (!roomId) return;
+    socket.emit('todo_list', { roomId, items: todosByRoom[roomId] || [] });
+  });
+
+  socket.on('todo_add', async (data) => {
+    const roomId = data?.roomId;
+    const text = (data?.text || '').trim();
+    if (!roomId || !text) return;
+    if (!todosByRoom[roomId]) todosByRoom[roomId] = [];
+    const item = { id: 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), text, done: false, addedBy: users[socket.id]?.name || 'Alguém' };
+    todosByRoom[roomId].push(item);
+    await persistTodoRoom(roomId);
+    io.to(roomId).emit('todo_updated', { roomId, items: todosByRoom[roomId] });
+    socket.emit('todo_updated', { roomId, items: todosByRoom[roomId] }); // garante que quem enviou também recebe (mesmo que não esteja "na sala" para listas pessoais)
+  });
+
+  socket.on('todo_toggle', async (data) => {
+    const roomId = data?.roomId;
+    const item = todosByRoom[roomId]?.find(i => i.id === data?.itemId);
+    if (!item) return;
+    item.done = !item.done;
+    await persistTodoRoom(roomId);
+    io.to(roomId).emit('todo_updated', { roomId, items: todosByRoom[roomId] });
+    socket.emit('todo_updated', { roomId, items: todosByRoom[roomId] });
+  });
+
+  socket.on('todo_delete', async (data) => {
+    const roomId = data?.roomId;
+    if (!todosByRoom[roomId]) return;
+    todosByRoom[roomId] = todosByRoom[roomId].filter(i => i.id !== data?.itemId);
+    await persistTodoRoom(roomId);
+    io.to(roomId).emit('todo_updated', { roomId, items: todosByRoom[roomId] });
+    socket.emit('todo_updated', { roomId, items: todosByRoom[roomId] });
+  });
+
+  // ==================== NOTAS PESSOAIS ====================
+  socket.on('notes_get', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    socket.emit('notes_list', notesByPhone[myPhone] || []);
+  });
+
+  socket.on('notes_save', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || (!data?.text?.trim() && !data?.title?.trim())) return;
+    if (!notesByPhone[myPhone]) notesByPhone[myPhone] = [];
+    let note;
+    if (data.id) {
+      note = notesByPhone[myPhone].find(n => n.id === data.id);
+    }
+    if (note) {
+      note.title = data.title || '';
+      note.text = data.text || '';
+      note.updatedAt = new Date().toISOString();
+    } else {
+      note = { id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), title: data.title || '', text: data.text || '', updatedAt: new Date().toISOString() };
+      notesByPhone[myPhone].unshift(note);
+    }
+    if (isDbConnected) {
+      await NoteModel.updateOne({ id: note.id }, { ...note, phone: myPhone }, { upsert: true }).catch(e => console.error('Erro Mongo (notas):', e.message));
+    } else {
+      saveNotesLocal();
+    }
+    socket.emit('notes_list', notesByPhone[myPhone]);
+  });
+
+  socket.on('notes_delete', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !notesByPhone[myPhone]) return;
+    notesByPhone[myPhone] = notesByPhone[myPhone].filter(n => n.id !== data?.id);
+    if (isDbConnected) {
+      await NoteModel.deleteOne({ id: data?.id, phone: myPhone }).catch(e => console.error('Erro Mongo (apagar nota):', e.message));
+    } else {
+      saveNotesLocal();
+    }
+    socket.emit('notes_list', notesByPhone[myPhone]);
+  });
+
   socket.on('call_caption', (data) => {
     if (!data?.roomId) return;
     socket.to(data.roomId).emit('call_caption_received', { text: data.text, name: users[socket.id]?.name || 'Alguém' });
@@ -1085,6 +1684,7 @@ io.on('connection', (socket) => {
       user.rooms.forEach((room) => socket.to(room).emit('user_left', user.name));
       delete users[socket.id];
       if (user.phone) {
+        unregisterPhoneSocket(user.phone, socket.id);
         const stillConnected = Object.values(users).some(u => u.phone === user.phone);
         if (!stillConnected) { onlinePhones.delete(user.phone); notifyContactsOfStatusChange(user.phone); }
       }
@@ -1109,6 +1709,75 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 connectDatabase().then(async () => {
   await initPush();
+
+  // Mensagens temporárias: remove periodicamente as que já expiraram e avisa
+  // quem está na conversa para as tirar do ecrã.
+  setInterval(() => {
+    const now = Date.now();
+    Object.keys(messagesByRoom).forEach((roomId) => {
+      const msgs = messagesByRoom[roomId];
+      if (!msgs || !msgs.length) return;
+      const remaining = [];
+      const removedIds = [];
+      msgs.forEach((m) => {
+        if (m.expiresAt && m.expiresAt <= now) removedIds.push(m.id);
+        else remaining.push(m);
+      });
+      if (removedIds.length) {
+        messagesByRoom[roomId] = remaining;
+        if (!isDbConnected) saveMessagesLocal();
+        removedIds.forEach((id) => io.to(roomId).emit('message_expired', { chatId: roomId, messageId: id }));
+      }
+    });
+  }, 30 * 1000);
+
+  // Estados: limpa os que passaram das 24h e avisa toda a gente do mural novo.
+  setInterval(() => {
+    if (pruneExpiredStatuses()) io.emit('statuses_update', buildStatusFeed());
+  }, 5 * 60 * 1000);
+
+  // Alertas de estrada: limpa os que expiraram (ou foram muito negados) e
+  // avisa quem está a navegar para tirar o marcador do mapa.
+  setInterval(() => {
+    if (pruneExpiredAlerts()) io.emit('road_alerts_update', roadAlerts);
+  }, 2 * 60 * 1000);
+
+  // Mensagens agendadas: dispara as que já chegaram à hora marcada.
+  setInterval(async () => {
+    const now = Date.now();
+    const due = scheduledMessages.filter((s) => s.sendAt <= now);
+    if (!due.length) return;
+    scheduledMessages = scheduledMessages.filter((s) => s.sendAt > now);
+    saveScheduledLocal();
+    for (const s of due) {
+      const msgData = {
+        id: 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        chatId: s.chatId, sender: s.senderName, senderPhone: s.senderPhone, toPhone: s.toPhone,
+        text: s.text, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      };
+      if (!messagesByRoom[s.chatId]) messagesByRoom[s.chatId] = [];
+      messagesByRoom[s.chatId].push(msgData);
+      if (messagesByRoom[s.chatId].length > MAX_HISTORY_PER_ROOM) messagesByRoom[s.chatId] = messagesByRoom[s.chatId].slice(-MAX_HISTORY_PER_ROOM);
+      if (isDbConnected) {
+        try { await MessageModel.create({ ...msgData }); } catch (e) { console.error('Erro ao guardar mensagem agendada:', e.message); }
+      } else {
+        saveMessagesLocal();
+      }
+      // Ao destinatário chega como mensagem normal; ao remetente chega por um
+      // evento à parte para não ser confundida com uma mensagem "recebida" no
+      // seu próprio ecrã.
+      const senderSockets = [...(phoneToSockets[s.senderPhone] || [])];
+      io.to(s.chatId).except(senderSockets).emit('receive_message', msgData);
+      deliverToPhone(s.senderPhone, 'scheduled_message_sent', msgData, null);
+      if (s.toPhone) {
+        const recipientMuted = (mutedByPhone[s.toPhone] || []).includes(s.chatId);
+        if (!recipientMuted) {
+          sendPushToPhone(s.toPhone, { title: s.senderName, body: (s.text || '').substring(0, 100), chatId: s.chatId }).catch(() => {});
+        }
+      }
+    }
+  }, 20 * 1000);
+
   server.listen(PORT, '0.0.0.0', () => {
     let ipAddress = 'localhost';
     const nets = os.networkInterfaces();

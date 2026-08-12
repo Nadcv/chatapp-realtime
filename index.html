@@ -29,6 +29,24 @@
             --radius: 12px;
             --transition: 0.25s ease;
         }
+        /* Tema claro — ativado ao pôr data-theme="light" no <html> (ver toggleTheme()) */
+        html[data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f0f2f5;
+            --bg-tertiary: #e9edef;
+            --bg-chat: #efeae2;
+            --text-primary: #111b21;
+            --text-secondary: #667781;
+            --green: #00a884;
+            --green-dark: #d9fdd3;
+            --blue: #027eb5;
+            --red: #ef4444;
+            --msg-out: #d9fdd3;
+            --msg-in: #ffffff;
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        html[data-theme="light"] .message.sent, html[data-theme="light"] .message.received { color: #111b21; }
+        html[data-theme="light"] body { background: #d8dbdf; }
         * {
             margin: 0;
             padding: 0;
@@ -153,6 +171,7 @@
             z-index: 20;
         }
         .reaction-picker span { font-size: 18px; cursor: pointer; }
+        .message.search-hit { outline: 2px solid var(--green); outline-offset: 2px; }
         .reply-preview-bar {
             display: flex;
             align-items: center;
@@ -212,6 +231,7 @@
             border-radius: 8px;
         }
         #transportMap { flex: 1; width: 100%; }
+        #navMap { flex: 1; width: 100%; }
         .transport-tab.active, .activities-tab.active {
             background: var(--green, #00a884);
             color: #fff;
@@ -1132,6 +1152,10 @@
                 <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
                 <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
                 <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
+                <button class="btn-icon" onclick="openNavScreen()" title="Navegação GPS (Portugal e Espanha)">🧭</button>
+                <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
+                <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
+                <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -1158,7 +1182,27 @@
                         <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📹</button>
                         <button class="btn-icon" onclick="startConference()" title="Conferência" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🎥</button>
                         <button class="btn-icon" id="vrRoomBtn" onclick="openVrRoom()" title="Sala de Realidade Virtual" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">🕶️</button>
+                        <button class="btn-icon" onclick="toggleChatSearch()" title="Pesquisar nesta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🔍</button>
+                        <button class="btn-icon" id="muteToggleBtn" onclick="toggleMuteChat()" title="Silenciar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🔔</button>
+                        <button class="btn-icon" onclick="openDisappearingModal()" title="Mensagens temporárias" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">⏳</button>
+                        <button class="btn-icon" onclick="exportChat()" title="Exportar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📤</button>
+                        <button class="btn-icon" onclick="openScheduleModal()" title="Agendar mensagem" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📅</button>
                     </div>
+                </div>
+                <div id="chatSearchBar" style="display:none;padding:8px 12px;background:var(--bg-secondary);gap:8px;align-items:center;">
+                    <input type="text" id="chatSearchInput" placeholder="Pesquisar nas mensagens..." oninput="runChatSearch(this.value)" style="flex:1;padding:8px 12px;border-radius:20px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);outline:none;">
+                    <span id="chatSearchCount" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;"></span>
+                    <button onclick="chatSearchNav(-1)" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">⬆️</button>
+                    <button onclick="chatSearchNav(1)" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">⬇️</button>
+                    <button onclick="toggleChatSearch()" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">✖️</button>
+                </div>
+                <div id="pinnedBanner" style="display:none;padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid rgba(255,255,255,0.08);align-items:center;gap:8px;cursor:pointer;" onclick="scrollToPinned()">
+                    <span style="font-size:14px;">📌</span>
+                    <div style="flex:1;overflow:hidden;">
+                        <div style="font-size:11px;color:var(--text-secondary);">Mensagem fixada</div>
+                        <div id="pinnedBannerText" style="font-size:13px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+                    </div>
+                    <button onclick="event.stopPropagation(); unpinCurrentMessage();" style="background:none;border:none;color:var(--text-secondary);font-size:14px;cursor:pointer;">✖️</button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="reply-preview-bar" id="replyPreviewBar" style="display:none;">
@@ -1449,6 +1493,164 @@
                 </div>
             </div>
         </div>
+
+        <!-- ============ ESTADOS (stories, 24h) ============ -->
+        <div class="location-screen" id="statusScreen">
+            <div class="location-header">
+                <strong>🟢 Estados</strong>
+                <button onclick="closeStatusScreen()">✖️</button>
+            </div>
+            <div class="chat-list" id="statusPanel" style="flex:1;overflow-y:auto;"></div>
+        </div>
+        <div class="modal-overlay" id="modalNewStatus">
+            <div class="modal">
+                <h3>🟢 Novo estado</h3>
+                <p style="color:#8696a0;font-size:13px;">Fica visível 24 horas.</p>
+                <div id="newStatusPhotoPreview" style="display:none;width:100%;max-height:200px;overflow:hidden;border-radius:10px;margin-bottom:10px;"><img id="newStatusPhotoImg" style="width:100%;object-fit:cover;"></div>
+                <input type="file" id="statusPhotoInput" accept="image/*" style="display:none;" onchange="handleStatusPhotoSelected(this)">
+                <textarea id="newStatusText" placeholder="No que estás a pensar?" maxlength="300"></textarea>
+                <div class="modal-actions" style="justify-content:space-between;">
+                    <button class="btn-small" onclick="document.getElementById('statusPhotoInput').click()">📷 Foto</button>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn-small" onclick="closeModal('modalNewStatus')">Cancelar</button>
+                        <button class="btn-small btn-accept" onclick="postStatus()">Publicar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalViewStatus" style="z-index:210;">
+            <div class="modal" style="padding:0;overflow:hidden;max-width:420px;">
+                <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.3);">
+                    <div class="header-avatar" style="width:34px;height:34px;font-size:14px;" id="statusViewerAvatar">U</div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;font-size:14px;" id="statusViewerName"></div>
+                        <div style="font-size:11px;color:var(--text-secondary);" id="statusViewerTime"></div>
+                    </div>
+                    <button onclick="closeModal('modalViewStatus')" style="background:none;border:none;color:var(--text-primary);font-size:20px;cursor:pointer;">✖️</button>
+                </div>
+                <div id="statusViewerPhoto" style="display:none;width:100%;max-height:360px;overflow:hidden;"><img style="width:100%;object-fit:cover;" id="statusViewerImg"></div>
+                <div id="statusViewerText" style="padding:24px 18px;font-size:16px;color:var(--text-primary);min-height:80px;"></div>
+                <div id="statusViewerOwnActions" style="display:none;padding:10px 16px;text-align:right;">
+                    <button class="btn-small btn-danger" onclick="deleteViewedStatus()">🗑️ Apagar este estado</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ HISTÓRICO DE CHAMADAS ============ -->
+        <div class="location-screen" id="callLogScreen">
+            <div class="location-header">
+                <strong>📋 Histórico de chamadas</strong>
+                <button onclick="closeCallLogScreen()">✖️</button>
+            </div>
+            <div id="callLogList" style="flex:1;overflow-y:auto;"></div>
+            <div class="location-footer">
+                <button class="btn-small btn-danger" onclick="clearCallLog()">🗑️ Limpar histórico</button>
+            </div>
+        </div>
+
+        <!-- ============ MENSAGENS TEMPORÁRIAS ============ -->
+        <div class="modal-overlay" id="modalDisappearing">
+            <div class="modal">
+                <h3>⏳ Mensagens temporárias</h3>
+                <p style="color:#8696a0;font-size:13px;">As mensagens novas desaparecem sozinhas para os dois lados depois do tempo escolhido.</p>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(0)">Desligado</button>
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(86400)">24 horas</button>
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(604800)">7 dias</button>
+                    <button class="btn-small" style="text-align:left;" onclick="setDisappearing(2592000)">90 dias</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalDisappearing')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ AGENDAR MENSAGEM ============ -->
+        <div class="modal-overlay" id="modalScheduleMessage">
+            <div class="modal">
+                <h3>📅 Agendar mensagem</h3>
+                <textarea id="scheduleMsgText" placeholder="Escreva a mensagem..."></textarea>
+                <input type="datetime-local" id="scheduleMsgWhen">
+                <div class="modal-actions" style="justify-content:space-between;">
+                    <button class="btn-small" onclick="openScheduledList()">📋 Ver agendadas</button>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn-small" onclick="closeModal('modalScheduleMessage')">Cancelar</button>
+                        <button class="btn-small btn-accept" onclick="submitScheduledMessage()">Agendar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalScheduledList">
+            <div class="modal">
+                <h3>📋 Mensagens agendadas</h3>
+                <div id="scheduledListContent" style="max-height:300px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalScheduledList')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ THREAD DE RESPOSTAS ============ -->
+        <div class="modal-overlay" id="modalThread">
+            <div class="modal" style="max-width:420px;">
+                <h3>🧵 Thread</h3>
+                <div id="threadOriginal" style="background:var(--bg-tertiary);border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px;"></div>
+                <div id="threadReplies" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;"></div>
+                <input type="text" id="threadReplyInput" placeholder="Responder na thread..." onkeypress="if(event.key==='Enter')sendThreadReply()">
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalThread')">Fechar</button>
+                    <button class="btn-small btn-accept" onclick="sendThreadReply()">Enviar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ NAVEGAÇÃO GPS (tipo Waze — Portugal e Espanha) ============ -->
+        <div class="location-screen" id="navScreen">
+            <div class="location-header">
+                <strong>🧭 Navegação GPS · Portugal e Espanha</strong>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <button id="navVoiceBtn" onclick="toggleNavVoice()" title="Ligar/desligar voz" style="background:none;border:none;color:var(--text-primary);font-size:18px;cursor:pointer;">🔊</button>
+                    <button onclick="closeNavScreen()">✖️</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="navDestInput" placeholder="Para onde vamos?" style="flex:1;padding:8px 12px;border-radius:20px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);outline:none;" onkeypress="if(event.key==='Enter'){event.preventDefault();searchNavDestination();}">
+                <button class="btn-small btn-accept" onclick="searchNavDestination()">🔍</button>
+            </div>
+            <div id="navResultsList" style="display:none;max-height:160px;overflow-y:auto;background:var(--bg-secondary);"></div>
+            <div id="navAlertBanner" style="display:none;background:#c0392b;color:#fff;padding:8px 14px;align-items:center;gap:8px;">
+                <span id="navAlertBannerIcon" style="font-size:20px;"></span>
+                <span id="navAlertBannerText" style="flex:1;font-size:13px;"></span>
+            </div>
+            <div id="navTrafficBanner" style="display:none;background:#e67e22;color:#fff;padding:6px 14px;font-size:12px;text-align:center;">🐌 Trânsito reportado na tua rota — ETA ajustado</div>
+            <div style="position:relative;flex:1;overflow:hidden;">
+                <div id="navMap" style="position:absolute;inset:0;"></div>
+                <button onclick="toggleAlertMenu()" title="Reportar" style="position:absolute;bottom:14px;right:14px;z-index:500;width:50px;height:50px;border-radius:50%;background:var(--red);border:none;color:#fff;font-size:22px;box-shadow:var(--shadow);cursor:pointer;">⚠️</button>
+                <div id="navAlertMenu" style="display:none;position:absolute;bottom:74px;right:14px;z-index:500;background:var(--bg-secondary);border-radius:12px;box-shadow:var(--shadow);padding:8px;flex-direction:column;gap:4px;min-width:170px;">
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('police')">🚓 Polícia</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('accident')">💥 Acidente</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('roadwork')">🚧 Obras na via</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('traffic')">🐌 Trânsito</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('hazard')">⚠️ Perigo/objeto na via</button>
+                    <button class="btn-small" style="text-align:left;" onclick="reportAlert('camera')">📷 Radar</button>
+                </div>
+            </div>
+            <div id="navInstructionBar" style="display:none;background:var(--green);color:#fff;padding:10px 14px;align-items:center;gap:10px;">
+                <span id="navInstructionIcon" style="font-size:24px;">➡️</span>
+                <div style="flex:1;">
+                    <div id="navInstructionText" style="font-weight:600;font-size:14px;"></div>
+                    <div id="navInstructionDist" style="font-size:12px;opacity:0.9;"></div>
+                </div>
+            </div>
+            <div id="navAltBar" style="display:none;padding:6px 10px;background:var(--bg-secondary);gap:6px;overflow-x:auto;"></div>
+            <div class="location-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
+                <div id="navRouteSummary" style="display:none;font-size:13px;color:var(--text-secondary);text-align:center;"></div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn-small" onclick="recenterNavMap()" style="flex:0 0 auto;">📍</button>
+                    <button class="btn btn-primary" id="navStartBtn" onclick="toggleNavigation()" style="flex:1;" disabled>▶️ Escolha um destino</button>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1457,6 +1659,8 @@
     let peerConnection = null;
     let pendingIceCandidates = []; // candidatos ICE (1-para-1) chegados antes de existir peerConnection/remoteDescription
     let incomingCallData = null; // dados da chamada 1-para-1 a chegar, à espera de Aceitar/Recusar
+    let callPeerPhone = null; // telefone da outra pessoa na chamada 1-para-1 atual (entrega direta, não depende de sala)
+    let callRingTimeout = null; // timeout de "sem resposta" para chamadas 1-para-1 a sair
     // STUN resolve a maioria dos casos na mesma rede. TURN (OpenRelay, gratuito para testes)
     // é necessário quando os dois lados estão atrás de NAT/roteadores restritivos —
     // ele retransmite a mídia quando a conexão direta P2P não é possível.
@@ -1598,6 +1802,20 @@
 
     socket.on('message_rejected', (data) => {
         if (data?.reason) alert('⚠️ ' + data.reason);
+    });
+
+    // O Socket.IO reconecta sozinho depois de qualquer queda de rede (app em
+    // segundo plano no telemóvel, mudar de rede, servidor reiniciar, etc.),
+    // mas o socket novo não tem login nem salas — sem isto, chamadas e
+    // mensagens em segundo plano deixavam de chegar depois de reconectar.
+    socket.on('connect', () => {
+        if (APP.user) {
+            socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
+            APP.joinedRooms.clear();
+            APP.chats.forEach(chat => {
+                if (chat.type !== 'ai') { socket.emit('join_room', chat.id); APP.joinedRooms.add(chat.id); }
+            });
+        }
     });
 
     socket.on('contacts_update', (list) => {
@@ -1840,6 +2058,641 @@
         document.getElementById('musicPlayer').classList.remove('active');
     }
 
+    // ==================== TEMA CLARO/ESCURO ====================
+    (function initTheme() {
+        const saved = localStorage.getItem('themeMode') || 'dark';
+        document.documentElement.setAttribute('data-theme', saved);
+    })();
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('themeMode', next);
+    }
+
+    // ==================== ESTADOS (stories, 24h) ====================
+    APP.statusFeed = [];
+    APP.pendingStatusPhotoUrl = null;
+    function openStatusScreen() {
+        document.getElementById('statusScreen').classList.add('active');
+        socket.emit('get_statuses');
+        renderStatusPanel();
+    }
+    function closeStatusScreen() { document.getElementById('statusScreen').classList.remove('active'); }
+    function renderStatusPanel() {
+        const panel = document.getElementById('statusPanel');
+        const mine = APP.statusFeed.find(s => s.phone === APP.user?.phone);
+        const others = APP.statusFeed.filter(s => s.phone !== APP.user?.phone);
+        let html = `
+        <div class="chat-item" onclick="openNewStatusModal()">
+            <div class="chat-item-avatar avatar-user">➕</div>
+            <div class="chat-item-info">
+                <h4>O meu estado</h4>
+                <p>${mine ? mine.items.length + ' estado(s) ativo(s) — toca para adicionar mais' : 'Toca para adicionar um estado'}</p>
+            </div>
+        </div>`;
+        if (others.length === 0) {
+            html += '<p style="color:#8696a0;text-align:center;padding:30px;">Nenhum estado dos teus contactos nas últimas 24h</p>';
+        } else {
+            others.forEach(s => {
+                const last = s.items[s.items.length - 1];
+                html += `
+                <div class="chat-item" onclick='viewStatusFeed(${JSON.stringify(s.phone)})'>
+                    <div class="chat-item-avatar avatar-user" style="border:2px solid var(--green);">${s.avatarUrl ? `<img src="${s.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : s.name.charAt(0).toUpperCase()}</div>
+                    <div class="chat-item-info">
+                        <h4>${s.name}</h4>
+                        <p>${s.items.length} estado(s) · ${new Date(last.postedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                </div>`;
+            });
+        }
+        panel.innerHTML = html;
+    }
+    socket.on('statuses_update', (feed) => {
+        APP.statusFeed = feed || [];
+        if (document.getElementById('statusScreen').classList.contains('active')) renderStatusPanel();
+    });
+    function openNewStatusModal() {
+        APP.pendingStatusPhotoUrl = null;
+        document.getElementById('newStatusText').value = '';
+        document.getElementById('newStatusPhotoPreview').style.display = 'none';
+        document.getElementById('modalNewStatus').classList.add('active');
+    }
+    function handleStatusPhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                const maxW = 720;
+                const scale = Math.min(1, maxW / img.width);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * scale; canvas.height = img.height * scale;
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+                APP.pendingStatusPhotoUrl = finalUrl;
+                document.getElementById('newStatusPhotoImg').src = finalUrl;
+                document.getElementById('newStatusPhotoPreview').style.display = 'block';
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    function postStatus() {
+        const text = document.getElementById('newStatusText').value.trim();
+        if (!text && !APP.pendingStatusPhotoUrl) return alert('Escreve algo ou escolhe uma foto.');
+        socket.emit('post_status', { text, photoData: APP.pendingStatusPhotoUrl });
+        closeModal('modalNewStatus');
+    }
+    APP.viewingStatus = null;
+    function viewStatusFeed(phone) {
+        const feed = APP.statusFeed.find(s => s.phone === phone);
+        if (!feed || !feed.items.length) return;
+        APP.viewingStatus = { phone, items: feed.items, index: 0, name: feed.name, avatarUrl: feed.avatarUrl };
+        showStatusItem();
+    }
+    function showStatusItem() {
+        const v = APP.viewingStatus;
+        if (!v) return;
+        const item = v.items[v.index];
+        document.getElementById('statusViewerName').textContent = v.name;
+        document.getElementById('statusViewerAvatar').innerHTML = v.avatarUrl ? `<img src="${v.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : v.name.charAt(0).toUpperCase();
+        document.getElementById('statusViewerTime').textContent = new Date(item.postedAt).toLocaleString('pt-BR');
+        document.getElementById('statusViewerText').textContent = item.text || '';
+        const photoBox = document.getElementById('statusViewerPhoto');
+        if (item.photoData) { photoBox.style.display = 'block'; document.getElementById('statusViewerImg').src = item.photoData; }
+        else photoBox.style.display = 'none';
+        document.getElementById('statusViewerOwnActions').style.display = v.phone === APP.user?.phone ? 'block' : 'none';
+        document.getElementById('modalViewStatus').classList.add('active');
+    }
+    function deleteViewedStatus() {
+        const v = APP.viewingStatus;
+        if (!v) return;
+        socket.emit('delete_status', { statusId: v.items[v.index].id });
+        closeModal('modalViewStatus');
+    }
+
+    // ==================== HISTÓRICO DE CHAMADAS ====================
+    APP.callLog = [];
+    APP.callDirection = null;
+    function logCallEvent(status) {
+        const durationSec = APP.callStartTime ? Math.floor((Date.now() - APP.callStartTime) / 1000) : 0;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        socket.emit('call_log_entry', {
+            peerPhone: callPeerPhone || chat?.phone || null,
+            peerName: chat?.name || 'Alguém',
+            type: APP.callType || 'voice',
+            direction: APP.callDirection || 'outgoing',
+            status, durationSec
+        });
+        APP.callDirection = null;
+    }
+    socket.on('call_log_update', (log) => { APP.callLog = log || []; renderCallLog(); });
+    function openCallLogScreen() {
+        document.getElementById('callLogScreen').classList.add('active');
+        socket.emit('get_call_log');
+        renderCallLog();
+    }
+    function closeCallLogScreen() { document.getElementById('callLogScreen').classList.remove('active'); }
+    function renderCallLog() {
+        const el = document.getElementById('callLogList');
+        if (!el) return;
+        if (!APP.callLog.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Sem chamadas ainda</p>'; return; }
+        el.innerHTML = APP.callLog.map(c => {
+            const icon = c.status === 'missed' ? '📵' : (c.direction === 'outgoing' ? '📤' : '📥');
+            const dur = c.durationSec ? `${Math.floor(c.durationSec / 60)}:${String(c.durationSec % 60).padStart(2, '0')}` : (c.status === 'declined' ? 'Recusada' : 'Sem resposta');
+            return `
+            <div class="chat-item" style="cursor:default;">
+                <div class="chat-item-avatar avatar-user">${(c.peerName || 'A').charAt(0).toUpperCase()}</div>
+                <div class="chat-item-info">
+                    <h4>${icon} ${c.peerName} ${c.type === 'video' ? '📹' : '📞'}</h4>
+                    <p>${new Date(c.timestamp).toLocaleString('pt-BR')} · ${dur}</p>
+                </div>
+            </div>`;
+        }).join('');
+    }
+    function clearCallLog() { socket.emit('clear_call_log'); }
+
+    // ==================== MENSAGENS FIXADAS ====================
+    APP.pinnedByChatId = {};
+    socket.on('message_pinned_received', (data) => {
+        if (!data?.chatId) return;
+        if (data.pin) APP.pinnedByChatId[data.chatId] = data.pin; else delete APP.pinnedByChatId[data.chatId];
+        if (APP.currentChatId === data.chatId) updatePinnedBanner();
+    });
+    function updatePinnedBanner() {
+        const banner = document.getElementById('pinnedBanner');
+        const pin = APP.pinnedByChatId[APP.currentChatId];
+        if (!pin) { banner.style.display = 'none'; return; }
+        banner.style.display = 'flex';
+        document.getElementById('pinnedBannerText').textContent = `${pin.sender}: ${pin.text}`;
+    }
+    function pinMessage(msgId) {
+        const msgs = APP.messages[APP.currentChatId];
+        const msg = msgs?.find(m => m.id === msgId);
+        if (!msg || !APP.currentChatId) return;
+        socket.emit('pin_message', { chatId: APP.currentChatId, messageId: msgId, text: (msg.text || '').substring(0, 200), sender: msg.type === 'sent' ? 'Você' : msg.sender });
+    }
+    function unpinCurrentMessage() {
+        if (!APP.currentChatId) return;
+        socket.emit('unpin_message', { chatId: APP.currentChatId });
+    }
+    function scrollToPinned() {
+        const pin = APP.pinnedByChatId[APP.currentChatId];
+        if (!pin) return;
+        const el = document.querySelector(`[data-msg-id="${pin.messageId}"]`);
+        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.background = 'rgba(0,168,132,0.25)'; setTimeout(() => el.style.background = '', 1500); }
+    }
+
+    // ==================== MENSAGENS TEMPORÁRIAS ====================
+    APP.disappearingByChatId = {};
+    socket.on('disappearing_updated', (data) => {
+        if (!data?.chatId) return;
+        if (data.seconds > 0) APP.disappearingByChatId[data.chatId] = data.seconds; else delete APP.disappearingByChatId[data.chatId];
+    });
+    socket.on('message_expired', (data) => {
+        if (!data?.chatId || !APP.messages[data.chatId]) return;
+        APP.messages[data.chatId] = APP.messages[data.chatId].filter(m => m.id !== data.messageId);
+        if (APP.currentChatId === data.chatId) renderMessages();
+        renderChatList();
+    });
+    function openDisappearingModal() {
+        if (!APP.currentChatId) return;
+        document.getElementById('modalDisappearing').classList.add('active');
+    }
+    function setDisappearing(seconds) {
+        if (!APP.currentChatId) return;
+        socket.emit('set_disappearing', { chatId: APP.currentChatId, seconds });
+        closeModal('modalDisappearing');
+    }
+
+    // ==================== SILENCIAR CONVERSA ====================
+    APP.mutedChats = new Set();
+    socket.on('muted_list', (list) => { APP.mutedChats = new Set(list || []); updateMuteButton(); });
+    function toggleMuteChat() {
+        if (!APP.currentChatId) return;
+        const willMute = !APP.mutedChats.has(APP.currentChatId);
+        if (willMute) APP.mutedChats.add(APP.currentChatId); else APP.mutedChats.delete(APP.currentChatId);
+        socket.emit('set_muted', { chatId: APP.currentChatId, muted: willMute });
+        updateMuteButton();
+    }
+    function updateMuteButton() {
+        const btn = document.getElementById('muteToggleBtn');
+        if (!btn) return;
+        const muted = APP.currentChatId && APP.mutedChats.has(APP.currentChatId);
+        btn.textContent = muted ? '🔕' : '🔔';
+        btn.title = muted ? 'Reativar notificações' : 'Silenciar conversa';
+    }
+
+    // ==================== EXPORTAR CONVERSA ====================
+    function exportChat() {
+        if (!APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const msgs = APP.messages[APP.currentChatId] || [];
+        const lines = msgs.map(m => `[${m.time || ''}] ${m.type === 'sent' ? 'Você' : m.sender}: ${m.deleted ? '(mensagem apagada)' : (m.fileData ? '(ficheiro/anexo)' : m.text)}`);
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `conversa_${(chat?.name || 'chat').replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // ==================== MENSAGENS AGENDADAS ====================
+    APP.scheduledMessages = [];
+    function openScheduleModal() {
+        if (!APP.currentChatId) return;
+        document.getElementById('scheduleMsgText').value = '';
+        const now = new Date(Date.now() + 5 * 60000);
+        document.getElementById('scheduleMsgWhen').value = now.toISOString().slice(0, 16);
+        document.getElementById('modalScheduleMessage').classList.add('active');
+    }
+    function submitScheduledMessage() {
+        const text = document.getElementById('scheduleMsgText').value.trim();
+        const when = document.getElementById('scheduleMsgWhen').value;
+        if (!text || !when || !APP.currentChatId) return alert('Escreve a mensagem e escolhe a data/hora.');
+        const sendAt = new Date(when).getTime();
+        if (sendAt <= Date.now()) return alert('Escolhe uma data/hora no futuro.');
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        socket.emit('schedule_message', { chatId: APP.currentChatId, text, sendAt, toPhone: chat?.type === 'user' ? chat.phone : undefined });
+        closeModal('modalScheduleMessage');
+    }
+    socket.on('scheduled_message_saved', (entry) => {
+        APP.scheduledMessages.push(entry);
+        alert('📅 Mensagem agendada para ' + new Date(entry.sendAt).toLocaleString('pt-BR'));
+    });
+    socket.on('scheduled_message_cancelled', (data) => {
+        APP.scheduledMessages = APP.scheduledMessages.filter(s => s.id !== data.id);
+        openScheduledList();
+    });
+    socket.on('scheduled_messages_list', (list) => { APP.scheduledMessages = list || []; });
+    socket.on('scheduled_message_sent', (data) => {
+        if (!data?.chatId) return;
+        if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
+        APP.messages[data.chatId].push({ id: data.id, sender: 'Você', text: data.text, time: data.time, type: 'sent', read: false, scheduled: true });
+        if (APP.currentChatId === data.chatId) renderMessages();
+        renderChatList();
+    });
+    function openScheduledList() {
+        closeModal('modalScheduleMessage');
+        socket.emit('get_scheduled_messages');
+        const el = document.getElementById('scheduledListContent');
+        const render = () => {
+            if (!APP.scheduledMessages.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem agendada</p>'; return; }
+            el.innerHTML = APP.scheduledMessages.map(s => {
+                const chat = APP.chats.find(c => c.id === s.chatId);
+                return `
+                <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size:13px;">${chat?.name || s.chatId}: ${s.text}</div>
+                    <div style="font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;">
+                        <span>${new Date(s.sendAt).toLocaleString('pt-BR')}</span>
+                        <button class="btn-small btn-danger" style="padding:2px 8px;font-size:11px;" onclick="socket.emit('cancel_scheduled_message', {id:'${s.id}'})">Cancelar</button>
+                    </div>
+                </div>`;
+            }).join('');
+        };
+        setTimeout(render, 150);
+        document.getElementById('modalScheduledList').classList.add('active');
+    }
+
+    // ==================== THREAD DE RESPOSTAS ====================
+    APP.threadOriginalId = null;
+    function openThread(originalMsgId) {
+        const msgs = APP.messages[APP.currentChatId] || [];
+        const original = msgs.find(m => m.id === originalMsgId);
+        APP.threadOriginalId = originalMsgId;
+        document.getElementById('threadOriginal').innerHTML = original ? `<strong>${original.type === 'sent' ? 'Você' : original.sender}</strong><br>${original.text || ''}` : 'Mensagem original';
+        const replies = msgs.filter(m => m.replyTo?.id === originalMsgId);
+        document.getElementById('threadReplies').innerHTML = replies.map(r => `
+            <div style="background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:13px;">
+                <strong>${r.type === 'sent' ? 'Você' : r.sender}</strong> <span style="color:var(--text-secondary);font-size:11px;">${r.time || ''}</span><br>${r.deleted ? '(apagada)' : r.text}
+            </div>`).join('') || '<p style="color:#8696a0;font-size:13px;">Ainda sem respostas nesta thread</p>';
+        document.getElementById('modalThread').classList.add('active');
+    }
+    function sendThreadReply() {
+        const input = document.getElementById('threadReplyInput');
+        const text = input.value.trim();
+        if (!text || !APP.threadOriginalId) return;
+        const original = (APP.messages[APP.currentChatId] || []).find(m => m.id === APP.threadOriginalId);
+        APP.replyingTo = original ? { id: original.id, sender: original.type === 'sent' ? 'Você' : original.sender, text: original.text } : null;
+        document.getElementById('messageInput').value = text;
+        sendMessage('messageInput');
+        input.value = '';
+        openThread(APP.threadOriginalId);
+    }
+
+    // ==================== PESQUISA DENTRO DA CONVERSA ====================
+    APP.chatSearchMatches = [];
+    APP.chatSearchIndex = -1;
+    function toggleChatSearch() {
+        const bar = document.getElementById('chatSearchBar');
+        const show = bar.style.display === 'none';
+        bar.style.display = show ? 'flex' : 'none';
+        if (show) { document.getElementById('chatSearchInput').focus(); }
+        else { document.getElementById('chatSearchInput').value = ''; runChatSearch(''); }
+    }
+    function runChatSearch(query) {
+        document.querySelectorAll('#chatMessages .message.search-hit').forEach(el => el.classList.remove('search-hit'));
+        const q = query.trim().toLowerCase();
+        if (!q) { document.getElementById('chatSearchCount').textContent = ''; APP.chatSearchMatches = []; return; }
+        const msgs = APP.messages[APP.currentChatId] || [];
+        APP.chatSearchMatches = msgs.filter(m => !m.deleted && (m.text || '').toLowerCase().includes(q)).map(m => m.id);
+        APP.chatSearchIndex = APP.chatSearchMatches.length ? 0 : -1;
+        document.getElementById('chatSearchCount').textContent = APP.chatSearchMatches.length ? `${APP.chatSearchIndex + 1}/${APP.chatSearchMatches.length}` : '0/0';
+        APP.chatSearchMatches.forEach(id => document.querySelector(`[data-msg-id="${id}"]`)?.classList.add('search-hit'));
+        if (APP.chatSearchIndex >= 0) scrollToSearchMatch();
+    }
+    function chatSearchNav(dir) {
+        if (!APP.chatSearchMatches.length) return;
+        APP.chatSearchIndex = (APP.chatSearchIndex + dir + APP.chatSearchMatches.length) % APP.chatSearchMatches.length;
+        document.getElementById('chatSearchCount').textContent = `${APP.chatSearchIndex + 1}/${APP.chatSearchMatches.length}`;
+        scrollToSearchMatch();
+    }
+    function scrollToSearchMatch() {
+        const id = APP.chatSearchMatches[APP.chatSearchIndex];
+        const el = document.querySelector(`[data-msg-id="${id}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // ==================== NAVEGAÇÃO GPS (tipo Waze — Portugal e Espanha) ====================
+    const NAV = {
+        map: null, userMarker: null, destMarker: null, routeLines: [], routes: [], selectedRouteIndex: 0,
+        steps: [], currentStepIndex: 0, origin: null, destination: null, watchId: null, navigating: false,
+        recalcCooldown: 0, alerts: [], alertMarkers: {}, announcedAlertIds: new Set(),
+        voiceEnabled: localStorage.getItem('navVoiceEnabled') !== 'off'
+    };
+    const ALERT_ICONS = { police: '🚓', accident: '💥', roadwork: '🚧', traffic: '🐌', hazard: '⚠️', camera: '📷' };
+    const ALERT_LABELS = { police: 'Polícia', accident: 'Acidente', roadwork: 'Obras na via', traffic: 'Trânsito', hazard: 'Perigo na via', camera: 'Radar' };
+
+    function openNavScreen() {
+        if (!navigator.geolocation) return alert('Este navegador não suporta geolocalização.');
+        document.getElementById('navScreen').classList.add('active');
+        document.getElementById('navVoiceBtn').textContent = NAV.voiceEnabled ? '🔊' : '🔇';
+        if (!NAV.map) {
+            NAV.map = L.map('navMap').setView([40.0, -4.5], 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(NAV.map);
+        }
+        setTimeout(() => NAV.map.invalidateSize(), 200);
+        navigator.geolocation.getCurrentPosition((pos) => {
+            NAV.origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            placeUserMarker(NAV.origin.lat, NAV.origin.lng, pos.coords.heading);
+            NAV.map.setView([NAV.origin.lat, NAV.origin.lng], 14);
+        }, (err) => { console.warn('Não foi possível obter a localização inicial:', err.message); }, { enableHighAccuracy: true, timeout: 10000 });
+        socket.emit('get_road_alerts');
+    }
+    function closeNavScreen() {
+        document.getElementById('navScreen').classList.remove('active');
+        document.getElementById('navAlertMenu').style.display = 'none';
+        if (NAV.navigating) toggleNavigation();
+        if (window.speechSynthesis) speechSynthesis.cancel();
+    }
+    function toggleNavVoice() {
+        NAV.voiceEnabled = !NAV.voiceEnabled;
+        localStorage.setItem('navVoiceEnabled', NAV.voiceEnabled ? 'on' : 'off');
+        document.getElementById('navVoiceBtn').textContent = NAV.voiceEnabled ? '🔊' : '🔇';
+        if (!NAV.voiceEnabled && window.speechSynthesis) speechSynthesis.cancel();
+    }
+    function speak(text) {
+        if (!NAV.voiceEnabled || !window.speechSynthesis) return;
+        try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'pt-PT'; u.rate = 1.0; speechSynthesis.speak(u); }
+        catch (e) { console.warn('Voz indisponível:', e.message); }
+    }
+    function toggleAlertMenu() {
+        const menu = document.getElementById('navAlertMenu');
+        menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+    }
+    function reportAlert(type) {
+        document.getElementById('navAlertMenu').style.display = 'none';
+        if (!NAV.origin) return alert('Ainda não sei a tua localização — espera um momento e tenta outra vez.');
+        socket.emit('report_alert', { type, lat: NAV.origin.lat, lng: NAV.origin.lng });
+    }
+    socket.on('road_alerts_update', (alerts) => {
+        NAV.alerts = alerts || [];
+        renderAlertMarkers();
+        if (NAV.routes.length) checkTrafficOnRoute();
+    });
+    function renderAlertMarkers() {
+        if (!NAV.map) return;
+        const activeIds = new Set(NAV.alerts.map(a => a.id));
+        Object.keys(NAV.alertMarkers).forEach((id) => { if (!activeIds.has(id)) { NAV.map.removeLayer(NAV.alertMarkers[id]); delete NAV.alertMarkers[id]; } });
+        NAV.alerts.forEach((a) => {
+            const popupHtml = `
+                <div style="text-align:center;min-width:150px;">
+                    <strong>${ALERT_ICONS[a.type] || '⚠️'} ${ALERT_LABELS[a.type] || a.type}</strong><br>
+                    <span style="font-size:11px;color:#666;">reportado por ${a.reportedBy}</span><br><br>
+                    <button class="btn-small btn-accept" style="font-size:11px;padding:4px 8px;" onclick="socket.emit('confirm_alert',{id:'${a.id}'})">✅ Ainda aqui</button>
+                    <button class="btn-small" style="font-size:11px;padding:4px 8px;" onclick="socket.emit('dismiss_alert',{id:'${a.id}'})">❌ Já não está</button>
+                </div>`;
+            if (NAV.alertMarkers[a.id]) { NAV.alertMarkers[a.id].setPopupContent(popupHtml); }
+            else {
+                const icon = L.divIcon({ className: '', html: `<div style="font-size:22px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.5));">${ALERT_ICONS[a.type] || '⚠️'}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+                NAV.alertMarkers[a.id] = L.marker([a.lat, a.lng], { icon }).addTo(NAV.map).bindPopup(popupHtml);
+            }
+        });
+    }
+    function checkAlertsProximity(lat, lng) {
+        const banner = document.getElementById('navAlertBanner');
+        let nearest = null, nearestDist = Infinity;
+        NAV.alerts.forEach((a) => { const d = haversineMeters(lat, lng, a.lat, a.lng); if (d < 400 && d < nearestDist) { nearest = a; nearestDist = d; } });
+        if (nearest) {
+            banner.style.display = 'flex';
+            document.getElementById('navAlertBannerIcon').textContent = ALERT_ICONS[nearest.type] || '⚠️';
+            document.getElementById('navAlertBannerText').textContent = `${ALERT_LABELS[nearest.type]} a ${Math.round(nearestDist)}m`;
+            if (!NAV.announcedAlertIds.has(nearest.id)) { NAV.announcedAlertIds.add(nearest.id); speak(`Atenção, ${ALERT_LABELS[nearest.type]} daqui a ${Math.round(nearestDist)} metros`); }
+        } else { banner.style.display = 'none'; }
+    }
+    function checkTrafficOnRoute() {
+        const line = NAV.routeLines[NAV.selectedRouteIndex];
+        const banner = document.getElementById('navTrafficBanner');
+        if (!line) { banner.style.display = 'none'; return; }
+        const latlngs = line.getLatLngs();
+        const trafficAlerts = NAV.alerts.filter(a => a.type === 'traffic');
+        let hits = 0;
+        trafficAlerts.forEach((a) => { if (distanceToPolyline(a.lat, a.lng, latlngs) < 150) hits++; });
+        banner.style.display = hits > 0 ? 'block' : 'none';
+        return hits;
+    }
+    function placeUserMarker(lat, lng, heading) {
+        const rotation = (typeof heading === 'number' && !isNaN(heading)) ? heading : 0;
+        const icon = L.divIcon({ className: '', html: `<div style="width:22px;height:22px;transform:rotate(${rotation}deg);font-size:22px;line-height:22px;text-align:center;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🧭</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+        if (NAV.userMarker) NAV.userMarker.setLatLng([lat, lng]).setIcon(icon);
+        else NAV.userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(NAV.map);
+    }
+    async function searchNavDestination() {
+        const q = document.getElementById('navDestInput').value.trim();
+        if (!q) return;
+        const list = document.getElementById('navResultsList');
+        list.style.display = 'block';
+        list.innerHTML = '<p style="padding:12px;color:var(--text-secondary);font-size:13px;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/nav/geocode?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha na pesquisa');
+            if (!data.length) { list.innerHTML = '<p style="padding:12px;color:var(--text-secondary);font-size:13px;">Nada encontrado em Portugal/Espanha para essa pesquisa.</p>'; return; }
+            list.innerHTML = data.map((r) => `
+                <div class="chat-item" style="cursor:pointer;" onclick='selectNavResult(${JSON.stringify(r.lat)}, ${JSON.stringify(r.lon)}, ${JSON.stringify(r.display_name)})'>
+                    <div class="chat-item-avatar avatar-user">📍</div>
+                    <div class="chat-item-info"><h4>${(r.display_name || '').split(',')[0]}</h4><p>${r.display_name}</p></div>
+                </div>`).join('');
+        } catch (err) { list.innerHTML = `<p style="padding:12px;color:var(--red);font-size:13px;">⚠️ ${err.message}</p>`; }
+    }
+    async function selectNavResult(lat, lng, label) {
+        document.getElementById('navResultsList').style.display = 'none';
+        document.getElementById('navDestInput').value = label.split(',')[0];
+        NAV.destination = { lat: parseFloat(lat), lng: parseFloat(lng), label };
+        if (NAV.destMarker) NAV.map.removeLayer(NAV.destMarker);
+        NAV.destMarker = L.marker([NAV.destination.lat, NAV.destination.lng]).addTo(NAV.map).bindPopup(label.split(',')[0]);
+        if (!NAV.origin) {
+            await new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition((pos) => { NAV.origin = { lat: pos.coords.latitude, lng: pos.coords.longitude }; placeUserMarker(NAV.origin.lat, NAV.origin.lng, pos.coords.heading); resolve(); }, () => resolve(), { enableHighAccuracy: true, timeout: 10000 });
+            });
+        }
+        if (!NAV.origin) return alert('Não foi possível obter a tua localização atual.');
+        await computeRoute();
+    }
+    async function computeRoute() {
+        if (!NAV.origin || !NAV.destination) return;
+        document.getElementById('navRouteSummary').style.display = 'block';
+        document.getElementById('navRouteSummary').textContent = 'A calcular rota...';
+        try {
+            const url = `/api/nav/route?fromLat=${NAV.origin.lat}&fromLng=${NAV.origin.lng}&toLat=${NAV.destination.lat}&toLng=${NAV.destination.lng}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha ao calcular a rota');
+            NAV.routes = data.routes;
+            NAV.selectedRouteIndex = 0;
+            drawRoutes();
+            renderAltBar();
+            selectRoute(0);
+            document.getElementById('navStartBtn').disabled = false;
+            document.getElementById('navStartBtn').textContent = '▶️ Iniciar navegação';
+        } catch (err) { document.getElementById('navRouteSummary').textContent = '⚠️ ' + err.message; }
+    }
+    function drawRoutes() {
+        NAV.routeLines.forEach(l => NAV.map.removeLayer(l));
+        NAV.routeLines = NAV.routes.map((r, i) => {
+            const latlngs = r.geometry.coordinates.map(c => [c[1], c[0]]);
+            const line = L.polyline(latlngs, { color: i === NAV.selectedRouteIndex ? '#00a884' : '#8696a0', weight: i === NAV.selectedRouteIndex ? 6 : 4, opacity: i === NAV.selectedRouteIndex ? 0.95 : 0.6 }).addTo(NAV.map);
+            line.on('click', () => selectRoute(i));
+            return line;
+        });
+        NAV.routeLines[NAV.selectedRouteIndex]?.bringToFront();
+        const bounds = NAV.routeLines[NAV.selectedRouteIndex]?.getBounds();
+        if (bounds) NAV.map.fitBounds(bounds, { padding: [30, 30] });
+    }
+    function renderAltBar() {
+        const bar = document.getElementById('navAltBar');
+        if (NAV.routes.length < 2) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        bar.innerHTML = NAV.routes.map((r, i) => {
+            const mins = Math.round(r.duration / 60);
+            const km = (r.distance / 1000).toFixed(1);
+            return `<button class="btn-small ${i === NAV.selectedRouteIndex ? 'btn-accept' : ''}" style="flex:0 0 auto;" onclick="selectRoute(${i})">${i === 0 ? '⭐ ' : ''}${mins} min · ${km} km</button>`;
+        }).join('');
+    }
+    function selectRoute(index) {
+        NAV.selectedRouteIndex = index;
+        const route = NAV.routes[index];
+        NAV.steps = route.legs.flatMap(leg => leg.steps);
+        NAV.currentStepIndex = 0;
+        drawRoutes();
+        renderAltBar();
+        const hits = checkTrafficOnRoute();
+        const mins = Math.round(route.duration / 60) + (hits ? hits * 5 : 0);
+        const km = (route.distance / 1000).toFixed(1);
+        document.getElementById('navRouteSummary').textContent = hits ? `🕐 ~${mins} min (com trânsito) · 📏 ${km} km` : `🕐 ${mins} min · 📏 ${km} km`;
+        showCurrentInstruction();
+    }
+    const NAV_MODIFIER_PT = { left: 'à esquerda', right: 'à direita', 'slight left': 'ligeiramente à esquerda', 'slight right': 'ligeiramente à direita', 'sharp left': 'com força à esquerda', 'sharp right': 'com força à direita', straight: 'em frente', uturn: 'inversão de marcha' };
+    function maneuverText(step) {
+        const type = step.maneuver?.type;
+        const mod = NAV_MODIFIER_PT[step.maneuver?.modifier] || '';
+        const streetName = step.name ? ` para ${step.name}` : '';
+        if (type === 'depart') return 'Siga em frente' + streetName;
+        if (type === 'arrive') return 'Chegou ao destino 🎉';
+        if (type === 'roundabout' || type === 'rotary') return `Na rotunda, saia na saída ${step.maneuver.exit || ''}` + streetName;
+        if (type === 'merge') return 'Junte-se à via' + streetName;
+        if (type === 'fork') return `Mantenha-se ${mod || 'em frente'}` + streetName;
+        if (type === 'end of road') return `No final da via, vire ${mod}` + streetName;
+        if (type === 'continue') return 'Continue em frente' + streetName;
+        if (type === 'on ramp' || type === 'off ramp') return `Entre ${mod} na rampa` + streetName;
+        if (mod) return `Vire ${mod}` + streetName;
+        return 'Siga' + streetName;
+    }
+    function maneuverIcon(step) {
+        const mod = step.maneuver?.modifier || '';
+        if (step.maneuver?.type === 'arrive') return '🏁';
+        if (step.maneuver?.type === 'roundabout' || step.maneuver?.type === 'rotary') return '🔄';
+        if (mod.includes('left')) return '⬅️';
+        if (mod.includes('right')) return '➡️';
+        if (mod === 'uturn') return '↩️';
+        return '⬆️';
+    }
+    function showCurrentInstruction(spokenAloud) {
+        const step = NAV.steps[NAV.currentStepIndex];
+        const bar = document.getElementById('navInstructionBar');
+        if (!step) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        document.getElementById('navInstructionIcon').textContent = maneuverIcon(step);
+        document.getElementById('navInstructionText').textContent = maneuverText(step);
+        document.getElementById('navInstructionDist').textContent = step.distance >= 1000 ? `${(step.distance / 1000).toFixed(1)} km` : `${Math.round(step.distance)} m`;
+        if (spokenAloud) speak(maneuverText(step));
+    }
+    function recenterNavMap() { if (NAV.origin) NAV.map.setView([NAV.origin.lat, NAV.origin.lng], NAV.navigating ? 17 : 14); }
+    function toggleNavigation() {
+        if (NAV.navigating) {
+            if (NAV.watchId) navigator.geolocation.clearWatch(NAV.watchId);
+            NAV.watchId = null; NAV.navigating = false;
+            document.getElementById('navStartBtn').textContent = '▶️ Iniciar navegação';
+            document.getElementById('navAlertBanner').style.display = 'none';
+            if (window.speechSynthesis) speechSynthesis.cancel();
+            return;
+        }
+        if (!NAV.steps.length) return;
+        NAV.navigating = true;
+        NAV.announcedAlertIds.clear();
+        document.getElementById('navStartBtn').textContent = '⏹️ Parar navegação';
+        NAV.map.setView([NAV.origin.lat, NAV.origin.lng], 17);
+        showCurrentInstruction(true);
+        NAV.watchId = navigator.geolocation.watchPosition(onNavPositionUpdate, (err) => { console.warn('Erro no GPS durante a navegação:', err.message); }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+    }
+    function onNavPositionUpdate(pos) {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude, heading = pos.coords.heading;
+        NAV.origin = { lat, lng };
+        placeUserMarker(lat, lng, heading);
+        if (NAV.navigating) { NAV.map.setView([lat, lng], NAV.map.getZoom() < 15 ? 17 : NAV.map.getZoom()); checkAlertsProximity(lat, lng); }
+        const step = NAV.steps[NAV.currentStepIndex];
+        if (step) {
+            const loc = step.maneuver.location;
+            const distToManeuver = haversineMeters(lat, lng, loc[1], loc[0]);
+            if (distToManeuver < 35 && NAV.currentStepIndex < NAV.steps.length - 1) { NAV.currentStepIndex++; showCurrentInstruction(true); }
+            else {
+                document.getElementById('navInstructionDist').textContent = distToManeuver >= 1000 ? `${(distToManeuver / 1000).toFixed(1)} km` : `${Math.round(distToManeuver)} m`;
+                if (NAV.navigating && distToManeuver < 150 && !step._warned150) { step._warned150 = true; speak(maneuverText(step)); }
+            }
+        }
+        const line = NAV.routeLines[NAV.selectedRouteIndex];
+        if (line && Date.now() > NAV.recalcCooldown) {
+            const nearest = distanceToPolyline(lat, lng, line.getLatLngs());
+            if (nearest > 60) { NAV.recalcCooldown = Date.now() + 15000; computeRoute(); }
+        }
+    }
+    function distanceToPolyline(lat, lng, latlngs) {
+        let min = Infinity;
+        for (const p of latlngs) { const d = haversineMeters(lat, lng, p.lat, p.lng); if (d < min) min = d; }
+        return min;
+    }
+
     function openSearchUserModal() {
         document.getElementById('searchUsernameInput').value = '';
         document.getElementById('searchUserResult').innerHTML = '';
@@ -1962,6 +2815,10 @@
         renderMessages();
         document.getElementById('messageInput').focus();
         renderChatList();
+        updatePinnedBanner();
+        updateMuteButton();
+        document.getElementById('chatSearchBar').style.display = 'none';
+        document.getElementById('chatSearchInput').value = '';
         setTimeout(() => { const msgDiv = document.getElementById('chatMessages'); msgDiv.scrollTop = msgDiv.scrollHeight; }, 100);
     }
 
@@ -3032,6 +3889,8 @@
             return;
         }
         const msgs = APP.messages[APP.currentChatId];
+        const replyCounts = {};
+        msgs.forEach(m => { if (m.replyTo?.id) replyCounts[m.replyTo.id] = (replyCounts[m.replyTo.id] || 0) + 1; });
         let html = '', lastDate = '';
         msgs.forEach(msg => {
             const msgDate = msg.time?.split(' ')[0] || '';
@@ -3043,6 +3902,10 @@
             const currentChat = APP.chats.find(c => c.id === APP.currentChatId);
             const showSender = !isSent && currentChat && (currentChat.type === 'group' || currentChat.type === 'ai');
             const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
+            const threadCount = replyCounts[msg.id] || 0;
+            const threadHtml = threadCount ? `<div style="font-size:11px;color:var(--blue);cursor:pointer;margin-top:2px;" onclick="openThread('${msg.id}')">🧵 ${threadCount} resposta${threadCount > 1 ? 's' : ''}</div>` : '';
+            const isPinned = APP.pinnedByChatId[APP.currentChatId]?.messageId === msg.id;
+            const pinnedLabel = isPinned ? '<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">📌 Fixada</div>' : '';
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
@@ -3050,15 +3913,18 @@
             html += `
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
+                ${pinnedLabel}
                 ${replyHtml}
                 ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
+                ${threadHtml}
                 <div class="time">
                     ${!msg.deleted ? `
                     <button onclick="replyToMessage('${msg.id}')" title="Responder" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↩️</button>
                     <button onclick="toggleReactionPicker('${msg.id}', this)" title="Reagir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">😀</button>
                     <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🌐</button>
+                    <button onclick="${isPinned ? 'unpinCurrentMessage()' : `pinMessage('${msg.id}')`}" title="${isPinned ? 'Desafixar' : 'Fixar'}" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">📌</button>
                     ${canEdit ? `<button onclick="editMessage('${msg.id}')" title="Editar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">✏️</button>` : ''}
                     ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Apagar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🗑️</button>` : ''}
                     ` : ''}
@@ -3544,10 +4410,12 @@
         peerConnection = new RTCPeerConnection(iceServers);
         peerConnection.onicecandidate = (e) => {
             if (e.candidate) {
-                socket.emit('ice_candidate', { targetRoomId: APP.currentChatId, candidate: e.candidate });
+                socket.emit('ice_candidate', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone, candidate: e.candidate });
             }
         };
         peerConnection.ontrack = (e) => {
+            if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
+            APP._callWasConnected = true;
             const mainVideo = document.getElementById('mainVideo');
             mainVideo.srcObject = e.streams[0];
             mainVideo.style.display = 'block';
@@ -3591,7 +4459,10 @@
         if (chat?.type === 'group') return joinGroupCall(type); // grupos usam a chamada em malha (ver mais abaixo)
         APP.callType = type;
         APP.callActive = true;
+        APP.callDirection = 'outgoing';
+        APP._callWasConnected = false;
         pendingIceCandidates = [];
+        callPeerPhone = chat?.phone || null;
         document.getElementById('callTitle').textContent = chat?.name || 'Chamada';
         document.getElementById('callStatus').textContent = type === 'video' ? 'Chamando...' : 'Chamada de voz...';
         document.getElementById('callScreen').classList.add('active');
@@ -3611,10 +4482,20 @@
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
                 socket.emit('call_user', {
                     targetRoomId: APP.currentChatId,
+                    targetPhone: callPeerPhone,
+                    callerPhone: APP.user.phone,
                     callerName: APP.user.name,
                     callType: type,
                     offer: pc.localDescription
                 });
+                if (callRingTimeout) clearTimeout(callRingTimeout);
+                callRingTimeout = setTimeout(() => {
+                    if (APP.callActive && document.getElementById('callStatus').textContent !== 'Conectado ✅') {
+                        document.getElementById('callStatus').textContent = 'Sem resposta';
+                        socket.emit('end_call', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone });
+                        setTimeout(() => endCall(true), 1200);
+                    }
+                }, 35000);
             });
         }).catch(err => {
             alert('Erro ao acessar câmera/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
@@ -3634,8 +4515,22 @@
         document.getElementById('modalIncomingCall').classList.add('active');
     });
 
+    // A pessoa para quem ligaste está offline / sem nenhum dispositivo ligado
+    // neste momento — antes disto a chamada ficava "Chamando..." para sempre.
+    socket.on('call_unavailable', () => {
+        if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
+        if (APP.callActive) {
+            document.getElementById('callStatus').textContent = 'Utilizador indisponível';
+            logCallEvent('missed');
+            setTimeout(() => endCall(true), 1200);
+        }
+    });
+
     function declineIncomingCall() {
-        if (incomingCallData) socket.emit('end_call', { targetRoomId: incomingCallData.targetRoomId });
+        if (incomingCallData) {
+            socket.emit('end_call', { targetRoomId: incomingCallData.targetRoomId, targetPhone: incomingCallData.callerPhone });
+            socket.emit('call_log_entry', { peerPhone: incomingCallData.callerPhone, peerName: incomingCallData.callerName, type: incomingCallData.callType, direction: 'incoming', status: 'declined', durationSec: 0 });
+        }
         document.getElementById('modalIncomingCall').classList.remove('active');
         incomingCallData = null;
     }
@@ -3648,7 +4543,10 @@
         APP.currentChatId = data.targetRoomId;
         APP.callType = data.callType;
         APP.callActive = true;
+        APP.callDirection = 'incoming';
+        APP._callWasConnected = false;
         pendingIceCandidates = [];
+        callPeerPhone = data.callerPhone || null;
         document.getElementById('callTitle').textContent = data.callerName;
         document.getElementById('callStatus').textContent = 'Conectando...';
         document.getElementById('callScreen').classList.add('active');
@@ -3666,7 +4564,7 @@
             flushPendingIce(pc);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            socket.emit('answer_call', { targetRoomId: data.targetRoomId, answer: pc.localDescription });
+            socket.emit('answer_call', { targetRoomId: data.targetRoomId, targetPhone: data.callerPhone, answer: pc.localDescription });
         } catch (err) {
             alert('Erro ao aceder à câmara/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
             endCall();
@@ -3679,6 +4577,7 @@
     }
 
     socket.on('call_answered', async (data) => {
+        if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
         if (peerConnection) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
             flushPendingIce(peerConnection);
@@ -3699,6 +4598,11 @@
     });
 
     socket.on('call_ended', () => {
+        if (incomingCallData) {
+            socket.emit('call_log_entry', { peerPhone: incomingCallData.callerPhone, peerName: incomingCallData.callerName, type: incomingCallData.callType, direction: 'incoming', status: 'missed', durationSec: 0 });
+            document.getElementById('modalIncomingCall').classList.remove('active');
+            incomingCallData = null;
+        }
         endCall(true); // encerrado pelo outro lado — não reenviar 'end_call' de volta
     });
 
@@ -3898,7 +4802,18 @@
     function endCall(remoteInitiated) {
         if (!APP.callActive) return; // já foi encerrada — ignora chamadas duplicadas do evento
         APP.callActive = false;
-        if (!remoteInitiated && APP.currentChatId) socket.emit('end_call', { targetRoomId: APP.currentChatId });
+        if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
+        // Só emite 'end_call' em chamadas 1-para-1 — em chamada de GRUPO isto
+        // desligava toda a gente quando só uma pessoa saía (leaveGroupCall trata
+        // disso à parte, logo abaixo).
+        if (!remoteInitiated && !GROUP_CALL.active && APP.currentChatId) {
+            socket.emit('end_call', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone });
+        }
+        if (!GROUP_CALL.active && APP.callDirection) {
+            logCallEvent(APP._callWasConnected ? 'answered' : 'missed');
+        }
+        APP._callWasConnected = false;
+        callPeerPhone = null;
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         pendingIceCandidates = [];
         if (GROUP_CALL.active) leaveGroupCall();
