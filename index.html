@@ -1196,6 +1196,7 @@
                         <button class="btn-icon" onclick="openDisappearingModal()" title="Mensagens temporárias" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">⏳</button>
                         <button class="btn-icon" onclick="exportChat()" title="Exportar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📤</button>
                         <button class="btn-icon" onclick="openScheduleModal()" title="Agendar mensagem" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📅</button>
+                        <button class="btn-icon" id="autoTranslateBtn" onclick="toggleAutoTranslate()" title="Tradução automática nesta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🌐🔁</button>
                     </div>
                 </div>
                 <div id="chatSearchBar" style="display:none;padding:8px 12px;background:var(--bg-secondary);gap:8px;align-items:center;">
@@ -1513,6 +1514,11 @@
                 </div>
                 <input type="file" id="profilePhotoInput" accept="image/*" style="display:none;" onchange="handleProfilePhotoSelected(this)">
                 <p style="color:#8696a0;font-size:13px;" id="profileNameLabel"></p>
+                <div style="text-align:left;margin-top:14px;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🌐 A língua que eu falo</label>
+                    <select id="profileLangSelect" onchange="setPreferredLang(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).</p>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
                 </div>
@@ -2014,7 +2020,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0] };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -2131,8 +2137,22 @@
         if (!APP.user) return;
         document.getElementById('profilePhotoPreview').innerHTML = avatarInnerHtml(APP.user.name, APP.user.avatarUrl);
         document.getElementById('profileNameLabel').textContent = APP.user.name;
+        const select = document.getElementById('profileLangSelect');
+        select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
+        select.value = APP.user.preferredLang || 'pt';
         document.getElementById('modalProfile').classList.add('active');
     }
+    function setPreferredLang(lang) {
+        if (!APP.user) return;
+        APP.user.preferredLang = lang;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        socket.emit('set_preferred_lang', { lang });
+    }
+    socket.on('preferred_lang_updated', (data) => {
+        if (!APP.user || !data?.lang) return;
+        APP.user.preferredLang = data.lang;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+    });
     function handleProfilePhotoSelected(input) {
         const file = input.files[0];
         input.value = '';
@@ -2169,6 +2189,41 @@
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         renderHeaderAvatar();
     });
+
+    // ==================== TRADUÇÃO AUTOMÁTICA (por conversa) ====================
+    // Guarda, por conversa, se as mensagens recebidas devem ser traduzidas
+    // sozinhas para a "língua que eu falo" (definida em O meu perfil) — sem
+    // precisar de tocar no 🌐 em cada mensagem. Fica guardado no aparelho.
+    APP.autoTranslateChats = new Set(JSON.parse(localStorage.getItem('autoTranslateChats') || '[]'));
+    function toggleAutoTranslate() {
+        if (!APP.currentChatId) return;
+        if (APP.autoTranslateChats.has(APP.currentChatId)) APP.autoTranslateChats.delete(APP.currentChatId);
+        else APP.autoTranslateChats.add(APP.currentChatId);
+        localStorage.setItem('autoTranslateChats', JSON.stringify([...APP.autoTranslateChats]));
+        updateAutoTranslateButton();
+    }
+    function updateAutoTranslateButton() {
+        const btn = document.getElementById('autoTranslateBtn');
+        if (!btn) return;
+        const on = APP.currentChatId && APP.autoTranslateChats.has(APP.currentChatId);
+        btn.classList.toggle('btn-accept', !!on);
+        btn.title = on ? 'Tradução automática LIGADA nesta conversa — toca para desligar' : 'Ligar tradução automática nesta conversa';
+    }
+    // Traduz um texto para a língua da pessoa, só se a língua detetada for
+    // mesmo diferente (poupa pedidos e evita "traduzir" o que já está certo).
+    async function autoTranslateIfNeeded(text) {
+        if (!text || !text.trim()) return null;
+        const target = APP.user?.preferredLang || 'pt';
+        try {
+            const res = await fetch(`/api/translate?text=${encodeURIComponent(text)}&target=${encodeURIComponent(target)}`);
+            const data = await res.json();
+            if (!res.ok) return null;
+            if (data.detected && data.detected === target) return null; // já está na língua certa
+            return { text: data.translated, lang: target };
+        } catch (e) {
+            return null;
+        }
+    }
 
     // ==================== ESTADOS (stories, 24h) ====================
     APP.statusFeed = [];
@@ -2941,6 +2996,7 @@
         renderChatList();
         updatePinnedBanner();
         updateMuteButton();
+        updateAutoTranslateButton();
         document.getElementById('chatSearchBar').style.display = 'none';
         document.getElementById('chatSearchInput').value = '';
         setTimeout(() => { const msgDiv = document.getElementById('chatMessages'); msgDiv.scrollTop = msgDiv.scrollHeight; }, 100);
@@ -4338,15 +4394,26 @@
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
         let text = data.text;
         const chat = APP.chats.find(c => c.id === data.chatId);
+        let decryptFailed = false;
         if (data.encrypted && chat?.type === 'user') {
             await e2eeReadyPromise;
             const decrypted = await decryptFrom(chat.phone, chat.publicKey, data.iv, data.data);
-            text = decrypted != null ? decrypted : '🔒 Não foi possível desencriptar (dispositivo diferente)';
+            if (decrypted == null) { text = '🔒 Não foi possível desencriptar (dispositivo diferente)'; decryptFailed = true; }
+            else text = decrypted;
+        }
+        // Tradução automática: só quando ligada nesta conversa, e só para texto
+        // a sério recebido (não para o aviso de falha de desencriptação nem
+        // para mensagens que são só um ficheiro/foto sem legenda).
+        let translatedText = null, translatedLang = null;
+        if (!decryptFailed && !data.fileData && APP.autoTranslateChats.has(data.chatId)) {
+            const auto = await autoTranslateIfNeeded(text);
+            if (auto) { translatedText = auto.text; translatedLang = auto.lang; }
         }
         APP.messages[data.chatId].push({
             id: data.id || ('m' + Date.now()),
             sender: data.sender || 'Contato',
             text,
+            translatedText, translatedLang,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
             type: 'received',
             replyTo: data.replyTo || null,
@@ -4543,6 +4610,7 @@
             const mainVideo = document.getElementById('mainVideo');
             mainVideo.srcObject = e.streams[0];
             mainVideo.style.display = 'block';
+            mainVideo.muted = false; // reforça — já foi desligado no início, mas confirma outra vez com o stream real anexado
             document.getElementById('callStatus').textContent = 'Conectado ✅';
             startCallTimer();
             // No iPhone/Safari, o navegador bloqueia por padrão o autoplay de
@@ -4556,6 +4624,15 @@
                     document.getElementById('callUnlockOverlay').style.display = 'flex';
                 });
             }
+            // Segunda verificação de segurança: alguns navegadores resolvem a
+            // promessa de play() com sucesso mas mantêm o som a 0 por bloqueios
+            // internos que não geram erro nenhum — confirma passado 1s e, se
+            // continuar mudo ou em pausa, mostra a mesma dica para tocar no ecrã.
+            setTimeout(() => {
+                if (APP.callActive && (mainVideo.paused || mainVideo.muted)) {
+                    document.getElementById('callUnlockOverlay').style.display = 'flex';
+                }
+            }, 1000);
         };
         // Deteta quando a ligação "conecta" na sinalização mas depois cai (ex: TURN
         // sobrecarregado) — sem isto, o ecrã ficava preso em "Conectado" para sempre
@@ -4595,6 +4672,13 @@
         const pipVideo = document.getElementById('pipVideo');
         mainVideo.style.display = 'block';
         mainVideo.srcObject = null;
+        // Desliga o mudo já aqui, mesmo antes de existir stream — isto associa o
+        // elemento de vídeo ao toque genuíno do utilizador o mais cedo possível.
+        // Sem isto, quem RECEBE a chamada (ao tocar em "Aceitar") tinha muito mais
+        // hipótese de o navegador bloquear o som por engano do que quem liga —
+        // era a causa mais provável do "som só funciona quando é X que liga".
+        mainVideo.muted = false;
+        mainVideo.play().catch(() => {}); // tentativa silenciosa — sem stream ainda, é normal falhar
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; }
         const constraints = { audio: true, video: type === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false };
         navigator.mediaDevices.getUserMedia(constraints).then(async stream => {
@@ -4675,7 +4759,15 @@
         document.getElementById('callStatus').textContent = 'Conectando...';
         document.getElementById('callScreen').classList.add('active');
         document.getElementById('groupCallGrid').style.display = 'none';
-        document.getElementById('mainVideo').style.display = 'block';
+        const mainVideo = document.getElementById('mainVideo');
+        mainVideo.style.display = 'block';
+        // Mesma lógica do lado de quem liga: desliga o mudo e tenta reproduzir já
+        // aqui, ainda dentro do toque em "Aceitar" — antes de qualquer "await" —
+        // para o navegador associar isto ao gesto genuíno do utilizador o mais
+        // cedo possível (quem atende é normalmente quem mais sofre bloqueios de
+        // som automáticos, por a ligação demorar mais awaits a estabelecer-se).
+        mainVideo.muted = false;
+        mainVideo.play().catch(() => {});
         const constraints = { audio: true, video: data.callType === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false };
         try {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -4799,6 +4891,19 @@
             if (pc.iceConnectionState === 'failed') { try { pc.restartIce(); } catch (e) {} }
         };
         if (APP.callStream) APP.callStream.getTracks().forEach(track => pc.addTrack(track, APP.callStream));
+        // Se entrar alguém a meio de uma partilha de vídeo/música já em curso,
+        // troca já as faixas dele pelo conteúdo partilhado em vez da câmara/
+        // microfone normais — sem isto, quem entrava depois via sempre a
+        // câmara de quem partilha, nunca o vídeo/música partilhados.
+        if (APP.videoShare.active && APP.videoShare.videoEl) {
+            const capturedStream = APP.videoShare.videoEl.captureStream ? APP.videoShare.videoEl.captureStream() : null;
+            const videoTrack = capturedStream?.getVideoTracks()[0];
+            if (videoTrack) { const s = pc.getSenders().find(s => s.track && s.track.kind === 'video'); if (s) s.replaceTrack(videoTrack); }
+        }
+        if (APP.musicShare.active && APP._musicMix?.dest) {
+            const mixedTrack = APP._musicMix.dest.stream.getAudioTracks()[0];
+            if (mixedTrack) { const s = pc.getSenders().find(s => s.track && s.track.kind === 'audio'); if (s) s.replaceTrack(mixedTrack); }
+        }
         return pc;
     }
 
@@ -5067,6 +5172,26 @@
         return APP._musicMix;
     }
 
+    // Ajuda a partilhar vídeo/música tanto em chamadas 1-para-1 (uma só
+    // 'peerConnection') como em chamadas de grupo (uma RTCPeerConnection por
+    // cada outro participante, em GROUP_CALL.peers) — devolve o "sender" de
+    // cada ligação ativa, para trocar a faixa transmitida em todas de uma vez.
+    function getActiveSenders(kind) {
+        const senders = [];
+        if (peerConnection) {
+            const s = peerConnection.getSenders().find(s => s.track && s.track.kind === kind);
+            if (s) senders.push(s);
+        }
+        if (GROUP_CALL.active) {
+            Object.values(GROUP_CALL.peers).forEach(pc => {
+                const s = pc.getSenders().find(s => s.track && s.track.kind === kind);
+                if (s) senders.push(s);
+            });
+        }
+        return senders;
+    }
+    function isInAnyCall() { return !!peerConnection || GROUP_CALL.active; }
+
     function toggleMusicShare() {
         if (!document.getElementById('callScreen').classList.contains('active')) {
             return alert('Isto só funciona durante uma chamada — inicie uma chamada primeiro.');
@@ -5077,7 +5202,7 @@
     }
 
     function applyMusicShareMix() {
-        if (!peerConnection || !APP.callStream) return;
+        if (!isInAnyCall() || !APP.callStream) return;
         try {
             const mix = getMusicMix();
             if (mix.micSource) { try { mix.micSource.disconnect(); } catch (e) {} }
@@ -5088,12 +5213,11 @@
                 mix.micSource.connect(mix.dest);
             }
             const mixedTrack = mix.dest.stream.getAudioTracks()[0];
-            const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (audioSender && mixedTrack) audioSender.replaceTrack(mixedTrack);
+            if (mixedTrack) getActiveSenders('audio').forEach(sender => sender.replaceTrack(mixedTrack));
 
             APP.musicShare.active = true;
             const btn = document.getElementById('musicShareBtn');
-            if (btn) { btn.classList.add('btn-accept'); btn.title = 'A outra pessoa já está a ouvir esta música — toque para parar de partilhar'; }
+            if (btn) { btn.classList.add('btn-accept'); btn.title = 'As outras pessoas na chamada já estão a ouvir esta música — toque para parar de partilhar'; }
         } catch (err) {
             alert('Não foi possível partilhar a música na chamada: ' + err.message);
         }
@@ -5103,18 +5227,17 @@
         const mix = APP._musicMix;
         if (mix && mix.micSource) { try { mix.micSource.disconnect(); } catch (e) {} mix.micSource = null; }
         // Restaura o áudio original (só microfone) na chamada
-        if (peerConnection && APP.callStream) {
-            const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+        if (isInAnyCall() && APP.callStream) {
             const camMic = APP.callStream.getAudioTracks()[0];
-            if (audioSender && camMic) audioSender.replaceTrack(camMic);
+            if (camMic) getActiveSenders('audio').forEach(sender => sender.replaceTrack(camMic));
         }
         APP.musicShare.active = false;
         const btn = document.getElementById('musicShareBtn');
-        if (btn) { btn.classList.remove('btn-accept'); btn.title = 'Deixar a outra pessoa ouvir esta música na chamada'; }
+        if (btn) { btn.classList.remove('btn-accept'); btn.title = 'Deixar as outras pessoas na chamada ouvir esta música'; }
     }
 
     function shareVideo() {
-        if (!document.getElementById('callScreen').classList.contains('active')) return alert('Inicie uma chamada primeiro!');
+        if (!isInAnyCall()) return alert('Inicie uma chamada primeiro!');
         document.getElementById('modalShareVideo').classList.add('active');
     }
 
@@ -5146,7 +5269,7 @@
     // não expõe o elemento <video> para captura); funciona com arquivos
     // locais ou links diretos para .mp4/.webm/.ogg.
     function playSharedVideo(src) {
-        if (!peerConnection) return alert('Inicie uma chamada primeiro!');
+        if (!isInAnyCall()) return alert('Inicie uma chamada primeiro!');
         const testEl = document.createElement('video');
         if (!testEl.captureStream && !testEl.mozCaptureStream) {
             return alert('O Safari/iPhone ainda não suporta transmitir vídeo em tempo real desta forma. Esta função funciona no Chrome/Android e no computador — no iPhone, o vídeo compartilhado toca só localmente por enquanto.');
@@ -5183,10 +5306,18 @@
                 const videoTrack = capturedStream.getVideoTracks()[0];
                 const audioTrack = dest.stream.getAudioTracks()[0];
 
-                const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-                const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
-                if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
-                if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+                // Troca a faixa em TODAS as ligações ativas — funciona tanto numa
+                // chamada 1-para-1 como numa chamada de grupo (uma ligação por
+                // cada pessoa), para todos verem/ouvirem o vídeo partilhado.
+                if (videoTrack) getActiveSenders('video').forEach(sender => sender.replaceTrack(videoTrack));
+                if (audioTrack) getActiveSenders('audio').forEach(sender => sender.replaceTrack(audioTrack));
+                // Numa chamada de grupo, atualiza também o teu próprio quadrado na
+                // grelha para mostrares o vídeo partilhado (antes mostrava sempre
+                // a tua câmara, mesmo estando a partilhar outra coisa).
+                if (GROUP_CALL.active && videoTrack) {
+                    const meTile = document.getElementById('tile_me');
+                    if (meTile) meTile.querySelector('video').srcObject = capturedStream;
+                }
 
                 APP.videoShare.active = true;
                 APP.videoShare.videoEl = preview;
@@ -5231,12 +5362,13 @@
         if (!vs.active) return;
         if (vs.videoEl) { vs.videoEl.pause(); vs.videoEl.src = ''; vs.videoEl.onended = null; }
         if (vs.audioCtx) { vs.audioCtx.close().catch(() => {}); }
-        // Restaura a câmera/microfone originais na chamada
-        if (peerConnection) {
-            const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-            const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (videoSender && vs.camVideoTrack) videoSender.replaceTrack(vs.camVideoTrack);
-            if (audioSender && vs.camAudioTrack) audioSender.replaceTrack(vs.camAudioTrack);
+        // Restaura a câmera/microfone originais em todas as ligações ativas
+        // (1-para-1 ou, numa chamada de grupo, em cada uma das ligações)
+        if (vs.camVideoTrack) getActiveSenders('video').forEach(sender => sender.replaceTrack(vs.camVideoTrack));
+        if (vs.camAudioTrack) getActiveSenders('audio').forEach(sender => sender.replaceTrack(vs.camAudioTrack));
+        if (GROUP_CALL.active && APP.callStream) {
+            const meTile = document.getElementById('tile_me');
+            if (meTile) meTile.querySelector('video').srcObject = APP.callStream;
         }
         vs.active = false;
         vs.videoEl = null;

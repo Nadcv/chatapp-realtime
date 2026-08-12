@@ -38,6 +38,7 @@ const accountSchema = new mongoose.Schema({
   createdAt: String,
   publicKey: Object,
   avatarUrl: String,
+  preferredLang: String, // língua preferida da pessoa (ex.: 'pt', 'es', 'en') — usada na tradução automática
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
   pushSubscriptions: { type: [Object], default: [] } // inscrições de notificações push (um dispositivo pode ter mais do que uma)
 });
@@ -199,7 +200,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -521,7 +522,8 @@ app.get('/api/translate', async (req, res) => {
     if (!r.ok) throw new Error('Erro na tradução');
     const data = await r.json();
     const translated = (data[0] || []).map(chunk => chunk[0]).join('');
-    res.json({ translated });
+    const detected = data[2] || null; // língua de origem detetada automaticamente (ex.: 'pt', 'es')
+    res.json({ translated, detected });
   } catch (err) {
     res.status(500).json({ error: 'Falha ao traduzir.' });
   }
@@ -898,7 +900,7 @@ const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
 function contactPublicInfo(u) {
-  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null };
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null };
 }
 
 function sendContactsTo(phone) {
@@ -983,6 +985,22 @@ io.on('connection', (socket) => {
     }
     notifyContactsOfStatusChange(myPhone);
     socket.emit('avatar_updated', { avatarUrl: data.avatarUrl });
+  });
+
+  // Guarda a língua preferida da pessoa (para a tradução automática saber
+  // para que língua traduzir as mensagens que ela recebe) e avisa os
+  // contactos, para poderem ver que língua a pessoa fala.
+  socket.on('set_preferred_lang', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.lang !== 'string') return;
+    accounts[myPhone].preferredLang = data.lang;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { preferredLang: data.lang }).catch(e => console.error('Erro Mongo (língua):', e.message));
+    } else {
+      saveUsers();
+    }
+    notifyContactsOfStatusChange(myPhone);
+    socket.emit('preferred_lang_updated', { lang: data.lang });
   });
 
   // Adiciona alguém encontrado por pesquisa aos teus contactos (início de conversa)
