@@ -388,6 +388,10 @@
             font-size: 18px;
             flex-shrink: 0;
         }
+        .header-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+        /* Anel verde à volta da foto quando a pessoa tem um estado ativo (tipo WhatsApp/Instagram) */
+        .avatar-status-ring { box-shadow: 0 0 0 3px var(--green); }
+        .chat-item-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
         .header-info h3 {
             color: var(--text-primary);
             font-size: 15px;
@@ -1141,7 +1145,7 @@
     <div id="mainApp" style="display:none;flex-direction:column;flex:1;overflow:hidden;position:relative;width:100%;">
         <div class="app-header">
             <div class="header-user">
-                <div class="header-avatar" id="headerAvatar">U</div>
+                <div class="header-avatar" id="headerAvatar" onclick="openProfileModal()" style="cursor:pointer;" title="O meu perfil">U</div>
                 <div class="header-info">
                     <h3 id="headerName">Usuário</h3>
                     <span>Online</span>
@@ -1499,6 +1503,22 @@
             </div>
         </div>
 
+        <!-- ============ O MEU PERFIL (foto) ============ -->
+        <div class="modal-overlay" id="modalProfile">
+            <div class="modal" style="text-align:center;">
+                <h3>👤 O meu perfil</h3>
+                <div style="position:relative;width:96px;height:96px;margin:0 auto 12px;">
+                    <div id="profilePhotoPreview" class="header-avatar" style="width:96px;height:96px;font-size:38px;cursor:pointer;" onclick="document.getElementById('profilePhotoInput').click()">U</div>
+                    <div style="position:absolute;bottom:0;right:0;width:30px;height:30px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;border:2px solid var(--bg-secondary);" onclick="document.getElementById('profilePhotoInput').click()">📷</div>
+                </div>
+                <input type="file" id="profilePhotoInput" accept="image/*" style="display:none;" onchange="handleProfilePhotoSelected(this)">
+                <p style="color:#8696a0;font-size:13px;" id="profileNameLabel"></p>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ============ ESTADOS (stories, 24h) ============ -->
         <div class="location-screen" id="statusScreen">
             <div class="location-header">
@@ -1762,7 +1782,7 @@
             .filter(c => c.phone !== APP.user.phone)
             .map(c => ({
                 id: dmRoomId(APP.user.phone, c.phone),
-                name: c.name, phone: c.phone, username: c.username || null, avatar: c.name.charAt(0).toUpperCase(),
+                name: c.name, phone: c.phone, username: c.username || null, avatar: c.name.charAt(0).toUpperCase(), avatarUrl: c.avatarUrl || null,
                 type: 'user', online: c.online, publicKey: c.publicKey || null
             }));
         const groupChats = APP.groupsList
@@ -1976,13 +1996,13 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase() };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
-        document.getElementById('headerAvatar').textContent = APP.user.avatar;
+        renderHeaderAvatar();
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
@@ -2075,6 +2095,63 @@
         localStorage.setItem('themeMode', next);
     }
 
+    // ==================== FOTO DE PERFIL ====================
+    function avatarInnerHtml(name, avatarUrl) {
+        return avatarUrl ? `<img src="${avatarUrl}" alt="${name}">` : (name || '?').charAt(0).toUpperCase();
+    }
+    function hasActiveStatus(phone) {
+        const feed = APP.statusFeed.find(s => s.phone === phone);
+        return !!(feed && feed.items && feed.items.length);
+    }
+    function renderHeaderAvatar() {
+        const el = document.getElementById('headerAvatar');
+        if (!el || !APP.user) return;
+        el.innerHTML = avatarInnerHtml(APP.user.name, APP.user.avatarUrl);
+        el.classList.toggle('avatar-status-ring', hasActiveStatus(APP.user.phone));
+    }
+    function openProfileModal() {
+        if (!APP.user) return;
+        document.getElementById('profilePhotoPreview').innerHTML = avatarInnerHtml(APP.user.name, APP.user.avatarUrl);
+        document.getElementById('profileNameLabel').textContent = APP.user.name;
+        document.getElementById('modalProfile').classList.add('active');
+    }
+    function handleProfilePhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                const size = 400; // recorta ao centro e reduz — evita fotos gigantes desnecessárias
+                const canvas = document.createElement('canvas');
+                canvas.width = size; canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                const minSide = Math.min(img.width, img.height);
+                const sx = (img.width - minSide) / 2, sy = (img.height - minSide) / 2;
+                ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+                socket.emit('update_avatar', { avatarUrl: finalUrl });
+                document.getElementById('profilePhotoPreview').innerHTML = avatarInnerHtml(APP.user.name, finalUrl);
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    socket.on('avatar_updated', (data) => {
+        if (!APP.user || !data?.avatarUrl) return;
+        APP.user.avatarUrl = data.avatarUrl;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderHeaderAvatar();
+    });
+
     // ==================== ESTADOS (stories, 24h) ====================
     APP.statusFeed = [];
     APP.pendingStatusPhotoUrl = null;
@@ -2116,6 +2193,8 @@
     socket.on('statuses_update', (feed) => {
         APP.statusFeed = feed || [];
         if (document.getElementById('statusScreen').classList.contains('active')) renderStatusPanel();
+        renderHeaderAvatar(); // liga/desliga o anel verde do meu próprio avatar
+        renderChatList(); // liga/desliga o anel verde à volta dos avatares dos contactos com estado ativo
     });
     function openNewStatusModal() {
         APP.pendingStatusPhotoUrl = null;
@@ -2775,13 +2854,14 @@
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + lastMsg.text : 'Nenhuma mensagem';
             const isGroup = chat.type === 'group';
             const isAI = chat.type === 'ai';
-            const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
+            const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
             const avatarClass = isAI ? 'avatar-ai' : (isGroup ? 'avatar-group' : 'avatar-user');
+            const statusRingClass = (!isAI && !isGroup && hasActiveStatus(chat.phone)) ? ' avatar-status-ring' : '';
             const badgeClass = isAI ? 'badge badge-ai' : 'badge';
             const onlineDot = (!isAI && !isGroup) ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:${chat.online ? '#25d366' : '#8696a0'};"></span>` : '';
             return `
             <div class="chat-item ${APP.currentChatId === chat.id ? 'active' : ''}" onclick="openChat('${chat.id}')">
-                <div class="chat-item-avatar ${avatarClass}">${avatarContent}</div>
+                <div class="chat-item-avatar ${avatarClass}${statusRingClass}">${avatarContent}</div>
                 <div class="chat-item-info">
                     <h4>${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
                     <p>${lastText}</p>
@@ -2812,10 +2892,10 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         updateEncryptionBadge();
-        const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : (chat.avatar || chat.name.charAt(0)));
-        document.getElementById('chatAvatar').textContent = avatarContent;
+        const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
+        document.getElementById('chatAvatar').innerHTML = avatarContent;
         const avatarEl = document.getElementById('chatAvatar');
-        avatarEl.className = 'header-avatar';
+        avatarEl.className = 'header-avatar' + ((!isAI && !isGroup && hasActiveStatus(chat.phone)) ? ' avatar-status-ring' : '');
         avatarEl.style.background = isAI ? 'linear-gradient(135deg, #f093fb, #f5576c)' : (isGroup ? 'linear-gradient(135deg, #4caf84, #2196a4)' : 'linear-gradient(135deg, #6c5ce7, #a29bfe)');
         renderMessages();
         document.getElementById('messageInput').focus();
