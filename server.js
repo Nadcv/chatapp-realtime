@@ -343,6 +343,9 @@ app.get('/api/transport/flights', async (req, res) => {
 // um link fixo que pode "morrer" com o tempo.
 const DRIVE_LISTEN_CITIES = [
   { id: 'lisbon', name: 'Lisboa', country: 'Portugal', flag: '🇵🇹', videoId: 's0zi01sRxNs', videoId2: 'pbaQXuoJVgA' },
+  { id: 'madrid', name: 'Madrid', country: 'Spain', flag: '🇪🇸', videoId: 'C911U_Fo-QU', videoId2: 'fnW0SsBPjwM' },
+  { id: 'valencia', name: 'Valência', country: 'Spain', flag: '🇪🇸', videoId: 'AtbPS5N9jKw', videoId2: 'w5TeQGONSEw' },
+  { id: 'barcelona', name: 'Barcelona', country: 'Spain', flag: '🇪🇸', videoId: 'xp05mxNpJVo', videoId2: 'uM-GMmcOuXo' },
   { id: 'paris', name: 'Paris', country: 'France', flag: '🇫🇷', videoId: 'lN43inpI2lk', videoId2: 'IW8jllqb8BE' },
   { id: 'london', name: 'Londres', country: 'United Kingdom', flag: '🇬🇧', videoId: '7lqBxVD9lI0' },
   { id: 'newyork', name: 'Nova Iorque', country: 'United States', flag: '🇺🇸', videoId: 'usyrgSEbx_A' },
