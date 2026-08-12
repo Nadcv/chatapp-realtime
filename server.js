@@ -144,7 +144,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -387,6 +387,68 @@ app.get('/api/weather', async (req, res) => {
   } catch (err) {
     console.error('Erro meteorologia:', err.message);
     res.status(502).json({ error: 'Não foi possível obter o tempo agora.' });
+  }
+});
+
+// ==================== ESPAÇO (ISS, Sol e satélites visíveis) ====================
+// Posição da Estação Espacial Internacional em tempo real + tripulação atual —
+// API pública e gratuita do Open Notify, sem chave necessária.
+app.get('/api/space/iss', async (req, res) => {
+  try {
+    const [posRes, astrosRes] = await Promise.all([
+      fetch('http://api.open-notify.org/iss-now.json'),
+      fetch('http://api.open-notify.org/astros.json')
+    ]);
+    const pos = await posRes.json();
+    const astros = await astrosRes.json();
+    res.json({
+      lat: parseFloat(pos.iss_position?.latitude),
+      lon: parseFloat(pos.iss_position?.longitude),
+      timestamp: pos.timestamp,
+      peopleInSpace: (astros.people || []).map(p => ({ name: p.name, craft: p.craft }))
+    });
+  } catch (err) {
+    console.error('Erro ISS:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter a posição da ISS agora.' });
+  }
+});
+
+// Horas do nascer/pôr do sol para a localização da pessoa — API pública e
+// gratuita (sunrise-sunset.org), sem chave necessária.
+app.get('/api/space/sun', async (req, res) => {
+  const { lat, lon } = req.query;
+  if (!lat || !lon) return res.status(400).json({ error: 'Localização em falta.' });
+  try {
+    const url = `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lon}&formatted=0`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (data.status !== 'OK') throw new Error('resposta inválida');
+    res.json(data.results);
+  } catch (err) {
+    console.error('Erro nascer/pôr do sol:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter os horários do sol agora.' });
+  }
+});
+
+// Satélites atualmente visíveis por cima da localização da pessoa — usa a
+// N2YO (gratuita, mas precisa de uma chave de API pessoal e grátis em
+// n2yo.com/api). Sem a variável de ambiente N2YO_API_KEY configurada, esta
+// funcionalidade fica desativada de forma graciosa (o resto do "Espaço"
+// continua a funcionar na mesma: ISS, Sol e fase da Lua não precisam dela).
+const N2YO_API_KEY = process.env.N2YO_API_KEY || '';
+app.get('/api/space/satellites', async (req, res) => {
+  const { lat, lon } = req.query;
+  if (!N2YO_API_KEY) return res.status(501).json({ error: 'not_configured', message: 'Satélites visíveis exigem uma chave gratuita da N2YO (n2yo.com/api) — define N2YO_API_KEY no servidor para ativar.' });
+  if (!lat || !lon) return res.status(400).json({ error: 'Localização em falta.' });
+  try {
+    // category 0 = todos; raio de busca 70° acima do horizonte
+    const url = `https://api.n2yo.com/rest/v1/satellite/above/${lat}/${lon}/0/70/0/&apiKey=${N2YO_API_KEY}`;
+    const data = await cachedFetch(`n2yo_${lat}_${lon}`, url, 60000);
+    res.json({ satellites: (data.above || []).slice(0, 30) });
+  } catch (err) {
+    console.error('Erro satélites N2YO:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter os satélites agora.' });
   }
 });
 
@@ -827,6 +889,37 @@ function saveMutedLocal() {
   fs.writeFile(MUTED_FILE, JSON.stringify(mutedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas silenciadas:', err.message); });
 }
 
+// ==================== CONVERSAS ARQUIVADAS ====================
+const ARCHIVED_FILE = path.join(__dirname, 'archived.json');
+let archivedByPhone = {}; // phone -> [chatId, ...]
+function loadArchivedLocal() {
+  try { if (fs.existsSync(ARCHIVED_FILE)) archivedByPhone = JSON.parse(fs.readFileSync(ARCHIVED_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar conversas arquivadas:', err.message); }
+}
+function saveArchivedLocal() {
+  fs.writeFile(ARCHIVED_FILE, JSON.stringify(archivedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas arquivadas:', err.message); });
+}
+
+// ==================== UTILIZADORES BLOQUEADOS ====================
+const BLOCKED_FILE = path.join(__dirname, 'blocked.json');
+let blockedByPhone = {}; // phone -> [phone bloqueado, ...]
+function loadBlockedLocal() {
+  try { if (fs.existsSync(BLOCKED_FILE)) blockedByPhone = JSON.parse(fs.readFileSync(BLOCKED_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar bloqueados:', err.message); }
+}
+function saveBlockedLocal() {
+  fs.writeFile(BLOCKED_FILE, JSON.stringify(blockedByPhone), (err) => { if (err) console.error('Erro ao salvar bloqueados:', err.message); });
+}
+
+// ==================== "NÃO INCOMODAR" AGENDADO ====================
+// O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
+// única forma simples de respeitar o fuso horário local sem complicar o
+// servidor). O servidor só guarda se está ATIVO neste preciso momento
+// (dndActiveByPhone), que o cliente atualiza a cada minuto — assim o
+// servidor sabe se deve ou não enviar notificações push, sem precisar de
+// perceber fusos horários.
+const dndActiveByPhone = {}; // phone -> true/false
+
 // ==================== ALERTAS DE ESTRADA (tipo Waze — comunitários) ====================
 // Polícia, acidente, obras, trânsito, perigo/objeto na via, radar — reportados
 // pelos próprios utilizadores e visíveis a todos enquanto navegam, tal como no
@@ -954,6 +1047,8 @@ io.on('connection', (socket) => {
       socket.emit('call_log_update', callLogByPhone[myPhone] || []);
       socket.emit('scheduled_messages_list', scheduledMessages.filter((s) => s.senderPhone === myPhone));
       socket.emit('muted_list', mutedByPhone[myPhone] || []);
+      socket.emit('archived_list', archivedByPhone[myPhone] || []);
+      socket.emit('blocked_list', blockedByPhone[myPhone] || []);
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
     }
@@ -1144,6 +1239,12 @@ io.on('connection', (socket) => {
         return;
       }
     }
+    // Se a pessoa a quem estás a escrever te bloqueou, a mensagem não chega —
+    // tal como no WhatsApp, sem aviso explícito de "fostes bloqueado" (para
+    // não facilitar contornar o bloqueio).
+    if (!group && data.toPhone && myPhone && (blockedByPhone[data.toPhone] || []).includes(myPhone)) {
+      return;
+    }
     // Conversa 1-para-1: quem recebe a primeira mensagem passa a ter quem
     // enviou nos seus contactos automaticamente, para poder responder sem
     // precisar de o procurar primeiro (tal como receber um SMS de um número novo).
@@ -1177,9 +1278,10 @@ io.on('connection', (socket) => {
     // Notificação push (mesmo com a app fechada) — só para conversas 1-para-1 por agora
     if (!group && data.toPhone) {
       const recipientMuted = (mutedByPhone[data.toPhone] || []).includes(data.chatId);
-      if (!recipientMuted) {
+      const recipientDnd = !!dndActiveByPhone[data.toPhone];
+      if (!recipientMuted && !recipientDnd) {
         const senderName = data.sender || 'Alguém';
-        const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100))));
+        const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('video/') ? '🎥 Enviou um vídeo' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100)))));
         sendPushToPhone(data.toPhone, { title: senderName, body: preview, chatId: data.chatId }).catch(() => {});
       }
     }
@@ -1262,6 +1364,11 @@ io.on('connection', (socket) => {
   // 'targetPhone' não vier (cliente antigo em cache), cai para o
   // comportamento antigo por sala.
   socket.on('call_user', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (data.targetPhone && myPhone && (blockedByPhone[data.targetPhone] || []).includes(myPhone)) {
+      socket.emit('call_unavailable', { targetRoomId: data.targetRoomId, reason: 'blocked' });
+      return;
+    }
     const delivered = data.targetPhone
       ? deliverToPhone(data.targetPhone, 'incoming_call', data, socket.id)
       : (socket.to(data.targetRoomId).emit('incoming_call', data), true);
@@ -1318,7 +1425,8 @@ io.on('connection', (socket) => {
       text: (data.text || '').substring(0, 300),
       photoData: data.photoData || null,
       postedAt: Date.now(),
-      expiresAt: Date.now() + 24 * 60 * 60 * 1000
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      viewedBy: [] // [{phone, name, viewedAt}] — quem já viu este estado
     };
     statusesByPhone[myPhone].push(item);
     saveStatusesLocal();
@@ -1336,6 +1444,22 @@ io.on('connection', (socket) => {
   socket.on('get_statuses', () => {
     pruneExpiredStatuses();
     socket.emit('statuses_update', buildStatusFeed());
+  });
+  // Confirmação de visualização — regista quem viu cada estado (uma vez por
+  // pessoa) e avisa quem publicou, tal como o "visto por" do WhatsApp.
+  socket.on('view_status', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { ownerPhone, statusId } = data || {};
+    if (!myPhone || !ownerPhone || !statusId || myPhone === ownerPhone) return;
+    const items = statusesByPhone[ownerPhone];
+    const item = items?.find((s) => s.id === statusId);
+    if (!item) return;
+    if (!item.viewedBy) item.viewedBy = [];
+    if (!item.viewedBy.some((v) => v.phone === myPhone)) {
+      item.viewedBy.push({ phone: myPhone, name: users[socket.id]?.name || 'Alguém', viewedAt: Date.now() });
+      saveStatusesLocal();
+      deliverToPhone(ownerPhone, 'statuses_update', buildStatusFeed(), null);
+    }
   });
 
   // ==================== HISTÓRICO DE CHAMADAS ====================
@@ -1374,12 +1498,13 @@ io.on('connection', (socket) => {
   // ==================== MENSAGENS AGENDADAS ====================
   socket.on('schedule_message', (data) => {
     const myPhone = users[socket.id]?.phone;
-    const { chatId, text, sendAt, toPhone } = data || {};
-    if (!myPhone || !chatId || !text || !sendAt) return;
+    const { chatId, text, sendAt, toPhone, fileData, fileName, fileType, transcript } = data || {};
+    if (!myPhone || !chatId || !sendAt || (!text && !fileData)) return;
     const entry = {
       id: 'sc' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       chatId, senderPhone: myPhone, senderName: users[socket.id]?.name || 'Alguém',
-      toPhone: toPhone || null, text: text.substring(0, 2000), sendAt: Number(sendAt)
+      toPhone: toPhone || null, text: (text || '').substring(0, 2000), sendAt: Number(sendAt),
+      fileData: fileData || null, fileName: fileName || null, fileType: fileType || null, transcript: transcript || null
     };
     scheduledMessages.push(entry);
     saveScheduledLocal();
@@ -1412,6 +1537,64 @@ io.on('connection', (socket) => {
   socket.on('get_muted', () => {
     const myPhone = users[socket.id]?.phone;
     socket.emit('muted_list', mutedByPhone[myPhone] || []);
+  });
+
+  // ==================== CONVERSAS ARQUIVADAS ====================
+  socket.on('set_archived', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { chatId, archived } = data || {};
+    if (!myPhone || !chatId) return;
+    if (!archivedByPhone[myPhone]) archivedByPhone[myPhone] = [];
+    if (archived) { if (!archivedByPhone[myPhone].includes(chatId)) archivedByPhone[myPhone].push(chatId); }
+    else { archivedByPhone[myPhone] = archivedByPhone[myPhone].filter((c) => c !== chatId); }
+    saveArchivedLocal();
+  });
+  socket.on('get_archived', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('archived_list', archivedByPhone[myPhone] || []);
+  });
+
+  // ==================== BLOQUEAR/DENUNCIAR UTILIZADOR ====================
+  socket.on('block_user', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { phone: targetPhone } = data || {};
+    if (!myPhone || !targetPhone || targetPhone === myPhone) return;
+    if (!blockedByPhone[myPhone]) blockedByPhone[myPhone] = [];
+    if (!blockedByPhone[myPhone].includes(targetPhone)) blockedByPhone[myPhone].push(targetPhone);
+    saveBlockedLocal();
+    socket.emit('blocked_list', blockedByPhone[myPhone]);
+  });
+  socket.on('unblock_user', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { phone: targetPhone } = data || {};
+    if (!myPhone || !targetPhone || !blockedByPhone[myPhone]) return;
+    blockedByPhone[myPhone] = blockedByPhone[myPhone].filter((p) => p !== targetPhone);
+    saveBlockedLocal();
+    socket.emit('blocked_list', blockedByPhone[myPhone]);
+  });
+  socket.on('get_blocked', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('blocked_list', blockedByPhone[myPhone] || []);
+  });
+  // Denunciar é uma versão do bloqueio que também fica registada num ficheiro
+  // à parte, para uma eventual moderação futura vasculhar — hoje em dia não
+  // há painel para isso, mas fica guardado em vez de se perder.
+  socket.on('report_user', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { phone: targetPhone, reason } = data || {};
+    if (!myPhone || !targetPhone) return;
+    if (!blockedByPhone[myPhone]) blockedByPhone[myPhone] = [];
+    if (!blockedByPhone[myPhone].includes(targetPhone)) blockedByPhone[myPhone].push(targetPhone);
+    saveBlockedLocal();
+    fs.appendFile(path.join(__dirname, 'reports.log'), `${new Date().toISOString()} | ${myPhone} denunciou ${targetPhone} | motivo: ${(reason || '(sem motivo)').substring(0, 300)}\n`, () => {});
+    socket.emit('blocked_list', blockedByPhone[myPhone]);
+  });
+
+  // ==================== "NÃO INCOMODAR" AGENDADO ====================
+  socket.on('set_dnd_active', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    dndActiveByPhone[myPhone] = !!data?.active;
   });
 
   // ==================== ALERTAS DE ESTRADA (comunitários, tipo Waze) ====================
@@ -1771,7 +1954,8 @@ connectDatabase().then(async () => {
       const msgData = {
         id: 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
         chatId: s.chatId, sender: s.senderName, senderPhone: s.senderPhone, toPhone: s.toPhone,
-        text: s.text, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        text: s.text, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        fileData: s.fileData || null, fileName: s.fileName || null, fileType: s.fileType || null, transcript: s.transcript || null
       };
       if (!messagesByRoom[s.chatId]) messagesByRoom[s.chatId] = [];
       messagesByRoom[s.chatId].push(msgData);
@@ -1790,7 +1974,8 @@ connectDatabase().then(async () => {
       if (s.toPhone) {
         const recipientMuted = (mutedByPhone[s.toPhone] || []).includes(s.chatId);
         if (!recipientMuted) {
-          sendPushToPhone(s.toPhone, { title: s.senderName, body: (s.text || '').substring(0, 100), chatId: s.chatId }).catch(() => {});
+          const preview = s.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (s.fileType?.startsWith('video/') ? '🎥 Enviou um vídeo' : (s.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (s.fileData ? '📎 Enviou um ficheiro' : (s.text || '').substring(0, 100))));
+          sendPushToPhone(s.toPhone, { title: s.senderName, body: preview, chatId: s.chatId }).catch(() => {});
         }
       }
     }

@@ -232,6 +232,7 @@
         }
         #transportMap { flex: 1; width: 100%; }
         #navMap { flex: 1; width: 100%; }
+        #issMap { width: 100%; }
         .transport-tab.active, .activities-tab.active {
             background: var(--green, #00a884);
             color: #fff;
@@ -1164,6 +1165,8 @@
                 <button class="btn-icon" onclick="openNavScreen()" title="Navegação GPS (Portugal e Espanha)">🧭</button>
                 <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
                 <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
+                <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
+                <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
@@ -1197,6 +1200,8 @@
                         <button class="btn-icon" onclick="exportChat()" title="Exportar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📤</button>
                         <button class="btn-icon" onclick="openScheduleModal()" title="Agendar mensagem" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📅</button>
                         <button class="btn-icon" id="autoTranslateBtn" onclick="toggleAutoTranslate()" title="Tradução automática nesta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🌐🔁</button>
+                        <button class="btn-icon" id="archiveChatBtn" onclick="toggleArchiveChat()" title="Arquivar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🗄️</button>
+                        <button class="btn-icon" id="blockUserBtn" onclick="openBlockUserModal()" title="Bloquear ou denunciar" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">🚫</button>
                     </div>
                 </div>
                 <div id="chatSearchBar" style="display:none;padding:8px 12px;background:var(--bg-secondary);gap:8px;align-items:center;">
@@ -1222,7 +1227,7 @@
                 <div class="chat-input-area" style="position:relative;">
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
-                    <input type="file" id="attachFileInput" style="display:none;" accept="image/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
+                    <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
@@ -1379,6 +1384,7 @@
                 <h2 id="callTitle">Chamada</h2>
                 <p id="callStatus">Conectando...</p>
                 <p id="callTimer" style="display:none;font-variant-numeric:tabular-nums;font-size:13px;color:#8696a0;margin-top:2px;">00:00</p>
+                <p id="callQuality" style="display:none;font-size:12px;color:#8696a0;margin-top:2px;">📶 A avaliar sinal...</p>
             </div>
             <div class="call-actions">
                 <button class="call-btn call-btn-action" onclick="toggleMute()">🔇</button>
@@ -1519,6 +1525,18 @@
                     <select id="profileLangSelect" onchange="setPreferredLang(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).</p>
                 </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="dndEnabledCheck" onchange="saveDndSettings()"> 🌙 Não incomodar agendado
+                    </label>
+                    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+                        <span style="font-size:12px;color:var(--text-secondary);">Das</span>
+                        <select id="dndStartHour" onchange="saveDndSettings()" style="padding:6px;border-radius:6px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
+                        <span style="font-size:12px;color:var(--text-secondary);">às</span>
+                        <select id="dndEndHour" onchange="saveDndSettings()" style="padding:6px;border-radius:6px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
+                    </div>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">Nesse horário não recebes notificações — as mensagens continuam a chegar normalmente, só ficam silenciosas.</p>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
                 </div>
@@ -1566,6 +1584,7 @@
                     <span id="statusViewerCount"></span>
                     <button class="btn-small" onclick="statusViewerNext()">Seguinte ➡️</button>
                 </div>
+                <div id="statusViewerSeenBy" style="display:none;padding:6px 16px;font-size:12px;color:var(--text-secondary);"></div>
                 <div id="statusViewerOwnActions" style="display:none;padding:10px 16px;text-align:right;">
                     <button class="btn-small btn-danger" onclick="deleteViewedStatus()">🗑️ Apagar este estado</button>
                 </div>
@@ -1605,7 +1624,24 @@
         <div class="modal-overlay" id="modalScheduleMessage">
             <div class="modal">
                 <h3>📅 Agendar mensagem</h3>
-                <textarea id="scheduleMsgText" placeholder="Escreva a mensagem..."></textarea>
+                <textarea id="scheduleMsgText" placeholder="Escreva a mensagem (opcional se anexares foto/vídeo/áudio)..."></textarea>
+                <div style="display:flex;gap:8px;align-items:center;margin:8px 0;">
+                    <button class="btn-small" onclick="document.getElementById('scheduleFileInput').click()">📎 Foto/Vídeo/Ficheiro</button>
+                    <button class="btn-small" id="scheduleRecordBtn" onclick="toggleScheduleVoiceRecording()">🎤 Gravar áudio</button>
+                </div>
+                <input type="file" id="scheduleFileInput" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip" style="display:none;" onchange="handleScheduleFileAttach(this)">
+                <div id="scheduleAttachPreview" style="display:none;background:var(--bg-tertiary);border-radius:8px;padding:8px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                    <span id="scheduleAttachLabel" style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                    <button class="btn-small btn-danger" style="padding:2px 8px;font-size:11px;" onclick="removeScheduleAttachment()">✖️</button>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                    <button class="btn-small" onclick="setScheduleQuickTime('hours',1)">+1 hora</button>
+                    <button class="btn-small" onclick="setScheduleQuickTime('hours',3)">+3 horas</button>
+                    <button class="btn-small" onclick="setScheduleQuickTime('tomorrow',9)">Amanhã 9h</button>
+                    <button class="btn-small" onclick="setScheduleQuickTime('days',1)">+1 dia</button>
+                    <button class="btn-small" onclick="setScheduleQuickTime('days',2)">+2 dias</button>
+                    <button class="btn-small" onclick="setScheduleQuickTime('days',7)">+1 semana</button>
+                </div>
                 <input type="datetime-local" id="scheduleMsgWhen">
                 <div class="modal-actions" style="justify-content:space-between;">
                     <button class="btn-small" onclick="openScheduledList()">📋 Ver agendadas</button>
@@ -1684,6 +1720,64 @@
                 <div style="display:flex;gap:10px;">
                     <button class="btn-small" onclick="recenterNavMap()" style="flex:0 0 auto;">📍</button>
                     <button class="btn btn-primary" id="navStartBtn" onclick="toggleNavigation()" style="flex:1;" disabled>▶️ Escolha um destino</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ ESPAÇO (ISS, Sol e Lua) ============ -->
+        <div class="location-screen" id="spaceScreen">
+            <div class="location-header">
+                <strong>🛰️ Espaço</strong>
+                <button onclick="closeSpaceScreen()">✖️</button>
+            </div>
+            <div style="flex:1;overflow-y:auto;padding:12px;">
+                <div style="background:var(--bg-secondary);border-radius:12px;padding:12px;margin-bottom:12px;">
+                    <h4 style="margin:0 0 8px;">🛰️ Estação Espacial Internacional (ISS)</h4>
+                    <div id="issMap" style="height:220px;border-radius:8px;overflow:hidden;"></div>
+                    <p id="issInfo" style="font-size:12px;color:var(--text-secondary);margin:8px 0 0;">A carregar posição...</p>
+                    <p id="issCrew" style="font-size:12px;color:var(--text-secondary);margin:4px 0 0;"></p>
+                </div>
+                <div style="background:var(--bg-secondary);border-radius:12px;padding:12px;margin-bottom:12px;">
+                    <h4 style="margin:0 0 8px;">🌙 Fase da Lua</h4>
+                    <div style="display:flex;align-items:center;gap:14px;">
+                        <div id="moonPhaseEmoji" style="font-size:48px;">🌕</div>
+                        <div>
+                            <div id="moonPhaseName" style="font-weight:600;"></div>
+                            <div id="moonPhaseIllum" style="font-size:12px;color:var(--text-secondary);"></div>
+                        </div>
+                    </div>
+                </div>
+                <div style="background:var(--bg-secondary);border-radius:12px;padding:12px;margin-bottom:12px;">
+                    <h4 style="margin:0 0 8px;">☀️ Sol (na tua localização)</h4>
+                    <p id="sunInfo" style="font-size:13px;color:var(--text-secondary);margin:0;">A carregar...</p>
+                </div>
+                <div style="background:var(--bg-secondary);border-radius:12px;padding:12px;">
+                    <h4 style="margin:0 0 8px;">🔭 Satélites visíveis agora</h4>
+                    <div id="satellitesList" style="font-size:13px;color:var(--text-secondary);">A carregar...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ CONVERSAS ARQUIVADAS ============ -->
+        <div class="location-screen" id="archivedScreen">
+            <div class="location-header">
+                <strong>🗄️ Conversas arquivadas</strong>
+                <button onclick="closeArchivedScreen()">✖️</button>
+            </div>
+            <div class="chat-list" id="archivedList" style="flex:1;overflow-y:auto;"></div>
+        </div>
+
+        <!-- ============ BLOQUEAR / DENUNCIAR ============ -->
+        <div class="modal-overlay" id="modalBlockUser">
+            <div class="modal">
+                <h3>🚫 Bloquear ou denunciar</h3>
+                <p style="color:#8696a0;font-size:13px;" id="blockUserTargetLabel"></p>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <button class="btn-small btn-danger" onclick="confirmBlockUser()" id="blockUserToggleBtn">🚫 Bloquear</button>
+                    <button class="btn-small" onclick="openReportUserPrompt()">⚠️ Denunciar</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalBlockUser')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -2030,6 +2124,7 @@
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
+        checkDndActive(); // sincroniza logo o estado do "não incomodar" com o servidor
         initApp();
         // Importante: espera a chave de encriptação ficar pronta ANTES de pedir o
         // histórico das conversas — caso contrário, mensagens podiam chegar
@@ -2140,6 +2235,7 @@
         const select = document.getElementById('profileLangSelect');
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
+        loadDndSettingsIntoProfile();
         document.getElementById('modalProfile').classList.add('active');
     }
     function setPreferredLang(lang) {
@@ -2338,6 +2434,16 @@
             navBox.style.display = 'none';
         }
         document.getElementById('statusViewerOwnActions').style.display = v.phone === APP.user?.phone ? 'block' : 'none';
+        const seenBox = document.getElementById('statusViewerSeenBy');
+        if (v.phone === APP.user?.phone) {
+            // É o meu próprio estado — mostra quem já viu, em vez de registar uma visualização
+            const viewers = item.viewedBy || [];
+            seenBox.style.display = 'block';
+            seenBox.textContent = viewers.length ? `👁️ Visto por: ${viewers.map(x => x.name).join(', ')}` : '👁️ Ainda ninguém viu este estado';
+        } else {
+            seenBox.style.display = 'none';
+            socket.emit('view_status', { ownerPhone: v.phone, statusId: item.id });
+        }
         document.getElementById('modalViewStatus').classList.add('active');
     }
     function statusViewerPrev() {
@@ -2395,10 +2501,21 @@
                     <h4>${icon} ${c.peerName} ${c.type === 'video' ? '📹' : '📞'}</h4>
                     <p>${new Date(c.timestamp).toLocaleString('pt-BR')} · ${dur}</p>
                 </div>
+                ${c.peerPhone ? `<button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="callBackFromLog('${c.peerPhone}','${c.type}')" title="Ligar de volta">${c.type === 'video' ? '📹' : '📞'}</button>` : ''}
             </div>`;
         }).join('');
     }
     function clearCallLog() { socket.emit('clear_call_log'); }
+
+    // Liga logo de volta a partir do histórico — poupa ter de procurar a
+    // conversa primeiro, sobretudo útil para chamadas perdidas.
+    function callBackFromLog(phone, type) {
+        const chat = APP.chats.find(c => c.type === 'user' && c.phone === phone);
+        if (!chat) return alert('Ainda não tens esta pessoa nos teus contactos — procura-a primeiro para poderes ligar.');
+        closeCallLogScreen();
+        openChat(chat.id);
+        setTimeout(() => startCall(type === 'video' ? 'video' : 'voice'), 200);
+    }
 
     // ==================== MENSAGENS FIXADAS ====================
     APP.pinnedByChatId = {};
@@ -2491,18 +2608,120 @@
     function openScheduleModal() {
         if (!APP.currentChatId) return;
         document.getElementById('scheduleMsgText').value = '';
+        removeScheduleAttachment();
         const now = new Date(Date.now() + 5 * 60000);
         document.getElementById('scheduleMsgWhen').value = now.toISOString().slice(0, 16);
         document.getElementById('modalScheduleMessage').classList.add('active');
     }
-    function submitScheduledMessage() {
+
+    // Atalhos rápidos para não ter de mexer no seletor de data/hora à mão —
+    // "daqui a X horas/dias" ou "amanhã às Y horas". O seletor continua
+    // disponível por baixo para qualquer outra data (não há limite máximo:
+    // pode agendar-se para daqui a um dia, uma semana, um mês, o que for).
+    function setScheduleQuickTime(unit, amount) {
+        const input = document.getElementById('scheduleMsgWhen');
+        const target = new Date();
+        if (unit === 'hours') {
+            target.setHours(target.getHours() + amount);
+        } else if (unit === 'days') {
+            target.setDate(target.getDate() + amount);
+        } else if (unit === 'tomorrow') {
+            target.setDate(target.getDate() + 1);
+            target.setHours(amount, 0, 0, 0); // 'amount' aqui é a hora do dia (ex.: 9 = 9h da manhã)
+        }
+        // Ajusta para o fuso horário local antes de cortar para o formato do input
+        const local = new Date(target.getTime() - target.getTimezoneOffset() * 60000);
+        input.value = local.toISOString().slice(0, 16);
+    }
+
+    // ---- Anexo (foto/vídeo/ficheiro) para a mensagem agendada ----
+    APP.scheduleAttachment = null; // { dataUrl, fileName, fileType, transcript }
+    function handleScheduleFileAttach(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (file.size > MAX_ATTACHMENT_MB * 1024 * 1024) return alert(`Este ficheiro tem ${(file.size / 1024 / 1024).toFixed(1)}MB — o limite é ${MAX_ATTACHMENT_MB}MB.`);
+        const reader = new FileReader();
+        reader.onload = () => {
+            APP.scheduleAttachment = { dataUrl: reader.result, fileName: file.name, fileType: file.type, transcript: null };
+            showScheduleAttachPreview();
+        };
+        reader.onerror = () => alert('Não foi possível ler o ficheiro.');
+        reader.readAsDataURL(file);
+    }
+    function showScheduleAttachPreview() {
+        const a = APP.scheduleAttachment;
+        const box = document.getElementById('scheduleAttachPreview');
+        if (!a) { box.style.display = 'none'; return; }
+        box.style.display = 'flex';
+        const icon = (a.fileType || '').startsWith('image/') ? '📷' : (a.fileType || '').startsWith('video/') ? '🎥' : (a.fileType || '').startsWith('audio/') ? '🎤' : '📎';
+        document.getElementById('scheduleAttachLabel').textContent = `${icon} ${a.fileName}`;
+    }
+    function removeScheduleAttachment() {
+        APP.scheduleAttachment = null;
+        showScheduleAttachPreview();
+    }
+
+    // ---- Gravar um áudio diretamente para a mensagem agendada ----
+    let scheduleRecorder = null, scheduleChunks = [], scheduleStream = null, scheduleRecordStart = 0, scheduleRecordTimer = null;
+    function toggleScheduleVoiceRecording() {
+        if (scheduleRecorder && scheduleRecorder.state === 'recording') { scheduleRecorder.stop(); return; }
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            scheduleStream = stream;
+            scheduleChunks = [];
+            scheduleRecorder = new MediaRecorder(stream);
+            scheduleRecorder.ondataavailable = (e) => { if (e.data.size > 0) scheduleChunks.push(e.data); };
+            scheduleRecorder.onstop = () => {
+                scheduleStream.getTracks().forEach(t => t.stop());
+                clearInterval(scheduleRecordTimer);
+                const btn = document.getElementById('scheduleRecordBtn');
+                btn.textContent = '🎤 Gravar áudio';
+                btn.classList.remove('btn-danger');
+                if (!scheduleChunks.length) return;
+                const blob = new Blob(scheduleChunks, { type: scheduleRecorder.mimeType || 'audio/webm' });
+                if (blob.size > MAX_ATTACHMENT_MB * 1024 * 1024) return alert('Áudio muito longo (acima de ' + MAX_ATTACHMENT_MB + 'MB).');
+                const reader = new FileReader();
+                reader.onload = () => {
+                    APP.scheduleAttachment = { dataUrl: reader.result, fileName: 'audio.webm', fileType: blob.type, transcript: null };
+                    showScheduleAttachPreview();
+                };
+                reader.readAsDataURL(blob);
+            };
+            scheduleRecorder.start();
+            scheduleRecordStart = Date.now();
+            const btn = document.getElementById('scheduleRecordBtn');
+            btn.classList.add('btn-danger');
+            scheduleRecordTimer = setInterval(() => {
+                const secs = Math.floor((Date.now() - scheduleRecordStart) / 1000);
+                btn.textContent = '🔴 ' + secs + 's (toca para parar)';
+                if (secs >= 240) scheduleRecorder.stop();
+            }, 500);
+        }).catch(err => alert('Não foi possível aceder ao microfone: ' + err.message));
+    }
+
+    async function submitScheduledMessage() {
         const text = document.getElementById('scheduleMsgText').value.trim();
         const when = document.getElementById('scheduleMsgWhen').value;
-        if (!text || !when || !APP.currentChatId) return alert('Escreve a mensagem e escolhe a data/hora.');
+        const attachment = APP.scheduleAttachment;
+        if (!text && !attachment) return alert('Escreve uma mensagem ou anexa uma foto/vídeo/áudio.');
+        if (!when || !APP.currentChatId) return alert('Escolhe a data/hora.');
         const sendAt = new Date(when).getTime();
         if (sendAt <= Date.now()) return alert('Escolhe uma data/hora no futuro.');
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        socket.emit('schedule_message', { chatId: APP.currentChatId, text, sendAt, toPhone: chat?.type === 'user' ? chat.phone : undefined });
+        const payload = { chatId: APP.currentChatId, text, sendAt, toPhone: chat?.type === 'user' ? chat.phone : undefined };
+        if (attachment) {
+            let uploadedUrl = attachment.dataUrl;
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: attachment.dataUrl }) });
+                const data = await res.json();
+                if (data.success && data.url) uploadedUrl = data.url;
+            } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+            payload.fileData = uploadedUrl;
+            payload.fileName = attachment.fileName;
+            payload.fileType = attachment.fileType;
+            payload.transcript = attachment.transcript;
+        }
+        socket.emit('schedule_message', payload);
         closeModal('modalScheduleMessage');
     }
     socket.on('scheduled_message_saved', (entry) => {
@@ -2517,7 +2736,7 @@
     socket.on('scheduled_message_sent', (data) => {
         if (!data?.chatId) return;
         if (!APP.messages[data.chatId]) APP.messages[data.chatId] = [];
-        APP.messages[data.chatId].push({ id: data.id, sender: 'Você', text: data.text, time: data.time, type: 'sent', read: false, scheduled: true });
+        APP.messages[data.chatId].push({ id: data.id, sender: 'Você', text: data.text, time: data.time, type: 'sent', read: false, scheduled: true, fileData: data.fileData || null, fileName: data.fileName || null, fileType: data.fileType || null, transcript: data.transcript || null });
         if (APP.currentChatId === data.chatId) renderMessages();
         renderChatList();
     });
@@ -2529,9 +2748,10 @@
             if (!APP.scheduledMessages.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem agendada</p>'; return; }
             el.innerHTML = APP.scheduledMessages.map(s => {
                 const chat = APP.chats.find(c => c.id === s.chatId);
+                const attachIcon = (s.fileType || '').startsWith('image/') ? '📷 ' : (s.fileType || '').startsWith('video/') ? '🎥 ' : (s.fileType || '').startsWith('audio/') ? '🎤 ' : (s.fileData ? '📎 ' : '');
                 return `
                 <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
-                    <div style="font-size:13px;">${chat?.name || s.chatId}: ${s.text}</div>
+                    <div style="font-size:13px;">${chat?.name || s.chatId}: ${attachIcon}${s.text || (s.fileData ? '(sem legenda)' : '')}</div>
                     <div style="font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;">
                         <span>${new Date(s.sendAt).toLocaleString('pt-BR')}</span>
                         <button class="btn-small btn-danger" style="padding:2px 8px;font-size:11px;" onclick="socket.emit('cancel_scheduled_message', {id:'${s.id}'})">Cancelar</button>
@@ -2871,6 +3091,209 @@
         return min;
     }
 
+    // ==================== ESPAÇO (ISS, Sol e Lua) ====================
+    const SPACE = { map: null, issMarker: null, issInterval: null };
+
+    function openSpaceScreen() {
+        document.getElementById('spaceScreen').classList.add('active');
+        if (!SPACE.map) {
+            SPACE.map = L.map('issMap', { zoomControl: false, attributionControl: false }).setView([0, 0], 1);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(SPACE.map);
+        }
+        setTimeout(() => SPACE.map.invalidateSize(), 200);
+        renderMoonPhase();
+        fetchIssPosition();
+        if (!SPACE.issInterval) SPACE.issInterval = setInterval(fetchIssPosition, 8000);
+        loadSunTimes();
+        loadVisibleSatellites();
+    }
+    function closeSpaceScreen() {
+        document.getElementById('spaceScreen').classList.remove('active');
+        if (SPACE.issInterval) { clearInterval(SPACE.issInterval); SPACE.issInterval = null; }
+    }
+    async function fetchIssPosition() {
+        try {
+            const res = await fetch('/api/space/iss');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'falha');
+            const icon = L.divIcon({ className: '', html: '<div style="font-size:26px;">🛰️</div>', iconSize: [26, 26], iconAnchor: [13, 13] });
+            if (SPACE.issMarker) SPACE.issMarker.setLatLng([data.lat, data.lon]);
+            else { SPACE.issMarker = L.marker([data.lat, data.lon], { icon }).addTo(SPACE.map); SPACE.map.setView([data.lat, data.lon], 2); }
+            document.getElementById('issInfo').textContent = `📍 ${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}° · ~28.000 km/h · atualizado agora`;
+            if (data.peopleInSpace?.length) {
+                document.getElementById('issCrew').textContent = `👨‍🚀 ${data.peopleInSpace.length} pessoas no espaço agora: ${data.peopleInSpace.map(p => p.name).join(', ')}`;
+            }
+        } catch (err) {
+            document.getElementById('issInfo').textContent = '⚠️ Não foi possível obter a posição da ISS agora.';
+        }
+    }
+    // Fase da Lua — cálculo simples e conhecido (idade sinódica ~29.53 dias),
+    // não precisa de nenhuma API.
+    function renderMoonPhase() {
+        const synodicMonth = 29.530588853;
+        const knownNewMoon = Date.UTC(2000, 0, 6, 18, 14); // lua nova de referência
+        const daysSince = (Date.now() - knownNewMoon) / 86400000;
+        const age = daysSince % synodicMonth;
+        const illum = (1 - Math.cos((2 * Math.PI * age) / synodicMonth)) / 2;
+        let emoji, name;
+        if (age < 1.84566) { emoji = '🌑'; name = 'Lua Nova'; }
+        else if (age < 5.53699) { emoji = '🌒'; name = 'Crescente'; }
+        else if (age < 9.22831) { emoji = '🌓'; name = 'Quarto Crescente'; }
+        else if (age < 12.91963) { emoji = '🌔'; name = 'Gibosa Crescente'; }
+        else if (age < 16.61096) { emoji = '🌕'; name = 'Lua Cheia'; }
+        else if (age < 20.30228) { emoji = '🌖'; name = 'Gibosa Minguante'; }
+        else if (age < 23.99361) { emoji = '🌗'; name = 'Quarto Minguante'; }
+        else if (age < 27.68493) { emoji = '🌘'; name = 'Minguante'; }
+        else { emoji = '🌑'; name = 'Lua Nova'; }
+        document.getElementById('moonPhaseEmoji').textContent = emoji;
+        document.getElementById('moonPhaseName').textContent = name;
+        document.getElementById('moonPhaseIllum').textContent = `${Math.round(illum * 100)}% iluminada · dia ${Math.floor(age)} do ciclo lunar`;
+    }
+    function loadSunTimes() {
+        const el = document.getElementById('sunInfo');
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            try {
+                const res = await fetch(`/api/space/sun?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'falha');
+                const fmt = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                el.textContent = `🌅 Nascer do sol: ${fmt(data.sunrise)} · 🌇 Pôr do sol: ${fmt(data.sunset)} · ☀️ Meio-dia solar: ${fmt(data.solar_noon)}`;
+            } catch (err) {
+                el.textContent = '⚠️ Não foi possível obter os horários do sol.';
+            }
+        }, () => { el.textContent = '⚠️ Precisamos da tua localização para calcular os horários do sol.'; }, { enableHighAccuracy: false, timeout: 10000 });
+    }
+    function loadVisibleSatellites() {
+        const el = document.getElementById('satellitesList');
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            try {
+                const res = await fetch(`/api/space/satellites?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
+                const data = await res.json();
+                if (res.status === 501) { el.textContent = 'ℹ️ ' + data.message; return; }
+                if (!res.ok) throw new Error(data.error || 'falha');
+                if (!data.satellites?.length) { el.textContent = 'Nenhum satélite visível de momento nesta zona.'; return; }
+                el.innerHTML = data.satellites.map(s => `<div style="padding:4px 0;">🛰️ ${s.satname}</div>`).join('');
+            } catch (err) {
+                el.textContent = '⚠️ Não foi possível obter os satélites agora.';
+            }
+        }, () => { el.textContent = '⚠️ Precisamos da tua localização.'; }, { enableHighAccuracy: false, timeout: 10000 });
+    }
+
+    // ==================== CONVERSAS ARQUIVADAS ====================
+    APP.archivedChats = new Set(JSON.parse(localStorage.getItem('archivedChatsCache') || '[]'));
+    socket.on('archived_list', (list) => {
+        APP.archivedChats = new Set(list || []);
+        localStorage.setItem('archivedChatsCache', JSON.stringify([...APP.archivedChats]));
+        renderChatList();
+        if (document.getElementById('archivedScreen').classList.contains('active')) renderArchivedList();
+        updateArchiveButton();
+    });
+    function toggleArchiveChat() {
+        if (!APP.currentChatId) return;
+        const willArchive = !APP.archivedChats.has(APP.currentChatId);
+        if (willArchive) APP.archivedChats.add(APP.currentChatId); else APP.archivedChats.delete(APP.currentChatId);
+        socket.emit('set_archived', { chatId: APP.currentChatId, archived: willArchive });
+        localStorage.setItem('archivedChatsCache', JSON.stringify([...APP.archivedChats]));
+        updateArchiveButton();
+        renderChatList();
+        if (willArchive) closeChat();
+    }
+    function updateArchiveButton() {
+        const btn = document.getElementById('archiveChatBtn');
+        if (!btn) return;
+        const archived = APP.currentChatId && APP.archivedChats.has(APP.currentChatId);
+        btn.title = archived ? 'Desarquivar conversa' : 'Arquivar conversa';
+        btn.classList.toggle('btn-accept', !!archived);
+    }
+    function openArchivedScreen() {
+        document.getElementById('archivedScreen').classList.add('active');
+        socket.emit('get_archived');
+        renderArchivedList();
+    }
+    function closeArchivedScreen() { document.getElementById('archivedScreen').classList.remove('active'); }
+    function renderArchivedList() {
+        const el = document.getElementById('archivedList');
+        const chats = APP.chats.filter(c => APP.archivedChats.has(c.id));
+        if (!chats.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Nenhuma conversa arquivada</p>'; return; }
+        el.innerHTML = chats.map(chat => `
+            <div class="chat-item" onclick="closeArchivedScreen(); openChat('${chat.id}');">
+                <div class="chat-item-avatar avatar-user">${avatarInnerHtml(chat.name, chat.avatarUrl)}</div>
+                <div class="chat-item-info"><h4>${chat.name}</h4><p>Toca para abrir</p></div>
+                <button class="btn-icon" style="width:34px;height:34px;font-size:14px;flex:0 0 auto;" onclick="event.stopPropagation(); socket.emit('set_archived',{chatId:'${chat.id}',archived:false}); APP.archivedChats.delete('${chat.id}'); renderArchivedList(); renderChatList();" title="Desarquivar">🗄️</button>
+            </div>`).join('');
+    }
+
+    // ==================== BLOQUEAR / DENUNCIAR ====================
+    APP.blockedUsers = new Set();
+    socket.on('blocked_list', (list) => { APP.blockedUsers = new Set(list || []); updateBlockButton(); });
+    function updateBlockButton() {
+        const btn = document.getElementById('blockUserBtn');
+        if (!btn) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        btn.style.display = chat?.type === 'user' ? 'flex' : 'none';
+        if (chat?.phone && APP.blockedUsers.has(chat.phone)) { btn.title = 'Utilizador bloqueado — gerir'; btn.classList.add('btn-danger'); }
+        else { btn.title = 'Bloquear ou denunciar'; btn.classList.remove('btn-danger'); }
+    }
+    function openBlockUserModal() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'user') return;
+        const isBlocked = APP.blockedUsers.has(chat.phone);
+        document.getElementById('blockUserTargetLabel').textContent = `${chat.name}${isBlocked ? ' — já está bloqueado(a)' : ''}`;
+        document.getElementById('blockUserToggleBtn').textContent = isBlocked ? '✅ Desbloquear' : '🚫 Bloquear';
+        document.getElementById('modalBlockUser').classList.add('active');
+    }
+    function confirmBlockUser() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat) return;
+        const isBlocked = APP.blockedUsers.has(chat.phone);
+        socket.emit(isBlocked ? 'unblock_user' : 'block_user', { phone: chat.phone });
+        closeModal('modalBlockUser');
+    }
+    function openReportUserPrompt() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat) return;
+        const reason = prompt(`Porque estás a denunciar ${chat.name}? (isto também bloqueia a pessoa)`);
+        if (reason === null) return;
+        socket.emit('report_user', { phone: chat.phone, reason });
+        closeModal('modalBlockUser');
+        alert('Denúncia registada e utilizador bloqueado.');
+    }
+
+    // ==================== "NÃO INCOMODAR" AGENDADO ====================
+    function loadDndSettingsIntoProfile() {
+        const startSel = document.getElementById('dndStartHour');
+        const endSel = document.getElementById('dndEndHour');
+        if (!startSel.options.length) {
+            for (let h = 0; h < 24; h++) {
+                startSel.innerHTML += `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`;
+                endSel.innerHTML += `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`;
+            }
+        }
+        const settings = JSON.parse(localStorage.getItem('dndSettings') || '{"enabled":false,"start":22,"end":7}');
+        document.getElementById('dndEnabledCheck').checked = settings.enabled;
+        startSel.value = settings.start;
+        endSel.value = settings.end;
+    }
+    function saveDndSettings() {
+        const settings = {
+            enabled: document.getElementById('dndEnabledCheck').checked,
+            start: parseInt(document.getElementById('dndStartHour').value, 10),
+            end: parseInt(document.getElementById('dndEndHour').value, 10)
+        };
+        localStorage.setItem('dndSettings', JSON.stringify(settings));
+        checkDndActive();
+    }
+    function checkDndActive() {
+        const settings = JSON.parse(localStorage.getItem('dndSettings') || '{"enabled":false,"start":22,"end":7}');
+        let active = false;
+        if (settings.enabled) {
+            const h = new Date().getHours();
+            active = settings.start <= settings.end ? (h >= settings.start && h < settings.end) : (h >= settings.start || h < settings.end);
+        }
+        socket.emit('set_dnd_active', { active });
+    }
+    setInterval(checkDndActive, 60000); // reavalia a cada minuto
+
     function openSearchUserModal() {
         document.getElementById('searchUsernameInput').value = '';
         document.getElementById('searchUserResult').innerHTML = '';
@@ -2942,7 +3365,7 @@
 
     function renderChatList(filter = '') {
         const list = document.getElementById('chatList');
-        const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()));
+        const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id));
         list.innerHTML = filtered.map(chat => {
             const lastMsg = APP.messages[chat.id]?.slice(-1)[0];
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + lastMsg.text : 'Nenhuma mensagem';
@@ -2997,6 +3420,8 @@
         updatePinnedBanner();
         updateMuteButton();
         updateAutoTranslateButton();
+        updateArchiveButton();
+        updateBlockButton();
         document.getElementById('chatSearchBar').style.display = 'none';
         document.getElementById('chatSearchInput').value = '';
         setTimeout(() => { const msgDiv = document.getElementById('chatMessages'); msgDiv.scrollTop = msgDiv.scrollHeight; }, 100);
@@ -4235,15 +4660,31 @@
             });
     }
 
+    // Cicla a velocidade de reprodução de uma mensagem de voz (1x → 1.5x → 2x → 0.75x)
+    function cycleAudioSpeed(audioId, btn) {
+        const audio = document.getElementById(audioId);
+        if (!audio) return;
+        const speeds = [1, 1.5, 2, 0.75];
+        const idx = (speeds.indexOf(audio.playbackRate) + 1) % speeds.length;
+        audio.playbackRate = speeds[idx];
+        btn.textContent = speeds[idx] + 'x';
+    }
+
     function renderAttachment(msg) {
         if (!msg.fileData) return '';
         const type = msg.fileType || '';
         if (type.startsWith('image/')) {
             return `<img src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">`;
         }
+        if (type.startsWith('video/')) {
+            return `<video controls src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;"></video>`;
+        }
         if (type.startsWith('audio/')) {
             const transcriptHtml = msg.transcript ? `<div style="font-size:11px;opacity:0.75;font-style:italic;margin-top:3px;max-width:220px;">📝 "${msg.transcript}"</div>` : '';
-            return `<audio controls src="${msg.fileData}" style="max-width:220px;margin-top:4px;"></audio>${transcriptHtml}`;
+            return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                <audio controls id="audio_${msg.id}" src="${msg.fileData}" style="max-width:200px;"></audio>
+                <button onclick="cycleAudioSpeed('audio_${msg.id}', this)" title="Velocidade de reprodução" style="background:var(--bg-tertiary);border:none;border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;color:inherit;flex:0 0 auto;">1x</button>
+            </div>${transcriptHtml}`;
         }
         return `<a href="${msg.fileData}" download="${msg.fileName || 'ficheiro'}" style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.15);padding:8px;border-radius:8px;margin-top:4px;color:inherit;text-decoration:none;">📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${msg.fileName || 'ficheiro'}</span></a>`;
     }
@@ -4613,6 +5054,7 @@
             mainVideo.muted = false; // reforça — já foi desligado no início, mas confirma outra vez com o stream real anexado
             document.getElementById('callStatus').textContent = 'Conectado ✅';
             startCallTimer();
+            startCallQualityMonitor();
             // No iPhone/Safari, o navegador bloqueia por padrão o autoplay de
             // áudio/vídeo com som quando não é resultado direto de um toque do
             // usuário (o que é o caso aqui, pois isto ocorre depois da negociação
@@ -4851,6 +5293,7 @@
             socket.emit('join_call', { roomId: APP.currentChatId, callType: type });
             document.getElementById('callStatus').textContent = 'Conectado ✅';
             startCallTimer();
+            startCallQualityMonitor();
         }).catch(err => {
             alert('Erro ao aceder à câmara/microfone: ' + err.message);
             endCall();
@@ -5025,6 +5468,64 @@
         timerEl.textContent = '00:00';
     }
 
+    // ==================== INDICADOR DE QUALIDADE DO SINAL ====================
+    // Lê as estatísticas reais da ligação WebRTC (getStats) a cada poucos
+    // segundos — perda de pacotes e round-trip-time — e mostra um resumo
+    // simples (🟢/🟡/🔴), tanto em chamadas 1-para-1 como de grupo (usa a
+    // pior ligação de todas, para avisar do participante com pior sinal).
+    let callQualityInterval = null;
+    async function sampleConnectionQuality(pc) {
+        if (!pc) return null;
+        try {
+            const stats = await pc.getStats();
+            let rttMs = null, lost = 0, received = 0;
+            stats.forEach((report) => {
+                if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime != null) {
+                    rttMs = report.currentRoundTripTime * 1000;
+                }
+                if (report.type === 'inbound-rtp' && !report.isRemote) {
+                    lost += report.packetsLost || 0;
+                    received += report.packetsReceived || 0;
+                }
+            });
+            const lossRatio = received > 0 ? lost / (lost + received) : 0;
+            return { rttMs, lossRatio };
+        } catch (e) { return null; }
+    }
+    function classifyQuality(samples) {
+        const valid = samples.filter(Boolean);
+        if (!valid.length) return null;
+        const worst = valid.reduce((a, b) => {
+            const scoreA = (a.rttMs || 0) + a.lossRatio * 1000;
+            const scoreB = (b.rttMs || 0) + b.lossRatio * 1000;
+            return scoreB > scoreA ? b : a;
+        });
+        if (worst.lossRatio > 0.08 || (worst.rttMs && worst.rttMs > 400)) return { icon: '🔴', label: 'Sinal fraco' };
+        if (worst.lossRatio > 0.02 || (worst.rttMs && worst.rttMs > 200)) return { icon: '🟡', label: 'Sinal instável' };
+        return { icon: '🟢', label: 'Sinal bom' };
+    }
+    function startCallQualityMonitor() {
+        if (callQualityInterval) return;
+        const el = document.getElementById('callQuality');
+        el.style.display = 'block';
+        callQualityInterval = setInterval(async () => {
+            const pcs = [];
+            if (peerConnection) pcs.push(peerConnection);
+            if (GROUP_CALL.active) pcs.push(...Object.values(GROUP_CALL.peers));
+            if (!pcs.length) return;
+            const samples = await Promise.all(pcs.map(sampleConnectionQuality));
+            const result = classifyQuality(samples);
+            if (result) el.textContent = `${result.icon} ${result.label}`;
+        }, 4000);
+    }
+    function stopCallQualityMonitor() {
+        clearInterval(callQualityInterval);
+        callQualityInterval = null;
+        const el = document.getElementById('callQuality');
+        el.style.display = 'none';
+        el.textContent = '📶 A avaliar sinal...';
+    }
+
     // remoteInitiated=true quando chega via socket 'call_ended' (o outro lado encerrou) —
     // nesse caso NÃO reenviamos 'end_call', senão os dois lados ficam ecoando o evento um
     // para o outro para sempre e a sala fica "presa", impedindo novas chamadas depois.
@@ -5052,6 +5553,7 @@
         stopVideoShare();
         stopMusicShareOnly();
         stopCallTimer();
+        stopCallQualityMonitor();
         document.getElementById('callScreen').classList.remove('active');
         document.getElementById('callChatPanel').classList.remove('active');
         document.getElementById('callUnlockOverlay').style.display = 'none';
@@ -5268,6 +5770,21 @@
     // Observação: URLs de YouTube não funcionam com essa técnica (o YouTube
     // não expõe o elemento <video> para captura); funciona com arquivos
     // locais ou links diretos para .mp4/.webm/.ogg.
+    // IMPORTANTE (mesma regra da música, ver getMusicMix acima):
+    // createMediaElementSource só pode ser chamado UMA VEZ por elemento <video>
+    // durante toda a vida da página. Sem isto, a primeira partilha de vídeo
+    // funcionava, mas a segunda (de qualquer um dos lados, mesmo depois do
+    // vídeo anterior ter terminado) dava sempre erro — cada pessoa só
+    // conseguia partilhar um vídeo uma única vez por sessão.
+    function getVideoShareAudioGraph(videoEl) {
+        if (!APP._videoShareAudio) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = ctx.createMediaElementSource(videoEl);
+            APP._videoShareAudio = { ctx, source };
+        }
+        return APP._videoShareAudio;
+    }
+
     function playSharedVideo(src) {
         if (!isInAnyCall()) return alert('Inicie uma chamada primeiro!');
         const testEl = document.createElement('video');
@@ -5291,9 +5808,11 @@
 
                 // Roteia o áudio do vídeo por um GainNode para que o slider de
                 // volume realmente altere o que é transmitido (captureStream
-                // sozinho ignora o volume do elemento).
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const source = audioCtx.createMediaElementSource(preview);
+                // sozinho ignora o volume do elemento). Reutiliza sempre o mesmo
+                // AudioContext/source do elemento (ver getVideoShareAudioGraph) —
+                // só a ligação gainNode/dest é recriada a cada partilha.
+                const { ctx: audioCtx, source } = getVideoShareAudioGraph(preview);
+                try { source.disconnect(); } catch (e) { /* nada ligado ainda, ignora */ }
                 const gainNode = audioCtx.createGain();
                 const dest = audioCtx.createMediaStreamDestination();
                 source.connect(gainNode);
@@ -5361,7 +5880,10 @@
         const vs = APP.videoShare;
         if (!vs.active) return;
         if (vs.videoEl) { vs.videoEl.pause(); vs.videoEl.src = ''; vs.videoEl.onended = null; }
-        if (vs.audioCtx) { vs.audioCtx.close().catch(() => {}); }
+        // Nunca fechar o AudioContext aqui — é o mesmo, guardado em
+        // APP._videoShareAudio, reutilizado em todas as partilhas seguintes
+        // (ver getVideoShareAudioGraph). Só desliga o "gain" desta partilha.
+        if (vs.gainNode) { try { vs.gainNode.disconnect(); } catch (e) {} }
         // Restaura a câmera/microfone originais em todas as ligações ativas
         // (1-para-1 ou, numa chamada de grupo, em cada uma das ligações)
         if (vs.camVideoTrack) getActiveSenders('video').forEach(sender => sender.replaceTrack(vs.camVideoTrack));
