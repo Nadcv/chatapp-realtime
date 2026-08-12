@@ -395,18 +395,23 @@ app.get('/api/weather', async (req, res) => {
 // API pública e gratuita do Open Notify, sem chave necessária.
 app.get('/api/space/iss', async (req, res) => {
   try {
-    const [posRes, astrosRes] = await Promise.all([
-      fetch('http://api.open-notify.org/iss-now.json'),
-      fetch('http://api.open-notify.org/astros.json')
-    ]);
-    const pos = await posRes.json();
-    const astros = await astrosRes.json();
-    res.json({
-      lat: parseFloat(pos.iss_position?.latitude),
-      lon: parseFloat(pos.iss_position?.longitude),
-      timestamp: pos.timestamp,
-      peopleInSpace: (astros.people || []).map(p => ({ name: p.name, craft: p.craft }))
-    });
+    // wheretheiss.at é uma API mais fiável e sempre em HTTPS — a open-notify.org
+    // (usada antes) é um projeto voluntário com quebras frequentes, que estava a
+    // fazer esta secção falhar com bastante regularidade.
+    const posR = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+    if (!posR.ok) throw new Error('HTTP ' + posR.status);
+    const pos = await posR.json();
+    let peopleInSpace = [];
+    // A tripulação atual não é essencial — se a open-notify.org estiver em baixo
+    // (é frequente), a posição da ISS continua a aparecer na mesma, só sem a lista de nomes.
+    try {
+      const astrosR = await fetch('http://api.open-notify.org/astros.json');
+      if (astrosR.ok) {
+        const astros = await astrosR.json();
+        peopleInSpace = (astros.people || []).filter(p => p.craft === 'ISS').map(p => ({ name: p.name, craft: p.craft }));
+      }
+    } catch (e) { /* tripulação é opcional, segue sem ela */ }
+    res.json({ lat: pos.latitude, lon: pos.longitude, timestamp: pos.timestamp, peopleInSpace });
   } catch (err) {
     console.error('Erro ISS:', err.message);
     res.status(502).json({ error: 'Não foi possível obter a posição da ISS agora.' });
