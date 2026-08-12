@@ -594,7 +594,11 @@ app.post('/api/ai-chat', async (req, res) => {
 // chave gratuita, mas dentro desses limites, aceita mesmo qualquer tipo de
 // ficheiro comum (fotos, vídeos, PDFs, áudio, texto).
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+// 'gemini-flash-latest' é um "alias" mantido pela própria Google que aponta
+// sempre para a versão Flash mais recente disponível — evita que a app
+// volte a partir sempre que a Google desativa um modelo específico (foi o
+// que aconteceu com o 'gemini-2.0-flash', usado antes).
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 
 // Converte fileData (data:URL em base64, ou um link http(s) já enviado antes
 // para o Cloudinary) no formato inline_data que o Gemini espera. Ficheiros
