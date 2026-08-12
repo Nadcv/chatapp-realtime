@@ -1868,7 +1868,8 @@
     const COMMON_EMOJIS = ['😀','😂','😍','😊','😉','😘','😎','🤔','😢','😭','😡','👍','👎','👏','🙏','❤️','🔥','🎉','😴','🤗','😱','🥳','👋','💯','✅','❌','🎵','📞','📹','😅'];
 
     const DEFAULT_CONTACTS = [
-        { id: 'ai_assistant', name: '🤖 Assistente IA', phone: '', avatar: '🤖', type: 'ai', memberCount: 1 },
+        { id: 'ai_assistant', name: '🤖 Assistente IA', phone: '', avatar: '🤖', type: 'ai', provider: 'github', memberCount: 1 },
+        { id: 'gemini_assistant', name: '✨ Gemini', phone: '', avatar: '✨', type: 'ai', provider: 'gemini', memberCount: 1 },
     ];
 
     // Gera o mesmo id de sala para os dois lados de uma conversa 1-para-1,
@@ -1910,12 +1911,18 @@
                 memberCount: APP.onlineContacts.length, createdBy: g.createdBy, createdByPhone: g.createdByPhone,
                 admins: g.admins || [], moderators: g.moderators || [], mutedPhones: g.mutedPhones || [], bannedPhones: g.bannedPhones || []
             }));
-        const aiChat = DEFAULT_CONTACTS[0];
-        APP.chats = [aiChat, ...groupChats, ...contactChats];
+        const aiChats = DEFAULT_CONTACTS;
+        APP.chats = [...aiChats, ...groupChats, ...contactChats];
         APP.chats.forEach(chat => {
-            if (!APP.messages[chat.id]) APP.messages[chat.id] = chat.type === 'ai' ? [
-                { id: 'm1', sender: 'Assistente IA', text: 'Olá! Sou a assistente de IA do ChatApp (GitHub Models). Pergunte o que quiser! 😊', time: '10:30', type: 'received' }
-            ] : [];
+            if (!APP.messages[chat.id]) {
+                if (chat.type === 'ai' && chat.provider === 'gemini') {
+                    APP.messages[chat.id] = [{ id: 'm1', sender: 'Gemini', text: 'Olá! Sou o Gemini, o assistente da Google integrado aqui. Podes enviar-me texto, fotos, vídeos e documentos — pergunta o que quiseres! ✨', time: '10:30', type: 'received' }];
+                } else if (chat.type === 'ai') {
+                    APP.messages[chat.id] = [{ id: 'm1', sender: 'Assistente IA', text: 'Olá! Sou a assistente de IA do ChatApp (GitHub Models). Pergunte o que quiser! 😊', time: '10:30', type: 'received' }];
+                } else {
+                    APP.messages[chat.id] = [];
+                }
+            }
             // Entra automaticamente na sala para receber mensagens mesmo com a conversa fechada
             if (chat.type !== 'ai' && !APP.joinedRooms.has(chat.id)) {
                 socket.emit('join_room', chat.id);
@@ -3371,7 +3378,7 @@
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + lastMsg.text : 'Nenhuma mensagem';
             const isGroup = chat.type === 'group';
             const isAI = chat.type === 'ai';
-            const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
+            const avatarContent = isAI ? (chat.provider === 'gemini' ? '✨' : '🤖') : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
             const avatarClass = isAI ? 'avatar-ai' : (isGroup ? 'avatar-group' : 'avatar-user');
             const statusRingClass = (!isAI && !isGroup && hasActiveStatus(chat.phone)) ? ' avatar-status-ring' : '';
             const badgeClass = isAI ? 'badge badge-ai' : 'badge';
@@ -3405,15 +3412,15 @@
         document.getElementById('chatName').textContent = chat.name;
         const isGroup = chat.type === 'group';
         const isAI = chat.type === 'ai';
-        document.getElementById('chatSubtitle').textContent = isAI ? 'Inteligência Artificial · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
+        document.getElementById('chatSubtitle').textContent = isAI ? (chat.provider === 'gemini' ? 'Gemini (Google) · respondendo instantaneamente' : 'Inteligência Artificial · respondendo instantaneamente') : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         updateEncryptionBadge();
-        const avatarContent = isAI ? '🤖' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
+        const avatarContent = isAI ? (chat.provider === 'gemini' ? '✨' : '🤖') : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
         document.getElementById('chatAvatar').innerHTML = avatarContent;
         const avatarEl = document.getElementById('chatAvatar');
         avatarEl.className = 'header-avatar' + ((!isAI && !isGroup && hasActiveStatus(chat.phone)) ? ' avatar-status-ring' : '');
-        avatarEl.style.background = isAI ? 'linear-gradient(135deg, #f093fb, #f5576c)' : (isGroup ? 'linear-gradient(135deg, #4caf84, #2196a4)' : 'linear-gradient(135deg, #6c5ce7, #a29bfe)');
+        avatarEl.style.background = isAI ? (chat.provider === 'gemini' ? 'linear-gradient(135deg, #4285F4, #9b72cb)' : 'linear-gradient(135deg, #f093fb, #f5576c)') : (isGroup ? 'linear-gradient(135deg, #4caf84, #2196a4)' : 'linear-gradient(135deg, #6c5ce7, #a29bfe)');
         renderMessages();
         document.getElementById('messageInput').focus();
         renderChatList();
@@ -4601,9 +4608,10 @@
         if (chat?.type === 'ai') {
             // Para a IA analisar, o URL público do Cloudinary é sempre preferível ao
             // base64 (mais leve no pedido); se não houver Cloudinary configurado,
-            // o base64 em si também funciona como image_url no formato OpenAI.
+            // o base64 em si também funciona como image_url no formato OpenAI/inline_data do Gemini.
             payload.fileData = outgoingFileData;
-            askAIAssistant(APP.currentChatId);
+            if (chat.provider === 'gemini') askGeminiAssistant(APP.currentChatId);
+            else askAIAssistant(APP.currentChatId);
             return;
         }
 
@@ -4656,6 +4664,40 @@
             .catch(() => {
                 APP.messages[chatId].push({ id: 'm' + Date.now() + 1, sender: 'Assistente IA', text: '⚠️ Não foi possível ligar ao servidor da IA. Tente novamente.', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
                 if (APP.currentChatId === chatId) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Inteligência Artificial · respondendo instantaneamente'; }
+                renderChatList();
+            });
+    }
+
+    // ---- Assistente Gemini (Google) — aceita texto, fotos, vídeos e documentos ----
+    function messageToGeminiHistory(m) {
+        const entry = { role: m.type === 'sent' ? 'user' : 'model' };
+        if (m.fileData) {
+            entry.fileData = m.fileData;
+            entry.fileType = m.fileType || 'application/octet-stream';
+            entry.text = (m.transcript ? `[Transcrição do áudio]: "${m.transcript}"` : '') || (m.text && !['📷 Foto', '🎥 Vídeo', '🎤 Mensagem de voz'].includes(m.text) ? m.text : '');
+        } else {
+            entry.text = m.text;
+        }
+        return entry;
+    }
+    function askGeminiAssistant(chatId) {
+        document.getElementById('chatSubtitle').textContent = chatId === APP.currentChatId ? 'Gemini (Google) · digitando...' : document.getElementById('chatSubtitle').textContent;
+        const history = APP.messages[chatId].slice(-12).map(messageToGeminiHistory).filter(h => h.text || h.fileData);
+        fetch('/api/gemini-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ history })
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                const replyText = ok ? (data.reply || 'Não consegui responder agora.') : ('⚠️ ' + (data.error || 'O Gemini não está disponível agora.'));
+                APP.messages[chatId].push({ id: 'm' + Date.now() + 1, sender: 'Gemini', text: replyText, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
+                if (APP.currentChatId === chatId) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Gemini (Google) · respondendo instantaneamente'; }
+                renderChatList();
+            })
+            .catch(() => {
+                APP.messages[chatId].push({ id: 'm' + Date.now() + 1, sender: 'Gemini', text: '⚠️ Não foi possível ligar ao servidor do Gemini. Tente novamente.', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), type: 'received' });
+                if (APP.currentChatId === chatId) { renderMessages(); document.getElementById('chatSubtitle').textContent = 'Gemini (Google) · respondendo instantaneamente'; }
                 renderChatList();
             });
     }
@@ -4785,7 +4827,8 @@
         if (!chat) return;
 
         if (chat.type === 'ai') {
-            askAIAssistant(APP.currentChatId);
+            if (chat.provider === 'gemini') askGeminiAssistant(APP.currentChatId);
+            else askAIAssistant(APP.currentChatId);
         } else {
             let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo };
             if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {

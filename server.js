@@ -582,6 +582,88 @@ app.post('/api/ai-chat', async (req, res) => {
   res.status(503).json({ error: msg });
 });
 
+// ==================== ASSISTENTE GEMINI (Google) ====================
+// Segundo assistente de IA, à parte do GitHub Models — usa a API gratuita do
+// Google AI Studio (Gemini), que aceita nativamente texto, imagens, vídeo e
+// documentos na mesma conversa. Precisa da variável de ambiente GEMINI_API_KEY
+// (gratuita em https://aistudio.google.com/apikey).
+//
+// Importante ser realista sobre "sem limites": mesmo gratuito, o Gemini tem
+// limites reais de uso (pedidos por minuto/dia) e ficheiros muito grandes
+// (a app já limita anexos a 10MB) — não há forma de contornar isso com uma
+// chave gratuita, mas dentro desses limites, aceita mesmo qualquer tipo de
+// ficheiro comum (fotos, vídeos, PDFs, áudio, texto).
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+
+// Converte fileData (data:URL em base64, ou um link http(s) já enviado antes
+// para o Cloudinary) no formato inline_data que o Gemini espera. Ficheiros
+// remotos são descarregados aqui no servidor e reencodados em base64.
+async function toGeminiInlineData(fileData, fileType) {
+  if (!fileData) return null;
+  try {
+    if (fileData.startsWith('data:')) {
+      const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return null;
+      return { mime_type: fileType || match[1], data: match[2] };
+    }
+    if (/^https?:\/\//.test(fileData)) {
+      const r = await fetch(fileData);
+      if (!r.ok) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > 15 * 1024 * 1024) return null; // não tenta ficheiros enormes inline
+      return { mime_type: fileType || r.headers.get('content-type') || 'application/octet-stream', data: buf.toString('base64') };
+    }
+  } catch (e) {
+    console.error('Erro ao converter ficheiro para o Gemini:', e.message);
+  }
+  return null;
+}
+
+app.post('/api/gemini-chat', async (req, res) => {
+  const { history } = req.body || {};
+  if (!GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Assistente Gemini não configurado: falta GEMINI_API_KEY no servidor.' });
+  }
+  if (!Array.isArray(history) || history.length === 0) {
+    return res.status(400).json({ error: 'Mensagem vazia.' });
+  }
+  try {
+    const contents = [];
+    for (const m of history) {
+      const parts = [];
+      if (m.text) parts.push({ text: m.text });
+      if (m.fileData) {
+        const inline = await toGeminiInlineData(m.fileData, m.fileType);
+        if (inline) parts.push({ inline_data: inline });
+        else if (!m.text) parts.push({ text: '[Enviou um ficheiro que não foi possível processar — pode ser demasiado grande.]' });
+      }
+      if (!parts.length) continue;
+      contents.push({ role: m.role === 'user' ? 'user' : 'model', parts });
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents,
+        systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat. Consegue analisar fotos, vídeos e documentos que lhe enviarem. Responda em português, de forma clara e útil.' }] }
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      const msg = data?.error?.message || 'O Gemini não respondeu.';
+      const status = r.status === 429 ? 429 : 502;
+      return res.status(status).json({ error: status === 429 ? 'O Gemini atingiu o limite gratuito de pedidos por agora — tenta novamente daqui a um bocado.' : msg });
+    }
+    const reply = data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('\n') || 'Não consegui gerar uma resposta para isto.';
+    res.json({ reply });
+  } catch (err) {
+    console.error('Erro Gemini:', err.message);
+    res.status(503).json({ error: 'Falha ao contactar o Gemini. Tenta novamente em instantes.' });
+  }
+});
+
 // ==================== TRADUTOR ====================
 app.get('/api/translate', async (req, res) => {
   const { text, target } = req.query;
