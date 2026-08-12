@@ -403,6 +403,11 @@
             overflow-x: auto;
             scrollbar-width: none; /* Firefox */
             -webkit-overflow-scrolling: touch;
+            /* Desvanece a borda direita para dar a entender que a fila continua
+               e pode ser deslizada — sem isto, ícones novos no fim (fora do ecrã
+               em telemóveis) pareciam simplesmente não existir. */
+            mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+            -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
         }
         .header-actions::-webkit-scrollbar { display: none; } /* Chrome/Safari */
         .header-actions .btn-icon { flex: 0 0 auto; }
