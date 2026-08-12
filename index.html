@@ -1555,6 +1555,11 @@
                 </div>
                 <div id="statusViewerPhoto" style="display:none;width:100%;max-height:360px;overflow:hidden;"><img style="width:100%;object-fit:cover;" id="statusViewerImg"></div>
                 <div id="statusViewerText" style="padding:24px 18px;font-size:16px;color:var(--text-primary);min-height:80px;"></div>
+                <div id="statusViewerNav" style="display:none;padding:0 16px 10px;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-secondary);">
+                    <button class="btn-small" onclick="statusViewerPrev()">⬅️ Anterior</button>
+                    <span id="statusViewerCount"></span>
+                    <button class="btn-small" onclick="statusViewerNext()">Seguinte ➡️</button>
+                </div>
                 <div id="statusViewerOwnActions" style="display:none;padding:10px 16px;text-align:right;">
                     <button class="btn-small btn-danger" onclick="deleteViewedStatus()">🗑️ Apagar este estado</button>
                 </div>
@@ -1778,6 +1783,13 @@
     // para todos os usuários — sem precisar de convite.
     function rebuildChatsFromServer() {
         if (!APP.user) return;
+        // Guarda as chaves públicas antigas antes de reconstruir a lista, para
+        // detetar se algum contacto mudou de chave (ex.: reinstalou a app,
+        // trocou de telemóvel) — sem isto, a chave AES partilhada ficava em
+        // cache para sempre com a chave antiga, e as mensagens paravam de se
+        // conseguir desencriptar de um dos lados sem nenhum aviso claro.
+        const oldPublicKeys = {};
+        (APP.chats || []).forEach(c => { if (c.type === 'user') oldPublicKeys[c.phone] = c.publicKey || null; });
         const contactChats = APP.onlineContacts
             .filter(c => c.phone !== APP.user.phone)
             .map(c => ({
@@ -1785,6 +1797,12 @@
                 name: c.name, phone: c.phone, username: c.username || null, avatar: c.name.charAt(0).toUpperCase(), avatarUrl: c.avatarUrl || null,
                 type: 'user', online: c.online, publicKey: c.publicKey || null
             }));
+        contactChats.forEach(c => {
+            const previous = oldPublicKeys[c.phone];
+            if (previous !== undefined && previous !== c.publicKey && E2EE.sharedKeys[c.phone]) {
+                delete E2EE.sharedKeys[c.phone];
+            }
+        });
         const groupChats = APP.groupsList
             .filter(g => !g.bannedPhones?.includes(APP.user.phone))
             .map(g => ({
@@ -2165,13 +2183,15 @@
         const panel = document.getElementById('statusPanel');
         const mine = APP.statusFeed.find(s => s.phone === APP.user?.phone);
         const others = APP.statusFeed.filter(s => s.phone !== APP.user?.phone);
+        const mineTapAction = mine ? `viewStatusFeed('${APP.user.phone}')` : 'openNewStatusModal()';
         let html = `
-        <div class="chat-item" onclick="openNewStatusModal()">
-            <div class="chat-item-avatar avatar-user">➕</div>
-            <div class="chat-item-info">
+        <div class="chat-item">
+            <div class="chat-item-avatar avatar-user${mine ? ' avatar-status-ring' : ''}" onclick="${mineTapAction}">${mine ? avatarInnerHtml(APP.user.name, APP.user.avatarUrl) : '➕'}</div>
+            <div class="chat-item-info" onclick="${mineTapAction}">
                 <h4>O meu estado</h4>
-                <p>${mine ? mine.items.length + ' estado(s) ativo(s) — toca para adicionar mais' : 'Toca para adicionar um estado'}</p>
+                <p>${mine ? mine.items.length + ' estado(s) ativo(s) — toca para ver ou apagar' : 'Toca para adicionar um estado'}</p>
             </div>
+            ${mine ? `<button class="btn-icon" style="width:34px;height:34px;font-size:16px;flex:0 0 auto;" onclick="openNewStatusModal()" title="Adicionar novo estado">➕</button>` : ''}
         </div>`;
         if (others.length === 0) {
             html += '<p style="color:#8696a0;text-align:center;padding:30px;">Nenhum estado dos teus contactos nas últimas 24h</p>';
@@ -2180,7 +2200,7 @@
                 const last = s.items[s.items.length - 1];
                 html += `
                 <div class="chat-item" onclick='viewStatusFeed(${JSON.stringify(s.phone)})'>
-                    <div class="chat-item-avatar avatar-user" style="border:2px solid var(--green);">${s.avatarUrl ? `<img src="${s.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : s.name.charAt(0).toUpperCase()}</div>
+                    <div class="chat-item-avatar avatar-user avatar-status-ring">${avatarInnerHtml(s.name, s.avatarUrl)}</div>
                     <div class="chat-item-info">
                         <h4>${s.name}</h4>
                         <p>${s.items.length} estado(s) · ${new Date(last.postedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
@@ -2255,8 +2275,27 @@
         const photoBox = document.getElementById('statusViewerPhoto');
         if (item.photoData) { photoBox.style.display = 'block'; document.getElementById('statusViewerImg').src = item.photoData; }
         else photoBox.style.display = 'none';
+        const navBox = document.getElementById('statusViewerNav');
+        if (v.items.length > 1) {
+            navBox.style.display = 'flex';
+            document.getElementById('statusViewerCount').textContent = `${v.index + 1} / ${v.items.length}`;
+        } else {
+            navBox.style.display = 'none';
+        }
         document.getElementById('statusViewerOwnActions').style.display = v.phone === APP.user?.phone ? 'block' : 'none';
         document.getElementById('modalViewStatus').classList.add('active');
+    }
+    function statusViewerPrev() {
+        const v = APP.viewingStatus;
+        if (!v) return;
+        v.index = (v.index - 1 + v.items.length) % v.items.length;
+        showStatusItem();
+    }
+    function statusViewerNext() {
+        const v = APP.viewingStatus;
+        if (!v) return;
+        v.index = (v.index + 1) % v.items.length;
+        showStatusItem();
     }
     function deleteViewedStatus() {
         const v = APP.viewingStatus;
