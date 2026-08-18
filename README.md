@@ -401,20 +401,19 @@ Novo botão 📢 no cabeçalho, com aba própria. Cria uma lista com vários con
 - As tuas listas ficam guardadas no servidor associadas ao teu número — aparecem em qualquer sessão onde entres
 - Tecnicamente não cria nenhuma sala nova: ao enviar, o cliente reaproveita o envio normal de mensagem 1-para-1 (incluindo a encriptação ponta-a-ponta quando o contacto a suporta) uma vez por cada membro da lista — por isso não é pensado para listas muito grandes, já que N destinatários geram N mensagens/notificações individuais
 
-## 📺 TV em Direto (notícias, filmes e séries, jogos)
+## 📺 TV em Direto (notícias) + 🎬 Filmes por género
 
-Novo botão 📺 no cabeçalho, com aba própria e três categorias:
-- **📰 Notícias** — Euronews em Português (🇵🇹), Euronews en Español (🇪🇸), France 24 (🇫🇷)
-- **🎬 Filmes e Séries** — FilmRise Movies (canal FAST/AVOD licenciado, com filmes e séries 24h)
-- **🎮 Jogos** — ESTV Esports (canal de esports 24h)
+Novo botão 📺 no cabeçalho, com aba própria e duas categorias:
 
-Tudo via YouTube, sem precisar de nenhuma chave nem configuração.
+- **📰 Notícias (ao vivo)** — Euronews em Português (🇵🇹), Euronews en Español (🇪🇸), France 24 (🇫🇷), via YouTube. Cada canal usa o endpoint público do YouTube que resolve sozinho "o que está em direto agora" naquele canal — não dependemos de um vídeo específico que muda a cada transmissão.
+- **🎬 Filmes (escolher e ver)** — em vez de um canal "ao vivo", é uma lista por género (😂 Comédia, 👻 Terror, 🚀 Ficção Científica, 🎭 Clássicos e Noir) com filmes de **domínio público** (direitos de autor já expirados), servidos pelo Internet Archive — o arquivo público oficial, com suporte nativo a incorporação (`archive.org/embed/<id>`).
 
-- Cada canal usa o endpoint público do YouTube que resolve sozinho "o que está em direto agora" naquele canal — não dependemos de um vídeo específico que muda a cada transmissão
-- Só coloquei canais **gratuitos e licenciados de verdade** — emissoras oficiais para as notícias, e para filmes/séries/jogos só canais FAST/AVOD legítimos (como a FilmRise, uma das maiores redes de streaming gratuito com anúncios, dona dos direitos do que transmite) — nunca sites ou canais piratas
-- Filmes/séries e jogos funcionam como televisão linear normal: entras "a meio" do que estiver a passar naquele canal, não escolhes o título — é a mesma limitação da TV por cabo
+**Porque é que filmes ficaram "escolher e ver" em vez de "canal ao vivo":** tentei primeiro canais de filmes/séries e jogos tipo FAST (FilmRise, ESTV) da mesma forma que as notícias, mas nenhum funcionou — a maioria desses canais "24h grátis" transmite através da app/site deles ou de plataformas como Pluto TV/Tubi, e não usa mesmo o sistema de Live do YouTube, só tem um canal de YouTube normal ao lado. Pensei em ir buscar diretamente aos streams da Pluto TV/Tubi, mas isso exigiria imitar a app deles com tokens que expiram e partem sempre que mudam algo do lado deles — uma gambiarra frágil que prefiro evitar. O Internet Archive resolve isto de forma limpa: é o arquivo de domínio público oficial, os filmes lá estão mesmo disponíveis para incorporação, sem token nem autenticação.
+
+- Só coloquei conteúdo **gratuito e licenciado de verdade** — emissoras oficiais para as notícias, filmes de domínio público confirmado para o cinema — nunca sites ou canais piratas
 - Comecei com as televisões públicas de Portugal e Espanha (RTP, RTVE) para as notícias, mas essas normalmente **bloqueiam a incorporação (embed)** da transmissão ao vivo fora do próprio site — por isso dava "vídeo não disponível". Troquei para a Euronews de cada língua, que mantém transmissão 24h pensada para ser incorporada, à semelhança da France 24.
-- **Importante ser honesto:** não consigo testar a transmissão em si a partir daqui (o YouTube está bloqueado no ambiente onde desenvolvo) — confirmei os canais de filmes e jogos por pesquisa, mas se algum aparecer sempre "offline" ou "indisponível" para ti, diz-me que procuro outra alternativa gratuita e licenciada. Também é normal um canal aparecer offline pontualmente, se a própria emissora não estiver a emitir ao vivo no YouTube naquele momento.
+- Por agora tirei a categoria de Jogos (a única opção gratuita que encontrei também não estava mesmo ao vivo no YouTube) — se quiseres, posso voltar a tentar com outra abordagem.
+- **Importante ser honesto:** não consigo testar a transmissão/o vídeo em si a partir daqui (o YouTube e o Internet Archive estão bloqueados no ambiente onde desenvolvo) — confirmei os identificadores dos filmes por pesquisa, mas se algum não abrir, diz-me que troco por outro título de domínio público confirmado.
 
 
 
