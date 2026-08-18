@@ -4069,8 +4069,8 @@
                         <img src="https://image.tmdb.org/t/p/w92${p.logo_path}" style="width:40px;height:40px;border-radius:8px;">
                         <span style="font-size:9px;text-align:center;margin-top:2px;">${escapeHtml(p.provider_name)}</span>
                     </div>`).join('')}</div>` : '';
-            const hasAny = region.flatrate?.length || region.rent?.length || region.buy?.length;
-            content.innerHTML = section('📺 Incluído na subscrição', region.flatrate) + section('💳 Alugar', region.rent) + section('🛒 Comprar', region.buy)
+            const hasAny = region.free?.length || region.ads?.length || region.flatrate?.length || region.rent?.length || region.buy?.length;
+            content.innerHTML = section('🆓 Grátis', region.free) + section('🆓 Grátis (com anúncios)', region.ads) + section('📺 Incluído na subscrição', region.flatrate) + section('💳 Alugar', region.rent) + section('🛒 Comprar', region.buy)
                 + (!hasAny ? '<p style="color:#8696a0;">Não há informação de onde assistir para este título na tua região.</p>' : '')
                 + (region.link ? `<div class="modal-actions" style="margin-top:14px;"><a href="${region.link}" target="_blank" rel="noopener" class="btn-small btn-accept" style="text-decoration:none;display:inline-block;">🔗 Ver todas as opções</a></div>` : '');
         } catch (err) {
