@@ -287,6 +287,10 @@ Guarda tudo na base de dados (MongoDB, se estiver ligado — ou ficheiro local `
 
 Novo botão ao lado de "Apagar" — só nas tuas próprias mensagens de texto simples (não funciona em fotos/áudios/ficheiros, nem em conversas com encriptação ponta-a-ponta ativa, porque nesses casos o servidor nunca vê o conteúdo para poder validar e guardar a edição). Mensagens editadas ficam marcadas com "(editada)".
 
+## 🎨 Cor do app personalizável
+
+A cor de destaque padrão deixou de ser o verde clássico de app de chat — agora é um violeta (`#7c5cff`), para o app ter uma identidade visual própria. Além disso, no botão 🎨 do cabeçalho abre uma janela onde dá para escolher **qualquer cor** (seletor de cor nativo do navegador, com mistura livre de RGB) ou escolher uma das 8 sugestões rápidas. A cor aplica-se ao vivo em toda a app — botões, bolhas de mensagem enviadas, marcadores no mapa, ícone da barra do navegador — e fica guardada no aparelho (`localStorage`), sobrevivendo a recarregar a página e independente do tema claro/escuro. Botão "Repor padrão" volta ao violeta original.
+
 ## Já estavam prontos (confirmado nesta revisão, não precisaram de trabalho novo)
 
 - **Apagar grupos** — só quem criou o grupo pode apagá-lo (não basta ser administrador promovido); apaga também todo o histórico de mensagens desse grupo
