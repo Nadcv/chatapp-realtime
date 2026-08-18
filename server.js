@@ -154,7 +154,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1243,6 +1243,22 @@ function saveBlockedLocal() {
   fs.writeFile(BLOCKED_FILE, JSON.stringify(blockedByPhone), (err) => { if (err) console.error('Erro ao salvar bloqueados:', err.message); });
 }
 
+// ==================== LISTAS DE TRANSMISSÃO ====================
+// Cada lista pertence só a quem a criou (guardada por telefone). Enviar para
+// uma lista não cria nenhuma "sala" nova — o cliente reaproveita o envio
+// normal de mensagem 1-para-1, disparado uma vez por cada membro da lista,
+// para que cada pessoa a receba como conversa privada normal, sem saber
+// quem mais está na lista nem ver as respostas dos outros.
+const BROADCASTS_FILE = path.join(__dirname, 'broadcasts.json');
+let broadcastsByPhone = {}; // phone -> [{id, name, members:[phone,...]}]
+function loadBroadcastsLocal() {
+  try { if (fs.existsSync(BROADCASTS_FILE)) broadcastsByPhone = JSON.parse(fs.readFileSync(BROADCASTS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar listas de transmissão:', err.message); }
+}
+function saveBroadcastsLocal() {
+  fs.writeFile(BROADCASTS_FILE, JSON.stringify(broadcastsByPhone), (err) => { if (err) console.error('Erro ao salvar listas de transmissão:', err.message); });
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -1388,6 +1404,7 @@ io.on('connection', (socket) => {
       socket.emit('muted_list', mutedByPhone[myPhone] || []);
       socket.emit('archived_list', archivedByPhone[myPhone] || []);
       socket.emit('blocked_list', blockedByPhone[myPhone] || []);
+      socket.emit('broadcast_list', broadcastsByPhone[myPhone] || []);
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
     }
@@ -1968,6 +1985,37 @@ io.on('connection', (socket) => {
     saveBlockedLocal();
     fs.appendFile(path.join(__dirname, 'reports.log'), `${new Date().toISOString()} | ${myPhone} denunciou ${targetPhone} | motivo: ${(reason || '(sem motivo)').substring(0, 300)}\n`, () => {});
     socket.emit('blocked_list', blockedByPhone[myPhone]);
+  });
+
+  // ==================== LISTAS DE TRANSMISSÃO ====================
+  socket.on('get_broadcasts', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('broadcast_list', broadcastsByPhone[myPhone] || []);
+  });
+  socket.on('save_broadcast', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { id, name, members } = data || {};
+    if (!myPhone || !name || !Array.isArray(members)) return;
+    const cleanMembers = [...new Set(members.filter((p) => p && p !== myPhone))];
+    if (!cleanMembers.length) return;
+    if (!broadcastsByPhone[myPhone]) broadcastsByPhone[myPhone] = [];
+    const existing = id && broadcastsByPhone[myPhone].find((b) => b.id === id);
+    if (existing) {
+      existing.name = name.substring(0, 60);
+      existing.members = cleanMembers;
+    } else {
+      broadcastsByPhone[myPhone].push({ id: 'bc' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: name.substring(0, 60), members: cleanMembers });
+    }
+    saveBroadcastsLocal();
+    socket.emit('broadcast_list', broadcastsByPhone[myPhone]);
+  });
+  socket.on('delete_broadcast', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { id } = data || {};
+    if (!myPhone || !id || !broadcastsByPhone[myPhone]) return;
+    broadcastsByPhone[myPhone] = broadcastsByPhone[myPhone].filter((b) => b.id !== id);
+    saveBroadcastsLocal();
+    socket.emit('broadcast_list', broadcastsByPhone[myPhone]);
   });
 
   // ==================== "NÃO INCOMODAR" AGENDADO ====================

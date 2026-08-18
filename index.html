@@ -1309,6 +1309,7 @@
                 <button class="btn-icon" onclick="openTranslatorModal()" title="Idioma do tradutor">🌐</button>
                 <button class="btn-icon" onclick="toggleMusicPlayer()" title="Música de fundo">🎵</button>
                 <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
+                <button class="btn-icon" onclick="openBroadcastScreen()" title="Listas de transmissão">📢</button>
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
@@ -2106,6 +2107,45 @@
             <div class="chat-list" id="archivedList" style="flex:1;overflow-y:auto;"></div>
         </div>
 
+        <!-- ============ LISTAS DE TRANSMISSÃO ============ -->
+        <div class="location-screen" id="broadcastScreen">
+            <div class="location-header">
+                <strong>📢 Listas de transmissão</strong>
+                <button onclick="closeBroadcastScreen()">✖️</button>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);padding:8px 14px 0;margin:0;">Cria uma lista com vários contactos: ao enviares uma mensagem para a lista, cada pessoa recebe-a como conversa privada normal — ninguém vê quem mais está na lista nem as respostas dos outros.</p>
+            <div style="padding:10px 12px;flex-shrink:0;">
+                <button class="btn-small btn-accept" style="width:100%;" onclick="openBroadcastEditModal()">➕ Nova lista</button>
+            </div>
+            <div class="chat-list" id="broadcastList" style="flex:1;overflow-y:auto;"></div>
+        </div>
+
+        <!-- ============ CRIAR/EDITAR LISTA DE TRANSMISSÃO ============ -->
+        <div class="modal-overlay" id="modalBroadcastEdit" style="z-index:200;">
+            <div class="modal">
+                <h3 id="broadcastEditTitle">➕ Nova lista de transmissão</h3>
+                <input type="text" id="broadcastName" placeholder="Nome da lista (ex: Família)">
+                <p class="member-count">Escolhe os contactos:</p>
+                <div id="broadcastMemberPicker" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalBroadcastEdit')">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="saveBroadcastList()">Guardar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ ENVIAR PARA LISTA DE TRANSMISSÃO ============ -->
+        <div class="modal-overlay" id="modalBroadcastSend" style="z-index:200;">
+            <div class="modal">
+                <h3 id="broadcastSendTitle">📢 Enviar</h3>
+                <textarea id="broadcastSendText" placeholder="Escreve a mensagem..." style="width:100%;min-height:90px;border-radius:10px;padding:10px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);resize:vertical;box-sizing:border-box;"></textarea>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalBroadcastSend')">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="sendBroadcastMessage()">Enviar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ============ BLOQUEAR / DENUNCIAR ============ -->
         <div class="modal-overlay" id="modalBlockUser">
             <div class="modal">
@@ -2195,6 +2235,7 @@
         musicAudio: document.getElementById('bgMusic'),
         onlineContacts: [], // vem do servidor: todos os usuários cadastrados + status online/offline
         groupsList: [], // vem do servidor: grupos visíveis a todos os usuários
+        broadcasts: [], // vem do servidor: as minhas listas de transmissão
         joinedRooms: new Set(), // salas já ligadas (join_room) para receber mensagens em segundo plano
         whiteboard: {
             canvas: document.getElementById('whiteboardCanvas'),
@@ -4224,6 +4265,92 @@
                 <div class="chat-item-info"><h4>${chat.name}</h4><p>Toca para abrir</p></div>
                 <button class="btn-icon" style="width:34px;height:34px;font-size:14px;flex:0 0 auto;" onclick="event.stopPropagation(); socket.emit('set_archived',{chatId:'${chat.id}',archived:false}); APP.archivedChats.delete('${chat.id}'); renderArchivedList(); renderChatList();" title="Desarquivar">🗄️</button>
             </div>`).join('');
+    }
+
+    // ==================== LISTAS DE TRANSMISSÃO ====================
+    socket.on('broadcast_list', (list) => {
+        APP.broadcasts = list || [];
+        if (document.getElementById('broadcastScreen').classList.contains('active')) renderBroadcastList();
+    });
+    function openBroadcastScreen() {
+        document.getElementById('broadcastScreen').classList.add('active');
+        socket.emit('get_broadcasts');
+        renderBroadcastList();
+    }
+    function closeBroadcastScreen() { document.getElementById('broadcastScreen').classList.remove('active'); }
+    function renderBroadcastList() {
+        const el = document.getElementById('broadcastList');
+        if (!APP.broadcasts.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Ainda não tens nenhuma lista de transmissão</p>'; return; }
+        el.innerHTML = APP.broadcasts.map(b => `
+            <div class="chat-item" style="cursor:pointer;" onclick="openBroadcastSendModal('${b.id}')">
+                <div class="chat-item-avatar avatar-group">📢</div>
+                <div class="chat-item-info"><h4>${escapeHtml(b.name)}</h4><p>${b.members.length} contacto${b.members.length === 1 ? '' : 's'} · toca para enviar</p></div>
+                <button class="btn-icon" style="width:34px;height:34px;font-size:13px;flex:0 0 auto;" onclick="event.stopPropagation(); openBroadcastEditModal('${b.id}')" title="Editar">✏️</button>
+                <button class="btn-icon" style="width:34px;height:34px;font-size:13px;flex:0 0 auto;" onclick="event.stopPropagation(); deleteBroadcastList('${b.id}')" title="Apagar">🗑️</button>
+            </div>`).join('');
+    }
+    function openBroadcastEditModal(id) {
+        const editing = id ? APP.broadcasts.find(b => b.id === id) : null;
+        document.getElementById('broadcastEditTitle').textContent = editing ? '✏️ Editar lista' : '➕ Nova lista de transmissão';
+        document.getElementById('broadcastName').value = editing ? editing.name : '';
+        document.getElementById('modalBroadcastEdit').dataset.editingId = editing ? editing.id : '';
+        const contacts = APP.chats.filter(c => c.type === 'user');
+        const picker = document.getElementById('broadcastMemberPicker');
+        picker.innerHTML = contacts.length ? contacts.map(c => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">
+                <input type="checkbox" value="${c.phone}" ${editing?.members.includes(c.phone) ? 'checked' : ''}>
+                <span>${escapeHtml(c.name)}</span>
+            </label>`).join('') : '<p style="color:#8696a0;text-align:center;">Nenhum contacto disponível</p>';
+        document.getElementById('modalBroadcastEdit').classList.add('active');
+    }
+    function saveBroadcastList() {
+        const name = document.getElementById('broadcastName').value.trim();
+        if (!name) return alert('Escreve um nome para a lista!');
+        const members = [...document.querySelectorAll('#broadcastMemberPicker input:checked')].map(i => i.value);
+        if (!members.length) return alert('Escolhe pelo menos um contacto!');
+        const editingId = document.getElementById('modalBroadcastEdit').dataset.editingId;
+        socket.emit('save_broadcast', { id: editingId || undefined, name, members });
+        closeModal('modalBroadcastEdit');
+    }
+    function deleteBroadcastList(id) {
+        if (!confirm('Apagar esta lista de transmissão?')) return;
+        socket.emit('delete_broadcast', { id });
+    }
+    function openBroadcastSendModal(id) {
+        const list = APP.broadcasts.find(b => b.id === id);
+        if (!list) return;
+        document.getElementById('broadcastSendTitle').textContent = `📢 Enviar para "${list.name}" (${list.members.length})`;
+        document.getElementById('broadcastSendText').value = '';
+        document.getElementById('modalBroadcastSend').dataset.listId = id;
+        document.getElementById('modalBroadcastSend').classList.add('active');
+    }
+    async function sendBroadcastMessage() {
+        const id = document.getElementById('modalBroadcastSend').dataset.listId;
+        const list = APP.broadcasts.find(b => b.id === id);
+        const text = document.getElementById('broadcastSendText').value.trim();
+        if (!list || !text) return;
+        closeModal('modalBroadcastSend');
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        let sent = 0;
+        for (const phone of list.members) {
+            const chat = APP.chats.find(c => c.type === 'user' && c.phone === phone);
+            if (!chat) continue;
+            const chatId = dmRoomId(APP.user.phone, phone);
+            const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            if (!APP.messages[chatId]) APP.messages[chatId] = [];
+            APP.messages[chatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', read: false });
+            let outgoing = { id: msgId, chatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: phone, text, time };
+            if (chat.publicKey && E2EE.publicJwk) {
+                await e2eeReadyPromise;
+                const enc = await encryptFor(phone, chat.publicKey, text);
+                if (enc) outgoing = { ...outgoing, text: '🔒 Mensagem encriptada', encrypted: true, iv: enc.iv, data: enc.data };
+            }
+            socket.emit('send_message', outgoing);
+            sent++;
+        }
+        renderChatList();
+        if (APP.currentChatId) renderMessages();
+        alert(`Mensagem enviada para ${sent} contacto${sent === 1 ? '' : 's'} da lista "${list.name}".`);
     }
 
     // ==================== BLOQUEAR / DENUNCIAR ====================
