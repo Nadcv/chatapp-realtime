@@ -740,7 +740,8 @@ app.post('/api/ai-chat', async (req, res) => {
       }
       const data = await r.json();
       if (!r.ok) {
-        return res.status(502).json({ error: data?.error?.message || 'A IA não respondeu.' });
+        console.error('Erro GitHub Models (' + r.status + '):', data?.error?.message || 'sem detalhe');
+        return res.status(502).json({ error: 'Não foi possível obter resposta da IA agora. Tenta novamente em instantes.' });
       }
       const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
       return res.json({ reply });
