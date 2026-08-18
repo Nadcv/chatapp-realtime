@@ -8,6 +8,12 @@ const crypto = require('crypto');
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
 let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (e) { console.warn('⚠️ Pacote "nodemailer" não instalado — envio de email desativado.'); }
+let JSDOM = null, Readability = null, createDOMPurify = null;
+try {
+  JSDOM = require('jsdom').JSDOM;
+  Readability = require('@mozilla/readability').Readability;
+  createDOMPurify = require('dompurify');
+} catch (e) { console.warn('⚠️ Pacotes de "modo leitura" (jsdom/readability/dompurify) não instalados — notícias sempre abrem por iframe/link.'); }
 
 const app = express();
 app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
@@ -485,6 +491,8 @@ const NEWS_FEEDS = [
   { id: 'euronews', name: 'Euronews', flag: '🇪🇺', category: 'mundo', url: 'https://pt.euronews.com/rss' },
   { id: 'cnn', name: 'CNN', flag: '🌍', category: 'mundo', url: 'http://rss.cnn.com/rss/edition.rss' },
   { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://www.rtp.pt/africa/rss' },
+  { id: 'elpais', name: 'El País', flag: '🇪🇸', category: 'mundo', url: 'https://elpais.com/rss/elpais/portada.xml' },
+  { id: 'lemonde', name: 'Le Monde', flag: '🇫🇷', category: 'mundo', url: 'https://www.lemonde.fr/rss/une.xml' },
   { id: 'record', name: 'Record', flag: '⚽', category: 'futebol', url: 'https://www.record.pt/rss' }
 ];
 let newsItems = []; // lista mesclada de todas as fontes, mais recente primeiro
@@ -549,6 +557,38 @@ async function refreshNews() {
   newsInitialized = true;
 }
 app.get('/api/news', (req, res) => res.json(newsItems));
+
+// ==================== MODO LEITURA (extrai o artigo, sem depender do site) ====================
+// Alguns sites bloqueiam deliberadamente aparecer dentro de outras apps
+// (proteção contra clickjacking, X-Frame-Options/CSP). Em vez de tentar
+// contornar isso no navegador (não é possível — a proteção é do lado do
+// site), o SERVIDOR vai buscar o HTML da notícia, extrai só o artigo (texto,
+// título, imagens — como o Modo Leitura do Safari/Firefox) com o Readability
+// da Mozilla, e limpa o resultado com o DOMPurify antes de mandar ao
+// telemóvel — assim nunca depende da proteção anti-iframe de ninguém.
+app.get('/api/news/read', async (req, res) => {
+  if (!JSDOM || !Readability || !createDOMPurify) return res.json({ success: false, error: 'not_available' });
+  const articleUrl = req.query.url;
+  if (!articleUrl) return res.status(400).json({ error: 'URL em falta.' });
+  try {
+    const r = await fetch(articleUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatAppReader/1.0)' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const html = await r.text();
+    const dom = new JSDOM(html, { url: articleUrl });
+    const article = new Readability(dom.window.document).parse();
+    if (!article?.content) throw new Error('Não foi possível identificar o artigo nesta página.');
+    const purifyWindow = new JSDOM('').window;
+    const DOMPurify = createDOMPurify(purifyWindow);
+    const cleanContent = DOMPurify.sanitize(article.content, {
+      ALLOWED_TAGS: ['p', 'h1', 'h2', 'h3', 'h4', 'strong', 'em', 'b', 'i', 'a', 'ul', 'ol', 'li', 'blockquote', 'img', 'figure', 'figcaption', 'br', 'span'],
+      ALLOWED_ATTR: ['href', 'src', 'alt', 'title']
+    });
+    res.json({ success: true, title: article.title || '', byline: article.byline || '', content: cleanContent });
+  } catch (err) {
+    console.error('Erro no modo leitura (' + articleUrl + '):', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
 
 // ==================== SERVIDOR TURN ====================
 let turnCache = null;
