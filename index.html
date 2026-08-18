@@ -1323,7 +1323,7 @@
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
-                <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto">📺</button>
+                <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias, filmes e jogos">📺</button>
                 <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
                 <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
@@ -2054,11 +2054,12 @@
                 <strong>📺 TV em Direto</strong>
                 <button onclick="closeTvScreen()">✖️</button>
             </div>
-            <div id="tvTabs" style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;overflow-x:auto;"></div>
+            <div id="tvCategoryTabs" style="display:flex;gap:8px;padding:10px 12px 0;flex-shrink:0;overflow-x:auto;"></div>
+            <div id="tvTabs" style="display:flex;gap:8px;padding:8px 12px 10px;flex-shrink:0;overflow-x:auto;"></div>
             <div style="flex:1;position:relative;background:#000;">
                 <iframe id="tvFrame" style="position:absolute;inset:0;width:100%;height:100%;border:none;" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
             </div>
-            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais e gratuitas de cada canal, diretamente do YouTube. Se um canal aparecer "offline" ou "indisponível", é porque essa estação não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app) — tenta outro canal ou volta mais tarde.</p>
+            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Filmes/séries e jogos são canais lineares tipo televisão: entras "a meio" do que estiver a passar, não escolhes o título. Se um canal aparecer "offline" ou "indisponível", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app) — tenta outro canal ou volta mais tarde.</p>
         </div>
 
         <!-- ============ CALCULADORA ============ -->
@@ -3885,31 +3886,57 @@
     // endpoint público "embed/live_stream?channel=" — o YouTube resolve sozinho
     // qual é a emissão ao vivo atual do canal, sem precisarmos de saber o ID de
     // um vídeo específico (que mudaria a cada transmissão nova).
-    const TV_CHANNELS = [
-        { id: 'pt', name: 'Euronews (Português)', flag: '🇵🇹', channelId: 'UCUmEPYxmnyQDeRUcFkslmQw' },
-        { id: 'es', name: 'Euronews (Español)', flag: '🇪🇸', channelId: 'UCyoGb3SMlTlB8CLGVH4c8Rw' },
-        { id: 'fr', name: 'France 24', flag: '🇫🇷', channelId: 'UCCCPCZNChQdGa9EkATeye4g' }
+    // Só canais gratuitos e licenciados de verdade (FAST/AVOD, transmissão
+    // oficial da própria emissora) — nunca sites/canais piratas.
+    const TV_CATEGORIES = [
+        { id: 'news', name: '📰 Notícias', channels: [
+            { id: 'pt', name: 'Euronews (Português)', flag: '🇵🇹', channelId: 'UCUmEPYxmnyQDeRUcFkslmQw' },
+            { id: 'es', name: 'Euronews (Español)', flag: '🇪🇸', channelId: 'UCyoGb3SMlTlB8CLGVH4c8Rw' },
+            { id: 'fr', name: 'France 24', flag: '🇫🇷', channelId: 'UCCCPCZNChQdGa9EkATeye4g' }
+        ]},
+        { id: 'filmes', name: '🎬 Filmes e Séries', channels: [
+            { id: 'filmrise', name: 'FilmRise Movies', flag: '🎬', channelId: 'UC8IHAQMuiJdY6ALuhG7iU8Q' }
+        ]},
+        { id: 'jogos', name: '🎮 Jogos (Esports)', channels: [
+            { id: 'estv', name: 'ESTV Esports', flag: '🎮', channelId: 'UCrS3unNbpfCnUNPtSo5NFqw' }
+        ]}
     ];
-    const TV = { current: null };
+    const TV = { category: 'news', current: null };
     function openTvScreen() {
         document.getElementById('tvScreen').classList.add('active');
-        renderTvTabs();
-        if (!TV.current) selectTvChannel(TV_CHANNELS[0].id);
+        renderTvCategoryTabs();
+        renderTvChannelTabs();
+        if (!TV.current) selectTvChannel(TV_CATEGORIES[0].channels[0].id);
     }
     function closeTvScreen() {
         document.getElementById('tvScreen').classList.remove('active');
         document.getElementById('tvFrame').src = 'about:blank'; // para o vídeo parar de correr em segundo plano
     }
-    function renderTvTabs() {
-        document.getElementById('tvTabs').innerHTML = TV_CHANNELS.map(c => `
+    function renderTvCategoryTabs() {
+        document.getElementById('tvCategoryTabs').innerHTML = TV_CATEGORIES.map(cat => `
+            <button class="btn-small tv-tab ${TV.category === cat.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectTvCategory('${cat.id}')">${cat.name}</button>
+        `).join('');
+    }
+    function selectTvCategory(catId) {
+        const cat = TV_CATEGORIES.find(c => c.id === catId);
+        if (!cat) return;
+        TV.category = catId;
+        renderTvCategoryTabs();
+        renderTvChannelTabs();
+        selectTvChannel(cat.channels[0].id);
+    }
+    function renderTvChannelTabs() {
+        const cat = TV_CATEGORIES.find(c => c.id === TV.category);
+        document.getElementById('tvTabs').innerHTML = (cat?.channels || []).map(c => `
             <button class="btn-small tv-tab ${TV.current === c.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectTvChannel('${c.id}')">${c.flag} ${c.name}</button>
         `).join('');
     }
     function selectTvChannel(id) {
-        const ch = TV_CHANNELS.find(c => c.id === id);
+        const cat = TV_CATEGORIES.find(c => c.id === TV.category);
+        const ch = cat?.channels.find(c => c.id === id);
         if (!ch) return;
         TV.current = id;
-        renderTvTabs();
+        renderTvChannelTabs();
         document.getElementById('tvFrame').src = `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
     }
     function openNewsScreen() {
