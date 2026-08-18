@@ -571,7 +571,17 @@ app.get('/api/news/read', async (req, res) => {
   const articleUrl = req.query.url;
   if (!articleUrl) return res.status(400).json({ error: 'URL em falta.' });
   try {
-    const r = await fetch(articleUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatAppReader/1.0)' } });
+    // Alguns sites (ex.: RTP) recusam ou devolvem uma página vazia a pedidos
+    // que não se pareçam com um browser real — por isso usamos aqui um
+    // User-Agent e cabeçalhos completos de um Chrome normal, em vez de nos
+    // identificarmos como um robô.
+    const r = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8'
+      }
+    });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const html = await r.text();
     const dom = new JSDOM(html, { url: articleUrl });
