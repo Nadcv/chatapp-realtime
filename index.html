@@ -1168,7 +1168,7 @@
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
-                <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar cor do app">🎨</button>
+                <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar aparência do app">🎨</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -1501,11 +1501,14 @@
             </div>
         </div>
         <div class="modal-overlay" id="modalCustomize">
-            <div class="modal">
-                <h3>🎨 Personalizar cor do app</h3>
-                <p style="color:var(--text-secondary);font-size:13px;">Escolhe a cor de destaque do ChatApp — muda ao vivo os botões, as bolhas de mensagem enviadas e outros detalhes em toda a app.</p>
-                <div style="display:flex;align-items:center;gap:14px;margin:16px 0;">
-                    <input type="color" id="accentColorPicker" value="#7c5cff" oninput="applyAccentColor(this.value)" style="width:56px;height:56px;border:none;border-radius:14px;cursor:pointer;background:none;padding:0;">
+            <div class="modal" style="max-height:85vh;overflow-y:auto;">
+                <h3>🎨 Personalizar aparência</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">A tua escolha fica guardada na tua conta — abre o ChatApp noutro telemóvel ou computador e a cor e o fundo seguem-te.</p>
+
+                <div style="font-weight:600;font-size:14px;margin:16px 0 4px;">Cor de destaque</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 8px;">Muda ao vivo os botões, as bolhas de mensagem enviadas e outros detalhes em toda a app.</p>
+                <div style="display:flex;align-items:center;gap:14px;margin:10px 0;">
+                    <input type="color" id="accentColorPicker" value="#7c5cff" oninput="applyAccentColor(this.value)" onchange="chooseAccentColor(this.value)" style="width:56px;height:56px;border:none;border-radius:14px;cursor:pointer;background:none;padding:0;">
                     <div>
                         <div style="font-size:12px;color:var(--text-secondary);">Cor escolhida</div>
                         <div id="accentColorHex" style="font-weight:600;font-size:16px;">#7C5CFF</div>
@@ -1513,8 +1516,22 @@
                 </div>
                 <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Sugestões rápidas</div>
                 <div id="accentPresets" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px;"></div>
+                <div class="modal-actions" style="margin-bottom:10px;">
+                    <button class="btn-small" onclick="resetAccentColor()">↩️ Repor cor padrão</button>
+                </div>
+
+                <div style="border-top:1px solid var(--bg-tertiary);margin:14px 0;"></div>
+
+                <div style="font-weight:600;font-size:14px;margin:0 0 4px;">Fundo das conversas</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 8px;">Escolhe uma cor/gradiente ou envia a tua própria imagem de fundo.</p>
+                <div id="wallpaperPresets" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;"></div>
+                <input type="file" id="wallpaperPhotoInput" accept="image/*" style="display:none;" onchange="handleWallpaperPhotoSelected(this)">
                 <div class="modal-actions">
-                    <button class="btn-small" onclick="resetAccentColor()">↩️ Repor padrão</button>
+                    <button class="btn-small" onclick="document.getElementById('wallpaperPhotoInput').click()">🖼️ Imagem personalizada</button>
+                    <button class="btn-small" onclick="resetChatWallpaper()">↩️ Repor fundo padrão</button>
+                </div>
+
+                <div class="modal-actions" style="margin-top:16px;">
                     <button class="btn-small" onclick="closeModal('modalCustomize')">Fechar</button>
                 </div>
             </div>
@@ -2142,10 +2159,14 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0] };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
+        // A conta pode ter uma cor/fundo guardados de outro aparelho — aplica-os
+        // agora, para a personalização acompanhar a pessoa em qualquer login.
+        if (APP.user.accentColor) applyAccentColor(APP.user.accentColor);
+        applyChatWallpaper(APP.user.chatWallpaper || null, { save: true });
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
         renderHeaderAvatar();
@@ -2241,6 +2262,7 @@
         document.documentElement.setAttribute('data-theme', next);
         localStorage.setItem('themeMode', next);
         applyAccentColor(localStorage.getItem('accentColor') || DEFAULT_ACCENT, { save: false });
+        applyChatWallpaper(localStorage.getItem('chatWallpaper') || null, { save: false });
     }
 
     // ==================== COR DE DESTAQUE PERSONALIZADA ====================
@@ -2287,25 +2309,113 @@
         if (picker) picker.value = hex;
         if (opts.save !== false) localStorage.setItem('accentColor', hex);
     }
+    // Guarda a cor no servidor, associada à conta — assim ela acompanha a
+    // pessoa quando faz login noutro aparelho (chamar só em escolhas
+    // "finais", não a cada frame do arrastar do seletor de cor).
+    function syncAccentColorToServer(hex) {
+        if (!APP.user || !socket) return;
+        socket.emit('update_accent_color', { color: hex });
+    }
+    function chooseAccentColor(hex) {
+        applyAccentColor(hex);
+        syncAccentColorToServer(hex);
+    }
     function resetAccentColor() {
         localStorage.removeItem('accentColor');
         applyAccentColor(DEFAULT_ACCENT, { save: false });
+        syncAccentColorToServer(DEFAULT_ACCENT);
     }
     function renderAccentPresets() {
         const el = document.getElementById('accentPresets');
         if (!el) return;
         el.innerHTML = ACCENT_PRESETS.map(p =>
-            `<button onclick="applyAccentColor('${p.hex}')" title="${p.name}" style="width:34px;height:34px;border-radius:50%;border:2px solid var(--bg-tertiary);background:${p.hex};cursor:pointer;padding:0;"></button>`
+            `<button onclick="chooseAccentColor('${p.hex}')" title="${p.name}" style="width:34px;height:34px;border-radius:50%;border:2px solid var(--bg-tertiary);background:${p.hex};cursor:pointer;padding:0;"></button>`
         ).join('');
     }
     function openCustomizeModal() {
         const current = getAccentHex();
         renderAccentPresets();
+        renderWallpaperPresets();
         applyAccentColor(current, { save: false });
         document.getElementById('modalCustomize').classList.add('active');
     }
     (function initAccentColor() {
         applyAccentColor(getAccentHex(), { save: false });
+    })();
+
+    // ==================== FUNDO DAS CONVERSAS PERSONALIZADO ====================
+    const WALLPAPER_PRESETS = [
+        { name: 'Padrão', value: null },
+        { name: 'Grafite', value: '#1a1f24' },
+        { name: 'Meia-noite', value: '#0d1321' },
+        { name: 'Oceano', value: 'linear-gradient(135deg,#0f2027,#203a43,#2c5364)' },
+        { name: 'Pôr do sol', value: 'linear-gradient(135deg,#3a1c71,#d76d77,#ffaf7b)' },
+        { name: 'Floresta', value: 'linear-gradient(135deg,#134e5e,#71b280)' },
+        { name: 'Ameixa', value: 'linear-gradient(135deg,#41295a,#2f0743)' }
+    ];
+    function applyChatWallpaper(value, opts = {}) {
+        const root = document.documentElement;
+        const isLight = root.getAttribute('data-theme') === 'light';
+        root.style.setProperty('--bg-chat', value || (isLight ? '#efeae2' : '#0b141a'));
+        if (opts.save !== false) {
+            if (value) localStorage.setItem('chatWallpaper', value);
+            else localStorage.removeItem('chatWallpaper');
+        }
+    }
+    function syncChatWallpaperToServer(value) {
+        if (!APP.user || !socket) return;
+        socket.emit('update_chat_wallpaper', { wallpaper: value || '' });
+    }
+    function selectWallpaperPreset(value) {
+        applyChatWallpaper(value);
+        syncChatWallpaperToServer(value);
+    }
+    function resetChatWallpaper() {
+        applyChatWallpaper(null);
+        syncChatWallpaperToServer('');
+    }
+    function renderWallpaperPresets() {
+        const el = document.getElementById('wallpaperPresets');
+        if (!el) return;
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        el.innerHTML = WALLPAPER_PRESETS.map(p => {
+            const bg = p.value || (isLight ? '#efeae2' : '#0b141a');
+            const safeValue = p.value ? `'${p.value.replace(/'/g, "\\'")}'` : 'null';
+            return `<button onclick="selectWallpaperPreset(${safeValue})" title="${p.name}" style="width:44px;height:44px;border-radius:10px;border:2px solid var(--bg-tertiary);background:${bg};cursor:pointer;padding:0;"></button>`;
+        }).join('');
+    }
+    function handleWallpaperPhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                const maxW = 900, maxH = 1400;
+                const scale = Math.min(1, maxW / img.width, maxH / img.height);
+                const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+                const cssValue = `url('${finalUrl}') center/cover no-repeat`;
+                applyChatWallpaper(cssValue);
+                syncChatWallpaperToServer(cssValue);
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    (function initChatWallpaper() {
+        applyChatWallpaper(localStorage.getItem('chatWallpaper') || null, { save: false });
     })();
 
     // ==================== FOTO DE PERFIL ====================

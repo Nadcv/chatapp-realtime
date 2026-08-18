@@ -39,6 +39,8 @@ const accountSchema = new mongoose.Schema({
   publicKey: Object,
   avatarUrl: String,
   preferredLang: String, // língua preferida da pessoa (ex.: 'pt', 'es', 'en') — usada na tradução automática
+  accentColor: String, // cor de destaque escolhida na personalização da app (ex.: '#7c5cff')
+  chatWallpaper: String, // fundo das conversas escolhido (cor, gradiente CSS ou url() de uma imagem)
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
   pushSubscriptions: { type: [Object], default: [] } // inscrições de notificações push (um dispositivo pode ter mais do que uma)
 });
@@ -200,7 +202,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -1190,6 +1192,34 @@ io.on('connection', (socket) => {
     }
     notifyContactsOfStatusChange(myPhone);
     socket.emit('preferred_lang_updated', { lang: data.lang });
+  });
+
+  // Guarda a cor de destaque escolhida na personalização da app, para
+  // acompanhar a pessoa em qualquer aparelho onde faça login (não é
+  // partilhada com contactos, é só uma preferência pessoal de aparência).
+  socket.on('update_accent_color', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.color !== 'string') return;
+    if (!/^#[0-9a-fA-F]{6}$/.test(data.color)) return;
+    accounts[myPhone].accentColor = data.color;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { accentColor: data.color }).catch(e => console.error('Erro Mongo (cor):', e.message));
+    } else {
+      saveUsers();
+    }
+  });
+
+  // Guarda o fundo das conversas escolhido (cor, gradiente ou imagem),
+  // também pessoal — segue a pessoa entre aparelhos ao fazer login.
+  socket.on('update_chat_wallpaper', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.wallpaper !== 'string') return;
+    accounts[myPhone].chatWallpaper = data.wallpaper || null;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { chatWallpaper: accounts[myPhone].chatWallpaper }).catch(e => console.error('Erro Mongo (fundo):', e.message));
+    } else {
+      saveUsers();
+    }
   });
 
   // Adiciona alguém encontrado por pesquisa aos teus contactos (início de conversa)
