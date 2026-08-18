@@ -2035,6 +2035,13 @@ const PORT = process.env.PORT || 3000;
 connectDatabase().then(async () => {
   await initPush();
 
+  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+  if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
+    console.log(`☁️ Cloudinary ligado (cloud "${CLOUDINARY_CLOUD_NAME}") — fotos/áudios/documentos passam a ser guardados lá, não em base64.`);
+  } else {
+    console.log('⚠️ Cloudinary não configurado — fotos/áudios/documentos continuam em base64 (ver secção "Ficheiros em armazenamento externo" no README).');
+  }
+
   // Mensagens temporárias: remove periodicamente as que já expiraram e avisa
   // quem está na conversa para as tirar do ecrã.
   setInterval(() => {
