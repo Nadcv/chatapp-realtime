@@ -403,11 +403,12 @@ Novo botão 📢 no cabeçalho, com aba própria. Cria uma lista com vários con
 
 ## 📺 TV em Direto (Portugal, Espanha, França)
 
-Novo botão 📺 no cabeçalho, com aba própria. Mostra a transmissão ao vivo, oficial e gratuita, de um canal de notícias por país — RTP Internacional (🇵🇹), RTVE Notícias (🇪🇸) e France 24 (🇫🇷) — através do próprio YouTube, sem precisar de nenhuma chave nem configuração.
+Novo botão 📺 no cabeçalho, com aba própria. Mostra a transmissão ao vivo, oficial e gratuita, de um canal de notícias por país — Euronews em Português (🇵🇹), Euronews en Español (🇪🇸) e France 24 (🇫🇷) — através do próprio YouTube, sem precisar de nenhuma chave nem configuração.
 
 - Cada canal usa o endpoint público do YouTube que resolve sozinho "o que está em direto agora" naquele canal — não dependemos de um vídeo específico que muda a cada transmissão
 - Só coloquei canais com transmissão ao vivo oficial e gratuita no YouTube (a mesma estação, sem intermediários) — nada de streams piratas ou de canais pagos
-- **Importante ser honesto:** não consigo testar a transmissão em si a partir daqui (o YouTube está bloqueado no ambiente onde desenvolvo) — confirmei os três canais por pesquisa, mas se algum aparecer sempre "offline" para ti, diz-me que troco por outro canal oficial desse país. Também é normal um canal aparecer offline pontualmente, se a própria estação não estiver a emitir ao vivo no YouTube naquele momento.
+- Comecei com as televisões públicas de cada país (RTP, RTVE), mas essas normalmente **bloqueiam a incorporação (embed)** da transmissão ao vivo fora do próprio site — por isso deu "vídeo não disponível". Troquei para a Euronews de cada língua, que mantém transmissão 24h em direto pensada para ser vista em qualquer lugar (incluindo incorporada), à semelhança da France 24.
+- **Importante ser honesto:** não consigo testar a transmissão em si a partir daqui (o YouTube está bloqueado no ambiente onde desenvolvo) — se algum canal continuar a aparecer "offline" ou "indisponível" para ti, diz-me que procuro outra alternativa gratuita desse país. Também é normal um canal aparecer offline pontualmente, se a própria estação não estiver a emitir ao vivo no YouTube naquele momento.
 
 
 
