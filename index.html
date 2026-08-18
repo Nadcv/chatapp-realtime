@@ -7041,6 +7041,16 @@
     socket.on('whiteboard_clear_received', () => {
         APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
     });
+    // Ao abrir o quadro (openWhiteboard, abaixo) pedimos o histórico já
+    // desenhado nesta sala — assim quem entra a meio de uma chamada, principalmente
+    // em grupo com várias pessoas, vê o mesmo quadro que os outros, não um em branco.
+    socket.on('whiteboard_state', (data) => {
+        if (data.roomId !== APP.currentChatId) return;
+        const canvas = APP.whiteboard.canvas;
+        (data.segments || []).forEach(seg => {
+            drawSegment(seg.x0 * canvas.width, seg.y0 * canvas.height, seg.x1 * canvas.width, seg.y1 * canvas.height, seg.color, seg.size);
+        });
+    });
 
     // Converte a posição do rato/dedo (em pixels do ecrã) para a posição
     // correspondente na resolução interna do canvas — sem isto, o traço
@@ -7103,7 +7113,13 @@
     }
 
     function stopDraw() { APP.whiteboard.drawing = false; }
-    function openWhiteboard() { document.getElementById('whiteboardContainer').classList.add('active'); }
+    function openWhiteboard() {
+        document.getElementById('whiteboardContainer').classList.add('active');
+        if (APP.currentChatId) {
+            APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
+            socket.emit('whiteboard_get_state', { roomId: APP.currentChatId });
+        }
+    }
     function closeWhiteboard() { document.getElementById('whiteboardContainer').classList.remove('active'); }
     function clearWhiteboard() {
         APP.whiteboard.ctx.clearRect(0, 0, APP.whiteboard.canvas.width, APP.whiteboard.canvas.height);
