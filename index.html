@@ -1323,7 +1323,7 @@
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
-                <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias, filmes e jogos">📺</button>
+                <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias e filmes">📺</button>
                 <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
                 <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
@@ -2056,10 +2056,11 @@
             </div>
             <div id="tvCategoryTabs" style="display:flex;gap:8px;padding:10px 12px 0;flex-shrink:0;overflow-x:auto;"></div>
             <div id="tvTabs" style="display:flex;gap:8px;padding:8px 12px 10px;flex-shrink:0;overflow-x:auto;"></div>
+            <div id="tvMovieList" style="display:none;flex-direction:column;gap:6px;padding:0 12px 10px;flex-shrink:0;max-height:140px;overflow-y:auto;"></div>
             <div style="flex:1;position:relative;background:#000;">
                 <iframe id="tvFrame" style="position:absolute;inset:0;width:100%;height:100%;border:none;" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
             </div>
-            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Filmes/séries e jogos são canais lineares tipo televisão: entras "a meio" do que estiver a passar, não escolhes o título. Se um canal aparecer "offline" ou "indisponível", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app) — tenta outro canal ou volta mais tarde.</p>
+            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Nas notícias, se um canal aparecer "offline", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app). Os filmes são de domínio público (Internet Archive) — escolhe o género e o título.</p>
         </div>
 
         <!-- ============ CALCULADORA ============ -->
@@ -3882,31 +3883,45 @@
     }
 
     // ==================== TV EM DIRETO ====================
-    // Transmissões oficiais e gratuitas de cada emissora no YouTube, através do
-    // endpoint público "embed/live_stream?channel=" — o YouTube resolve sozinho
-    // qual é a emissão ao vivo atual do canal, sem precisarmos de saber o ID de
-    // um vídeo específico (que mudaria a cada transmissão nova).
-    // Só canais gratuitos e licenciados de verdade (FAST/AVOD, transmissão
-    // oficial da própria emissora) — nunca sites/canais piratas.
+    // Notícias: transmissões oficiais e gratuitas de cada emissora no YouTube,
+    // através do endpoint público "embed/live_stream?channel=" — o YouTube
+    // resolve sozinho qual é a emissão ao vivo atual do canal, sem precisarmos
+    // de saber o ID de um vídeo específico (que mudaria a cada transmissão nova).
+    // Só canais gratuitos e licenciados de verdade — nunca sites/canais piratas.
     const TV_CATEGORIES = [
         { id: 'news', name: '📰 Notícias', channels: [
             { id: 'pt', name: 'Euronews (Português)', flag: '🇵🇹', channelId: 'UCUmEPYxmnyQDeRUcFkslmQw' },
             { id: 'es', name: 'Euronews (Español)', flag: '🇪🇸', channelId: 'UCyoGb3SMlTlB8CLGVH4c8Rw' },
             { id: 'fr', name: 'France 24', flag: '🇫🇷', channelId: 'UCCCPCZNChQdGa9EkATeye4g' }
         ]},
-        { id: 'filmes', name: '🎬 Filmes e Séries', channels: [
-            { id: 'filmrise', name: 'FilmRise Movies', flag: '🎬', channelId: 'UC8IHAQMuiJdY6ALuhG7iU8Q' }
+        { id: 'filmes', name: '🎬 Filmes' }
+    ];
+    // Filmes: ao contrário das notícias, não há canais "ao vivo" gratuitos e
+    // fiáveis para filmes — por isso aqui é antes uma lista para escolher e ver,
+    // com filmes de domínio público do Internet Archive (arquivo público oficial,
+    // com suporte a incorporação — https://archive.org/embed/<identificador>).
+    const MOVIE_GENRES = [
+        { id: 'comedia', name: '😂 Comédia', movies: [
+            { title: 'His Girl Friday (1940)', archiveId: 'his_girl_friday' },
+            { title: 'The General (1926, mudo, Buster Keaton)', archiveId: 'the-general-1926' }
         ]},
-        { id: 'jogos', name: '🎮 Jogos (Esports)', channels: [
-            { id: 'estv', name: 'ESTV Esports', flag: '🎮', channelId: 'UCrS3unNbpfCnUNPtSo5NFqw' }
+        { id: 'terror', name: '👻 Terror', movies: [
+            { title: 'Night of the Living Dead (1968)', archiveId: 'night-of-the-living-dead_1968' },
+            { title: 'Nosferatu (1922, mudo)', archiveId: 'Nosferatu1922' }
+        ]},
+        { id: 'ficcao', name: '🚀 Ficção Científica', movies: [
+            { title: 'Plan 9 from Outer Space (1959)', archiveId: 'plan-9-from-outer-space' }
+        ]},
+        { id: 'classicos', name: '🎭 Clássicos e Noir', movies: [
+            { title: 'Detour (1945)', archiveId: 'Detour' }
         ]}
     ];
-    const TV = { category: 'news', current: null };
+    const TV = { category: 'news', current: null, movieGenre: 'comedia', movieId: null };
     function openTvScreen() {
         document.getElementById('tvScreen').classList.add('active');
         renderTvCategoryTabs();
         renderTvChannelTabs();
-        if (!TV.current) selectTvChannel(TV_CATEGORIES[0].channels[0].id);
+        if (TV.category === 'news' && !TV.current) selectTvChannel(TV_CATEGORIES[0].channels[0].id);
     }
     function closeTvScreen() {
         document.getElementById('tvScreen').classList.remove('active');
@@ -3922,10 +3937,25 @@
         if (!cat) return;
         TV.category = catId;
         renderTvCategoryTabs();
-        renderTvChannelTabs();
-        selectTvChannel(cat.channels[0].id);
+        document.getElementById('tvFrame').src = 'about:blank';
+        if (catId === 'filmes') {
+            TV.movieId = null;
+            renderTvChannelTabs();
+        } else {
+            renderTvChannelTabs();
+            selectTvChannel(cat.channels[0].id);
+        }
     }
     function renderTvChannelTabs() {
+        if (TV.category === 'filmes') {
+            document.getElementById('tvTabs').innerHTML = MOVIE_GENRES.map(g => `
+                <button class="btn-small tv-tab ${TV.movieGenre === g.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectMovieGenre('${g.id}')">${g.name}</button>
+            `).join('');
+            document.getElementById('tvMovieList').style.display = 'flex';
+            renderMovieList();
+            return;
+        }
+        document.getElementById('tvMovieList').style.display = 'none';
         const cat = TV_CATEGORIES.find(c => c.id === TV.category);
         document.getElementById('tvTabs').innerHTML = (cat?.channels || []).map(c => `
             <button class="btn-small tv-tab ${TV.current === c.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectTvChannel('${c.id}')">${c.flag} ${c.name}</button>
@@ -3938,6 +3968,23 @@
         TV.current = id;
         renderTvChannelTabs();
         document.getElementById('tvFrame').src = `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
+    }
+    function selectMovieGenre(genreId) {
+        TV.movieGenre = genreId;
+        TV.movieId = null;
+        document.getElementById('tvFrame').src = 'about:blank';
+        renderTvChannelTabs();
+    }
+    function renderMovieList() {
+        const genre = MOVIE_GENRES.find(g => g.id === TV.movieGenre);
+        document.getElementById('tvMovieList').innerHTML = (genre?.movies || []).map(m => `
+            <button class="btn-small ${TV.movieId === m.archiveId ? 'btn-accept' : ''}" style="text-align:left;justify-content:flex-start;" onclick="selectMovie('${m.archiveId}')">🎬 ${escapeHtml(m.title)}</button>
+        `).join('');
+    }
+    function selectMovie(archiveId) {
+        TV.movieId = archiveId;
+        renderMovieList();
+        document.getElementById('tvFrame').src = `https://archive.org/embed/${archiveId}`;
     }
     function openNewsScreen() {
         document.getElementById('newsScreen').classList.add('active');
