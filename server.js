@@ -1100,6 +1100,13 @@ const dndActiveByPhone = {}; // phone -> true/false
 // muda rápido, como trânsito; mais longo para obras).
 const ALERTS_FILE = path.join(__dirname, 'roadalerts.json');
 let roadAlerts = []; // [{id, type, lat, lng, reportedBy, reportedAt, expiresAt, confirms, denies}]
+
+// ==================== QUADRO BRANCO SINCRONIZADO (chamadas 1-a-1 e de grupo) ====================
+// Histórico de traços por sala, só em memória — permite que quem abra o
+// quadro a meio de uma chamada (sobretudo em grupo) veja o que já foi
+// desenhado, em vez de começar sempre com um quadro vazio.
+const whiteboardState = {}; // { [roomId]: { segments: [...], lastActivity } }
+const WHITEBOARD_MAX_SEGMENTS = 3000;
 const ALERT_TYPE_TTL_MS = {
   police: 45 * 60 * 1000,
   accident: 2 * 60 * 60 * 1000,
@@ -1910,13 +1917,26 @@ io.on('connection', (socket) => {
   }
   socket.on('leave_vr_room', (data) => { if (data?.roomId) leaveVrRoom(data.roomId); });
 
+  // Guarda o histórico de traços por sala (em memória — é um "rascunho" ao
+  // vivo, não precisa de sobreviver a um reinício do servidor) para quem
+  // abre o quadro branco a meio de uma chamada (sobretudo em grupo, com
+  // várias pessoas) ver logo o que já foi desenhado, não um quadro vazio.
   socket.on('whiteboard_draw', (data) => {
     if (!data?.roomId) return;
+    const room = whiteboardState[data.roomId] || (whiteboardState[data.roomId] = { segments: [], lastActivity: Date.now() });
+    room.segments.push(data);
+    if (room.segments.length > WHITEBOARD_MAX_SEGMENTS) room.segments.shift();
+    room.lastActivity = Date.now();
     socket.to(data.roomId).emit('whiteboard_draw_received', data);
   });
   socket.on('whiteboard_clear', (data) => {
     if (!data?.roomId) return;
+    delete whiteboardState[data.roomId];
     socket.to(data.roomId).emit('whiteboard_clear_received', data);
+  });
+  socket.on('whiteboard_get_state', (data) => {
+    if (!data?.roomId) return;
+    socket.emit('whiteboard_state', { roomId: data.roomId, segments: whiteboardState[data.roomId]?.segments || [] });
   });
 
   socket.on('music_state', (data) => {
@@ -2155,6 +2175,15 @@ connectDatabase().then(async () => {
   setInterval(() => {
     if (pruneExpiredAlerts()) io.emit('road_alerts_update', roadAlerts);
   }, 2 * 60 * 1000);
+
+  // Quadro branco: apaga o histórico de salas sem nenhum traço novo há
+  // várias horas, para não acumular memória com quadros de chamadas antigas.
+  setInterval(() => {
+    const now = Date.now();
+    Object.keys(whiteboardState).forEach((roomId) => {
+      if (now - whiteboardState[roomId].lastActivity > 6 * 60 * 60 * 1000) delete whiteboardState[roomId];
+    });
+  }, 30 * 60 * 1000);
 
   // Mensagens agendadas: dispara as que já chegaram à hora marcada.
   setInterval(async () => {
