@@ -1304,6 +1304,7 @@
                 <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
                 <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
                 <button class="btn-icon" onclick="openNavScreen()" title="Navegação GPS — mundo inteiro, tipo Waze">🧭</button>
+                <button class="btn-icon" onclick="openFiresScreen()" title="Incêndios em tempo real (mundo inteiro)">🔥</button>
                 <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
                 <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
@@ -1974,6 +1975,29 @@
                     <h4 style="margin:0 0 8px;">🔭 Satélites visíveis agora</h4>
                     <div id="satellitesList" style="font-size:13px;color:var(--text-secondary);">A carregar...</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ============ INCÊNDIOS EM TEMPO REAL ============ -->
+        <div class="location-screen" id="firesScreen">
+            <div class="location-header">
+                <strong>🔥 Incêndios em tempo real</strong>
+                <button onclick="closeFiresScreen()">✖️</button>
+            </div>
+            <div style="position:relative;flex:1;overflow:hidden;">
+                <div id="firesMap" style="position:absolute;inset:0;"></div>
+                <button onclick="loadFires()" title="Atualizar" style="position:absolute;top:10px;right:10px;z-index:500;width:40px;height:40px;border-radius:50%;background:var(--bg-secondary);border:none;font-size:18px;cursor:pointer;box-shadow:var(--shadow);">🔄</button>
+            </div>
+            <div id="firesStatus" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);text-align:center;background:var(--bg-secondary);">A carregar...</div>
+            <div class="location-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
+                <a href="tel:112" style="text-decoration:none;">
+                    <button class="btn-small btn-danger" style="width:100%;font-size:15px;padding:12px;">🚨 Ligar 112 (emergência)</button>
+                </a>
+                <div style="display:flex;gap:8px;">
+                    <input type="tel" id="fireSmsContact" placeholder="Nº para SMS de emergência (o teu contacto)" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);" oninput="saveFireSmsContact(this.value)">
+                    <button class="btn-small" onclick="prepareFireSms()" style="flex:0 0 auto;">✉️ SMS</button>
+                </div>
+                <p style="font-size:11px;color:var(--text-secondary);margin:0;text-align:center;">O botão 112 liga já para a emergência. O SMS é preparado com a tua localização e enviado por ti, para um contacto que escolhas (ex.: um familiar, ou o número local dos bombeiros que já saibas) — não é um despacho automático.</p>
             </div>
         </div>
 
@@ -3632,6 +3656,68 @@
 
     function escapeHtml(str) {
         return (str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // ==================== INCÊNDIOS EM TEMPO REAL ====================
+    const FIRES = { map: null, layer: null, smsContact: localStorage.getItem('fireSmsContact') || '' };
+    function openFiresScreen() {
+        document.getElementById('firesScreen').classList.add('active');
+        document.getElementById('fireSmsContact').value = FIRES.smsContact;
+        if (!FIRES.map) {
+            FIRES.map = L.map('firesMap').setView([39.5, -8], 6); // Portugal por padrão — o mapa cobre o mundo todo
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(FIRES.map);
+            FIRES.layer = L.layerGroup().addTo(FIRES.map);
+        }
+        setTimeout(() => FIRES.map.invalidateSize(), 200);
+        loadFires();
+    }
+    function closeFiresScreen() { document.getElementById('firesScreen').classList.remove('active'); }
+    function loadFires() {
+        const status = document.getElementById('firesStatus');
+        status.textContent = 'A atualizar incêndios...';
+        const bounds = FIRES.map.getBounds();
+        const params = new URLSearchParams({
+            west: bounds.getWest().toFixed(2), south: bounds.getSouth().toFixed(2),
+            east: bounds.getEast().toFixed(2), north: bounds.getNorth().toFixed(2)
+        });
+        fetch('/api/fires?' + params.toString()).then(r => r.json()).then(data => {
+            if (data.error) throw new Error(data.error);
+            if (data.configured === false) {
+                status.textContent = '⚠️ Mapa de incêndios ainda não configurado — falta a chave NASA_FIRMS_KEY no servidor (grátis, ver README).';
+                return;
+            }
+            FIRES.layer.clearLayers();
+            (data.fires || []).forEach(f => {
+                const isHigh = f.confidence === 'h' || f.confidence === 'high';
+                const isLow = f.confidence === 'l' || f.confidence === 'low';
+                const color = isHigh ? '#dc2626' : (isLow ? '#fbbf24' : '#f97316');
+                const timeStr = f.time ? `${String(f.time).padStart(4, '0').slice(0, 2)}:${String(f.time).padStart(4, '0').slice(2)}` : '—';
+                L.circleMarker([f.lat, f.lng], { radius: 5, color, fillColor: color, fillOpacity: 0.8, weight: 1 })
+                    .bindPopup(`🔥 Foco de incêndio<br>Detetado: ${f.date || '—'} ${timeStr}<br>Confiança: ${f.confidence || '—'}${f.frp ? '<br>Intensidade (FRP): ' + f.frp : ''}`)
+                    .addTo(FIRES.layer);
+            });
+            status.textContent = `${(data.fires || []).length} foco(s) de incêndio na área visível (últimas 24h, NASA FIRMS) — mova/afaste o mapa e toque em 🔄 para atualizar`;
+        }).catch(err => {
+            status.textContent = '⚠️ Não foi possível carregar os incêndios: ' + err.message;
+        });
+    }
+    function saveFireSmsContact(value) {
+        FIRES.smsContact = value.trim();
+        localStorage.setItem('fireSmsContact', FIRES.smsContact);
+    }
+    function prepareFireSms() {
+        const number = (FIRES.smsContact || '').trim();
+        if (!number) return alert('Escreve primeiro o número para quem queres enviar o SMS.');
+        const send = (locationText) => {
+            const body = encodeURIComponent(`🔥 Possível incêndio perto de mim! ${locationText}`);
+            window.location.href = `sms:${number}?body=${body}`;
+        };
+        if (!navigator.geolocation) return send('(sem localização disponível neste navegador)');
+        navigator.geolocation.getCurrentPosition(
+            (pos) => send(`Localização: https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`),
+            () => send('(não foi possível obter a localização exata)'),
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
     }
 
     // ==================== NOTÍCIAS ====================

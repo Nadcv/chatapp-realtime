@@ -335,6 +335,55 @@ app.get('/api/transport/flights', async (req, res) => {
   }
 });
 
+// ==================== INCÊNDIOS EM TEMPO REAL (mundo inteiro) ====================
+// NASA FIRMS (Fire Information for Resource Management System) — focos de
+// incêndio/calor detetados por satélite (VIIRS), atualizados a cada poucas
+// horas, cobrindo o planeta todo (inclui Portugal). Gratuita, mas exige uma
+// chave própria (grátis, só um email): https://firms.modaps.eosdis.nasa.gov/api/map_key/
+// Sem a chave configurada, o endpoint responde "configured: false" e o
+// cliente mostra um aviso a pedir configuração, em vez de travar.
+const firesCacheStore = {};
+function parseCsv(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const cols = line.split(',');
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = cols[i]; });
+    return obj;
+  });
+}
+async function fetchFiresArea(area) {
+  const now = Date.now();
+  const cacheKey = 'fires_' + area;
+  if (firesCacheStore[cacheKey] && (now - firesCacheStore[cacheKey].t) < 15 * 60 * 1000) return firesCacheStore[cacheKey].data;
+  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${process.env.NASA_FIRMS_KEY}/VIIRS_SNPP_NRT/${area}/1`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const text = await r.text();
+  if (/invalid|error/i.test(text.slice(0, 40))) throw new Error('Chave da NASA FIRMS inválida ou pedidos esgotados.');
+  const fires = parseCsv(text).map(f => ({
+    lat: parseFloat(f.latitude), lng: parseFloat(f.longitude),
+    date: f.acq_date, time: f.acq_time, confidence: f.confidence,
+    frp: f.frp ? parseFloat(f.frp) : null, daynight: f.daynight
+  })).filter(f => !isNaN(f.lat) && !isNaN(f.lng));
+  firesCacheStore[cacheKey] = { t: now, data: fires };
+  return fires;
+}
+app.get('/api/fires', async (req, res) => {
+  if (!process.env.NASA_FIRMS_KEY) return res.json({ configured: false, fires: [] });
+  const { west, south, east, north } = req.query;
+  if (!west || !south || !east || !north) return res.status(400).json({ error: 'Área do mapa em falta.' });
+  try {
+    const fires = await fetchFiresArea(`${west},${south},${east},${north}`);
+    res.json({ configured: true, fires });
+  } catch (err) {
+    console.error('Erro incêndios (NASA FIRMS):', err.message);
+    res.status(502).json({ error: 'Não foi possível obter dados de incêndios agora.' });
+  }
+});
+
 // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
 // Inspirado no driveandlisten.app: vídeo de condução pela cidade (YouTube) +
 // rádio local a tocar ao mesmo tempo. A lista de cidades é curada à mão (com
