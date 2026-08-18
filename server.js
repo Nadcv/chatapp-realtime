@@ -1578,15 +1578,28 @@ io.on('connection', (socket) => {
 
     socket.to(data.chatId).emit('receive_message', data);
 
-    // Notificação push (mesmo com a app fechada) — só para conversas 1-para-1 por agora
+    // Notificação push (mesmo com a app fechada) — conversas 1-para-1 e grupos.
+    const senderName = data.sender || 'Alguém';
+    const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('video/') ? '🎥 Enviou um vídeo' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100)))));
     if (!group && data.toPhone) {
       const recipientMuted = (mutedByPhone[data.toPhone] || []).includes(data.chatId);
       const recipientDnd = !!dndActiveByPhone[data.toPhone];
       if (!recipientMuted && !recipientDnd) {
-        const senderName = data.sender || 'Alguém';
-        const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('video/') ? '🎥 Enviou um vídeo' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100)))));
         sendPushToPhone(data.toPhone, { title: senderName, body: preview, chatId: data.chatId }).catch(() => {});
       }
+    } else if (group) {
+      // Os grupos são visíveis/entram automaticamente a todos os utilizadores
+      // cadastrados (funcionam como canais públicos — ver README), por isso a
+      // notificação alcança a mesma "audiência" que já recebe a mensagem ao
+      // vivo, respeitando quem silenciou este grupo ou está em "não incomodar".
+      Object.values(accounts).forEach((acc) => {
+        if (acc.phone === myPhone) return; // não notifica quem enviou
+        if (group.bannedPhones?.includes(acc.phone)) return;
+        const recipientMuted = (mutedByPhone[acc.phone] || []).includes(data.chatId);
+        const recipientDnd = !!dndActiveByPhone[acc.phone];
+        if (recipientMuted || recipientDnd) return;
+        sendPushToPhone(acc.phone, { title: `${senderName} (${group.name})`, body: preview, chatId: data.chatId }).catch(() => {});
+      });
     }
   });
 

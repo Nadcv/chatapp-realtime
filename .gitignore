@@ -4,3 +4,15 @@ users.json
 groups.json
 activities.json
 vapid.json
+todos.json
+notes.json
+pins.json
+disappearing.json
+statuses.json
+calllog.json
+scheduled.json
+muted.json
+archived.json
+blocked.json
+roadalerts.json
+package-lock.json
