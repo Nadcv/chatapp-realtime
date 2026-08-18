@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
+let nodemailer = null;
+try { nodemailer = require('nodemailer'); } catch (e) { console.warn('⚠️ Pacote "nodemailer" não instalado — envio de email desativado.'); }
 
 const app = express();
 app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
@@ -381,6 +383,50 @@ app.get('/api/fires', async (req, res) => {
   } catch (err) {
     console.error('Erro incêndios (NASA FIRMS):', err.message);
     res.status(502).json({ error: 'Não foi possível obter dados de incêndios agora.' });
+  }
+});
+
+// Envia um email real de aviso (ex.: "possível incêndio perto de mim") para
+// um destinatário que a PRÓPRIA pessoa escolhe — nunca um envio automático
+// para serviços de emergência (ver aviso no README sobre isso). Usa uma
+// conta de email própria (Gmail com "palavra-passe de aplicação", ou outro
+// serviço SMTP) configurada no servidor — grátis, mas precisa de configuração.
+let mailTransporter = null;
+function getMailTransporter() {
+  if (mailTransporter) return mailTransporter;
+  const { EMAIL_USER, EMAIL_PASS, SMTP_HOST, SMTP_PORT } = process.env;
+  if (!EMAIL_USER || !EMAIL_PASS || !nodemailer) return null;
+  mailTransporter = SMTP_HOST
+    ? nodemailer.createTransport({ host: SMTP_HOST, port: Number(SMTP_PORT) || 587, secure: Number(SMTP_PORT) === 465, auth: { user: EMAIL_USER, pass: EMAIL_PASS } })
+    : nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS } });
+  return mailTransporter;
+}
+function escapeHtmlServer(str) {
+  return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+app.post('/api/fires/send-email', async (req, res) => {
+  const transporter = getMailTransporter();
+  if (!transporter) return res.json({ configured: false });
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const account = accounts[phone];
+  if (!account) return res.status(403).json({ error: 'Sessão inválida — faz login de novo.' });
+  const { to, lat, lng } = req.body || {};
+  if (!to || typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'Dados em falta.' });
+  try {
+    const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
+    const senderName = escapeHtmlServer(account.name);
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to,
+      subject: '🔥 Aviso de possível incêndio — ChatApp',
+      text: `${account.name} reportou um possível incêndio perto desta localização: ${mapsLink}\n\nCoordenadas: ${lat}, ${lng}`,
+      html: `<p>🔥 <strong>${senderName}</strong> reportou um possível incêndio perto desta localização:</p><p><a href="${mapsLink}">${mapsLink}</a></p><p>Coordenadas: ${lat}, ${lng}</p><p style="color:#888;font-size:12px;">Enviado automaticamente pelo ChatApp — não é um alerta oficial dos bombeiros.</p>`
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao enviar email de incêndio:', err.message);
+    res.status(502).json({ error: 'Não foi possível enviar o email agora.' });
   }
 });
 
