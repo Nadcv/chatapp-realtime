@@ -312,7 +312,7 @@ A cor de destaque padrão deixou de ser o verde clássico de app de chat — ago
 
 Novo botão 📰 no cabeçalho. Agrega notícias via RSS público (sem chave, sem scraping), com 3 abas:
 - **🇵🇹 Portugal** — Público, Observador, RTP Notícias
-- **🌍 Mundo** — BBC World, Euronews, CNN, RTP África
+- **🌍 Mundo** — BBC World, Euronews, CNN, RTP África, El País (Espanha), Le Monde (França)
 - **⚽ Futebol** — Record
 
 O servidor atualiza a lista sozinho a cada 10 minutos e, assim que sai uma notícia nova, avisa quem estiver ligado — com um toast dentro do ecrã de notícias, ou uma bolinha vermelha no ícone 📰 do cabeçalho se a pessoa estiver noutra parte da app — parecido com o Google Notícias. Tocar numa notícia abre-a dentro da própria app.
@@ -360,9 +360,13 @@ Novo botão 🔥 no cabeçalho: mapa com os focos de incêndio detetados por sat
   3. (Opcional) Se preferires usar outro serviço de email em vez do Gmail, define também `SMTP_HOST` e `SMTP_PORT`
   4. Sem essas variáveis, o botão mostra um aviso claro a pedir a configuração, em vez de travar
 
-## 📖 Notícias abrem dentro da própria app
+## 📖 Notícias abrem dentro da própria app — agora com Modo Leitura de verdade
 
-Tocar numa notícia (📰) já não abre o navegador — abre uma leitura dentro da própria app (com botão ← para voltar e 🔗 para abrir no navegador se preferires). **Aviso honesto:** alguns sites de notícias bloqueiam deliberadamente aparecer dentro de outras apps (proteção contra "clickjacking", uma medida de segurança do próprio site, não um limite desta app) — nesses casos aparece uma mensagem a convidar a tocar no 🔗 para abrir no navegador normalmente.
+Tocar numa notícia (📰) abre uma leitura dentro da própria app (com botão ← para voltar e 🔗 para abrir no navegador se preferires).
+
+**Primeira versão** mostrava o site original num iframe — mas muitos sites bloqueiam deliberadamente aparecer dentro de outras apps (proteção contra "clickjacking", uma medida de segurança do próprio site). Como essa proteção é enviada pelo servidor do site (não dá para "contornar" no navegador), a solução foi mudar de abordagem: agora o **próprio servidor do ChatApp** vai buscar a notícia, extrai só o artigo — título, texto, imagens, sem menus/anúncios/rodapé — com o **Readability** (a mesma biblioteca por trás do Modo Leitura do Firefox), e limpa o resultado com o **DOMPurify** antes de mostrar (remove qualquer `<script>` ou código que possa vir escondido na página, por segurança). Isto funciona para qualquer site, independentemente da proteção anti-iframe dele.
+
+Se a extração falhar nalguma notícia específica (ex.: página com formato muito atípico, ou o site bloquear pedidos automáticos), a app volta sozinha ao iframe de antes como reserva — e se mesmo esse não aparecer, fica sempre o botão 🔗 para abrir no navegador normal.
 
 ## 🎨 Quadro branco partilhado com todos numa chamada de grupo
 
