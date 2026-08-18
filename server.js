@@ -559,6 +559,8 @@ const NEWS_FEEDS = [
   { id: 'elpais', name: 'El País', flag: '🇪🇸', category: 'mundo', url: 'https://elpais.com/rss/elpais/portada.xml' },
   { id: 'abc', name: 'ABC', flag: '🇪🇸', category: 'mundo', url: 'https://www.abc.es/rss/feeds/abcPortada.xml' },
   { id: 'lemonde', name: 'Le Monde', flag: '🇫🇷', category: 'mundo', url: 'https://www.lemonde.fr/rss/une.xml' },
+  { id: 'g1', name: 'G1', flag: '🇧🇷', category: 'mundo', url: 'https://g1.globo.com/rss/g1/' },
+  { id: 'telanon', name: 'Téla Nón', flag: '🇸🇹', category: 'mundo', url: 'https://www.telanon.info/feed/' },
   { id: 'record', name: 'Record', flag: '⚽', category: 'futebol', url: 'https://www.record.pt/rss' }
 ];
 let newsItems = []; // lista mesclada de todas as fontes, mais recente primeiro
