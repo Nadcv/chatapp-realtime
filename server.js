@@ -820,19 +820,27 @@ app.post('/api/gemini-chat', async (req, res) => {
       contents.push({ role: m.role === 'user' ? 'user' : 'model', parts });
     }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat. Consegue analisar fotos, vídeos e documentos que lhe enviarem. Responda em português, de forma clara e útil.' }] }
-      })
+    const body = JSON.stringify({
+      contents,
+      systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat. Consegue analisar fotos, vídeos e documentos que lhe enviarem. Responda em português, de forma clara e útil.' }] }
     });
-    const data = await r.json();
+    // O Gemini às vezes devolve 503 "model overloaded" em picos de utilização
+    // — é passageiro na grande maioria das vezes, por isso tenta mais uma vez
+    // sozinho (com uma pequena pausa) antes de mostrar erro à pessoa.
+    let r, data;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      data = await r.json();
+      if (r.ok || r.status !== 503 || attempt === 1) break;
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
     if (!r.ok) {
-      const msg = data?.error?.message || 'O Gemini não respondeu.';
-      const status = r.status === 429 ? 429 : 502;
-      return res.status(status).json({ error: status === 429 ? 'O Gemini atingiu o limite gratuito de pedidos por agora — tenta novamente daqui a um bocado.' : msg });
+      let error;
+      if (r.status === 429) error = 'O Gemini atingiu o limite gratuito de pedidos por agora — tenta novamente daqui a um bocado.';
+      else if (r.status === 503) error = 'O Gemini está sobrecarregado agora (muita gente a usar ao mesmo tempo) — tenta novamente daqui a um instante.';
+      else error = 'Não foi possível obter resposta do Gemini agora.';
+      console.error('Erro Gemini (' + r.status + '):', data?.error?.message || 'sem detalhe');
+      return res.status(r.status === 429 ? 429 : 502).json({ error });
     }
     const reply = data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('\n') || 'Não consegui gerar uma resposta para isto.';
     res.json({ reply });

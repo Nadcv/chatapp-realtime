@@ -267,6 +267,10 @@ Depois de instalado, abre como uma janela própria (sem a barra do navegador) e 
 
 Como os grupos funcionam como canais públicos (visíveis a todos os utilizadores cadastrados, ver secção acima), a notificação de uma mensagem de grupo alcança a mesma "audiência" que já recebe a mensagem ao vivo — todos os utilizadores registados, exceto quem enviou. Continua a respeitar quem **silenciou** aquele grupo especificamente (🔔 no cabeçalho da conversa) ou está em **"não incomodar"** — essas pessoas não recebem a notificação. Testei com 4 contas: quem silenciou o grupo não recebeu, quem enviou não recebeu (não faz sentido notificar-te da tua própria mensagem), e uma conta "normal" recebeu.
 
+## Correção: erro do Gemini aparecia em inglês, sem traduzir
+
+Quando o Gemini fica sobrecarregado (erro 503 "muita gente a usar ao mesmo tempo" — diferente do erro 429 de limite gratuito esgotado, que já tinha mensagem em português), o servidor mostrava o texto de erro original da Google, em inglês, direto na conversa. Corrigido: agora esse caso tem a sua própria mensagem em português, e o servidor tenta automaticamente mais uma vez (com uma pequena pausa) antes de desistir — como este tipo de sobrecarga costuma ser passageiro, muitas vezes já resolve sozinho sem a pessoa precisar de reenviar a pergunta.
+
 ## Ficheiros em armazenamento externo (Cloudinary)
 
 Por padrão, fotos/áudios/documentos continuam a ser guardados dentro da própria mensagem (em base64) — funciona sem configuração nenhuma, mas enche depressa os 512MB grátis do MongoDB Atlas. Se ligares o Cloudinary (gratuito até 25GB), os ficheiros passam a ficar lá guardados e a mensagem só leva o link, muito mais leve:
