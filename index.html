@@ -2012,10 +2012,11 @@
                 <strong>📰 Notícias</strong>
                 <button onclick="closeNewsScreen()">✖️</button>
             </div>
-            <div style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;">
-                <button class="btn-small news-tab btn-accept" id="newsTabPortugal" onclick="setNewsTab('portugal')">🇵🇹 Portugal</button>
-                <button class="btn-small news-tab" id="newsTabMundo" onclick="setNewsTab('mundo')">🌍 Mundo</button>
-                <button class="btn-small" style="margin-left:auto;" onclick="loadNews(true)" title="Atualizar agora">🔄</button>
+            <div style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;overflow-x:auto;">
+                <button class="btn-small news-tab btn-accept" id="newsTabPortugal" onclick="setNewsTab('portugal')" style="flex-shrink:0;">🇵🇹 Portugal</button>
+                <button class="btn-small news-tab" id="newsTabMundo" onclick="setNewsTab('mundo')" style="flex-shrink:0;">🌍 Mundo</button>
+                <button class="btn-small news-tab" id="newsTabFutebol" onclick="setNewsTab('futebol')" style="flex-shrink:0;">⚽ Futebol</button>
+                <button class="btn-small" style="margin-left:auto;flex-shrink:0;" onclick="loadNews(true)" title="Atualizar agora">🔄</button>
             </div>
             <div id="newsToast" style="display:none;margin:0 12px 8px;padding:8px 12px;background:var(--green);color:#fff;border-radius:8px;font-size:13px;cursor:pointer;"></div>
             <div id="newsList" style="flex:1;overflow-y:auto;padding:0 12px 12px;">A carregar notícias...</div>
@@ -3798,6 +3799,7 @@
         NEWS.tab = tab;
         document.getElementById('newsTabPortugal').classList.toggle('btn-accept', tab === 'portugal');
         document.getElementById('newsTabMundo').classList.toggle('btn-accept', tab === 'mundo');
+        document.getElementById('newsTabFutebol').classList.toggle('btn-accept', tab === 'futebol');
         renderNewsList();
     }
     async function loadNews(manual) {

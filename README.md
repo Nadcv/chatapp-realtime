@@ -308,9 +308,14 @@ A cor de destaque padrão deixou de ser o verde clássico de app de chat — ago
 
 **Aviso sobre a imagem de fundo:** segue o mesmo aviso de armazenamento das fotos de perfil/mensagens — sem o Cloudinary configurado, a imagem fica guardada como base64 dentro da tua conta (ver secção "Ficheiros em armazenamento externo" abaixo), o que é normal para uso pessoal mas enche mais depressa os 512MB grátis do MongoDB Atlas se muitas pessoas usarem imagens grandes.
 
-## 📰 Notícias (Portugal + Mundo)
+## 📰 Notícias (Portugal + Mundo + Futebol)
 
-Novo botão 📰 no cabeçalho. Agrega notícias via RSS público (sem chave, sem scraping) do Público, Observador e RTP Notícias (Portugal) e da BBC World (Mundo), com abas para filtrar. O servidor atualiza a lista sozinho a cada 10 minutos e, assim que sai uma notícia nova, avisa quem estiver ligado — com um toast dentro do ecrã de notícias, ou uma bolinha vermelha no ícone 📰 do cabeçalho se a pessoa estiver noutra parte da app — parecido com o Google Notícias. Tocar numa notícia abre o artigo original numa nova aba.
+Novo botão 📰 no cabeçalho. Agrega notícias via RSS público (sem chave, sem scraping), com 3 abas:
+- **🇵🇹 Portugal** — Público, Observador, RTP Notícias
+- **🌍 Mundo** — BBC World, Euronews, CNN, RTP África
+- **⚽ Futebol** — Record
+
+O servidor atualiza a lista sozinho a cada 10 minutos e, assim que sai uma notícia nova, avisa quem estiver ligado — com um toast dentro do ecrã de notícias, ou uma bolinha vermelha no ícone 📰 do cabeçalho se a pessoa estiver noutra parte da app — parecido com o Google Notícias. Tocar numa notícia abre-a dentro da própria app.
 
 **Nota de honestidade:** as fontes RSS têm o endereço mais estável e conhecido de cada site, mas alguns sites mudam esse endereço de vez em quando sem avisar. Se alguma fonte aparecer sempre vazia (dá para ver no log do Railway: "⚠️ Erro ao obter notícias de X"), diz-me qual e arranjo o link novo — é só trocar uma linha em `NEWS_FEEDS` no `server.js`, as outras fontes continuam a funcionar normalmente enquanto isso.
 
