@@ -1703,10 +1703,26 @@
         </div>
 
         <div class="modal-overlay" id="modalTranslator">
-            <div class="modal">
+            <div class="modal" style="max-height:85vh;overflow-y:auto;">
                 <h3>🌐 Idioma do Tradutor</h3>
                 <p style="color:#8696a0;font-size:13px;">Escolha para qual idioma as mensagens devem ser traduzidas ao tocar no 🌐 de cada mensagem.</p>
-                <div id="translatorLangList" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+                <div id="translatorLangList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+
+                <div style="border-top:1px solid var(--bg-tertiary);margin:16px 0;"></div>
+
+                <div style="font-weight:600;font-size:14px;margin-bottom:4px;">🔤 Tradutor rápido (extra)</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 10px;">Escreve um texto em português ou inglês de um lado, e escolhe para que idioma traduzir do outro lado.</p>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <select id="quickTransFrom" onchange="quickTranslate()" style="flex:1;min-width:0;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:8px;color:var(--text-primary);">
+                        <option value="pt">🇧🇷 Português</option>
+                        <option value="en">🇺🇸 Inglês</option>
+                    </select>
+                    <button class="btn-small" onclick="swapQuickTranslate()" title="Trocar os dois lados" style="padding:8px 10px;flex:0 0 auto;">🔄</button>
+                    <select id="quickTransTo" onchange="quickTranslate()" style="flex:1;min-width:0;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:8px;color:var(--text-primary);"></select>
+                </div>
+                <textarea id="quickTransInput" oninput="debounceQuickTranslate()" placeholder="Escreve aqui..." style="width:100%;min-height:70px;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:10px;color:var(--text-primary);resize:vertical;margin-bottom:8px;font-family:inherit;font-size:14px;"></textarea>
+                <div id="quickTransOutput" style="width:100%;min-height:70px;background:var(--bg-secondary);border-radius:8px;padding:10px;color:var(--text-primary);white-space:pre-wrap;font-size:14px;"></div>
+
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalTranslator')">Fechar</button>
                 </div>
@@ -5242,6 +5258,7 @@
         list.innerHTML = TRANSLATE_LANGUAGES.map(l => `
             <button class="btn-small ${APP.translatorLang === l.code ? 'btn-accept' : ''}" style="text-align:left;justify-content:flex-start;" onclick="selectTranslatorLang('${l.code}')">${l.label}${APP.translatorLang === l.code ? ' ✓' : ''}</button>
         `).join('');
+        populateQuickTranslateSelect();
         document.getElementById('modalTranslator').classList.add('active');
     }
 
@@ -5249,6 +5266,51 @@
         APP.translatorLang = code;
         localStorage.setItem('translatorLang', code);
         openTranslatorModal(); // re-renderiza para marcar o selecionado
+    }
+
+    // ---- Tradutor rápido (extra dentro do mesmo modal): PT/EN de um lado,
+    // qualquer idioma do outro — não depende da língua escolhida para as mensagens.
+    function populateQuickTranslateSelect() {
+        const to = document.getElementById('quickTransTo');
+        if (to.children.length) return; // já preenchido, não perde a seleção do utilizador ao reabrir
+        to.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
+        to.value = (APP.translatorLang && APP.translatorLang !== 'pt') ? APP.translatorLang : 'en';
+    }
+    let quickTransTimer = null;
+    function debounceQuickTranslate() {
+        clearTimeout(quickTransTimer);
+        quickTransTimer = setTimeout(quickTranslate, 500);
+    }
+    async function quickTranslate() {
+        const text = document.getElementById('quickTransInput').value.trim();
+        const output = document.getElementById('quickTransOutput');
+        if (!text) { output.textContent = ''; return; }
+        const target = document.getElementById('quickTransTo').value;
+        output.textContent = 'A traduzir...';
+        try {
+            const res = await fetch(`/api/translate?text=${encodeURIComponent(text)}&target=${encodeURIComponent(target)}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha');
+            output.textContent = data.translated || '';
+        } catch (e) {
+            output.textContent = '⚠️ Não foi possível traduzir agora.';
+        }
+    }
+    function swapQuickTranslate() {
+        const fromSel = document.getElementById('quickTransFrom');
+        const toSel = document.getElementById('quickTransTo');
+        const input = document.getElementById('quickTransInput');
+        const output = document.getElementById('quickTransOutput');
+        // o lado esquerdo só tem PT/EN — só troca de verdade quando o idioma
+        // do lado direito também é um desses dois; nos outros casos só troca o texto.
+        if (toSel.value === 'pt' || toSel.value === 'en') {
+            const fromVal = fromSel.value;
+            fromSel.value = toSel.value;
+            toSel.value = fromVal;
+        }
+        const currentOutput = output.textContent;
+        input.value = (currentOutput === 'A traduzir...' || currentOutput.startsWith('⚠️')) ? '' : currentOutput;
+        quickTranslate();
     }
 
     async function translateMsg(msgId, btnEl) {
