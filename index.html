@@ -3919,7 +3919,12 @@
             { id: 'pt', name: 'Euronews (Português)', flag: '🇵🇹', channelId: 'UCUmEPYxmnyQDeRUcFkslmQw' },
             { id: 'es', name: 'Euronews (Español)', flag: '🇪🇸', channelId: 'UCyoGb3SMlTlB8CLGVH4c8Rw' },
             { id: 'fr', name: 'France 24', flag: '🇫🇷', channelId: 'UCCCPCZNChQdGa9EkATeye4g' },
-            { id: 'stp', name: 'TVS', flag: '🇸🇹', channelId: 'UC1BL0NBJgR5Ud-smXo3gfyQ' }
+            { id: 'stp', name: 'TVS', flag: '🇸🇹', channelId: 'UC1BL0NBJgR5Ud-smXo3gfyQ' },
+            { id: 'stp2', name: 'TVS (site)', flag: '🇸🇹', directUrl: 'https://tvs.st/index.php?controller=home&action=tvsplay' },
+            { id: 'ao', name: 'TPA', flag: '🇦🇴', channelId: 'UCwUbvKFF26CT4otwrEeLHtw' },
+            { id: 'cv', name: 'RTC', flag: '🇨🇻', channelId: 'UCE8NLIaNMwDy-LKUTcCU-5g' },
+            { id: 'mz', name: 'TVM', flag: '🇲🇿', channelId: 'UCfRoEW08udEmsPSIt_YDK_w' },
+            { id: 'tl', name: 'RTTL', flag: '🇹🇱', channelId: 'UCtwMP_IzEm3r9PDuaYRUKLA' }
         ]},
         { id: 'filmes', name: '🎬 Filmes' }
     ];
@@ -3990,7 +3995,12 @@
         if (!ch) return;
         TV.current = id;
         renderTvChannelTabs();
-        document.getElementById('tvFrame').src = `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
+        // A maioria dos canais usa o Live do YouTube; alguns (ex.: TVS) não têm
+        // isso configurado, mas têm o próprio site com transmissão direta — nesse
+        // caso incorporamos o site diretamente (pode não funcionar se o site
+        // bloquear ser mostrado dentro de outras páginas, tal como acontece com
+        // alguns artigos de notícias).
+        document.getElementById('tvFrame').src = ch.directUrl || `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
     }
     function selectMovieGenre(genreId) {
         TV.movieGenre = genreId;
