@@ -1009,7 +1009,7 @@
             gap: 14px;
             flex-wrap: wrap;
         }
-        .news-tab.btn-accept, .calc-tab.btn-accept { font-weight: 600; }
+        .news-tab.btn-accept, .calc-tab.btn-accept, .tv-tab.btn-accept { font-weight: 600; }
         .news-card {
             background: var(--bg-secondary);
             border-radius: 12px;
@@ -1323,6 +1323,7 @@
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
+                <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto">📺</button>
                 <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
                 <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
@@ -2045,6 +2046,19 @@
             <div id="newsArticleNotice" style="display:none;background:var(--bg-secondary);color:var(--text-secondary);font-size:12px;padding:8px 12px;text-align:center;">Não foi possível extrair o texto do artigo — a mostrar a página original. Se não aparecer, o site não permite ser mostrado dentro de outras apps (proteção do próprio site) — toca no 🔗 para abrir no navegador.</div>
             <div id="newsArticleReader" style="flex:1;overflow-y:auto;background:var(--bg-primary);display:none;"></div>
             <iframe id="newsArticleFrame" style="flex:1;border:none;background:#fff;display:none;" src="about:blank"></iframe>
+        </div>
+
+        <!-- ============ TV EM DIRETO ============ -->
+        <div class="location-screen" id="tvScreen">
+            <div class="location-header">
+                <strong>📺 TV em Direto</strong>
+                <button onclick="closeTvScreen()">✖️</button>
+            </div>
+            <div id="tvTabs" style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;overflow-x:auto;"></div>
+            <div style="flex:1;position:relative;background:#000;">
+                <iframe id="tvFrame" style="position:absolute;inset:0;width:100%;height:100%;border:none;" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+            </div>
+            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais e gratuitas de cada canal, diretamente do YouTube. Se um canal aparecer "offline" ou "indisponível", é porque essa estação não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app) — tenta outro canal ou volta mais tarde.</p>
         </div>
 
         <!-- ============ CALCULADORA ============ -->
@@ -3864,6 +3878,39 @@
     function closeNewsArticle() {
         document.getElementById('newsArticleScreen').classList.remove('active');
         document.getElementById('newsArticleFrame').src = 'about:blank'; // para o site parar de correr em segundo plano
+    }
+
+    // ==================== TV EM DIRETO ====================
+    // Transmissões oficiais e gratuitas de cada emissora no YouTube, através do
+    // endpoint público "embed/live_stream?channel=" — o YouTube resolve sozinho
+    // qual é a emissão ao vivo atual do canal, sem precisarmos de saber o ID de
+    // um vídeo específico (que mudaria a cada transmissão nova).
+    const TV_CHANNELS = [
+        { id: 'pt', name: 'RTP Internacional', flag: '🇵🇹', channelId: 'UCWeApbmv5WJYVyLocLxUpFw' },
+        { id: 'es', name: 'RTVE Notícias', flag: '🇪🇸', channelId: 'UC7QZIf0dta-XPXsp9Hv4dTw' },
+        { id: 'fr', name: 'France 24', flag: '🇫🇷', channelId: 'UCCCPCZNChQdGa9EkATeye4g' }
+    ];
+    const TV = { current: null };
+    function openTvScreen() {
+        document.getElementById('tvScreen').classList.add('active');
+        renderTvTabs();
+        if (!TV.current) selectTvChannel(TV_CHANNELS[0].id);
+    }
+    function closeTvScreen() {
+        document.getElementById('tvScreen').classList.remove('active');
+        document.getElementById('tvFrame').src = 'about:blank'; // para o vídeo parar de correr em segundo plano
+    }
+    function renderTvTabs() {
+        document.getElementById('tvTabs').innerHTML = TV_CHANNELS.map(c => `
+            <button class="btn-small tv-tab ${TV.current === c.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectTvChannel('${c.id}')">${c.flag} ${c.name}</button>
+        `).join('');
+    }
+    function selectTvChannel(id) {
+        const ch = TV_CHANNELS.find(c => c.id === id);
+        if (!ch) return;
+        TV.current = id;
+        renderTvTabs();
+        document.getElementById('tvFrame').src = `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
     }
     function openNewsScreen() {
         document.getElementById('newsScreen').classList.add('active');

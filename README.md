@@ -401,5 +401,13 @@ Novo botão 📢 no cabeçalho, com aba própria. Cria uma lista com vários con
 - As tuas listas ficam guardadas no servidor associadas ao teu número — aparecem em qualquer sessão onde entres
 - Tecnicamente não cria nenhuma sala nova: ao enviar, o cliente reaproveita o envio normal de mensagem 1-para-1 (incluindo a encriptação ponta-a-ponta quando o contacto a suporta) uma vez por cada membro da lista — por isso não é pensado para listas muito grandes, já que N destinatários geram N mensagens/notificações individuais
 
+## 📺 TV em Direto (Portugal, Espanha, França)
+
+Novo botão 📺 no cabeçalho, com aba própria. Mostra a transmissão ao vivo, oficial e gratuita, de um canal de notícias por país — RTP Internacional (🇵🇹), RTVE Notícias (🇪🇸) e France 24 (🇫🇷) — através do próprio YouTube, sem precisar de nenhuma chave nem configuração.
+
+- Cada canal usa o endpoint público do YouTube que resolve sozinho "o que está em direto agora" naquele canal — não dependemos de um vídeo específico que muda a cada transmissão
+- Só coloquei canais com transmissão ao vivo oficial e gratuita no YouTube (a mesma estação, sem intermediários) — nada de streams piratas ou de canais pagos
+- **Importante ser honesto:** não consigo testar a transmissão em si a partir daqui (o YouTube está bloqueado no ambiente onde desenvolvo) — confirmei os três canais por pesquisa, mas se algum aparecer sempre "offline" para ti, diz-me que troco por outro canal oficial desse país. Também é normal um canal aparecer offline pontualmente, se a própria estação não estiver a emitir ao vivo no YouTube naquele momento.
+
 
 
