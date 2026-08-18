@@ -339,6 +339,15 @@ Novo botão 🔥 no cabeçalho: mapa com os focos de incêndio detetados por sat
 **Sobre "ligar/enviar SMS aos bombeiros":** por segurança, isto **não é** um despacho automático real de emergência — não existe nenhuma API pública que ligue de verdade aos bombeiros, e fingir que sim seria perigoso (alguém podia achar que já alertou a emergência e não ligar a sério). Em vez disso:
 - **🚨 Ligar 112** — botão que abre logo o telefone a marcar o 112 (número de emergência europeu, cobre Portugal), a pessoa só toca em ligar. Real, sem depender de nenhuma API.
 - **✉️ SMS** — escreves um número teu (um familiar, ou o número local dos bombeiros que já saibas) e o botão abre a app de SMS do telemóvel já preenchida com a tua localização atual — revês e envias tu mesmo, não é automático.
+- **📧 Email real** — diferente do SMS, este é enviado de verdade pelo próprio servidor (não abre nada no teu telemóvel) para o endereço que escreveres, com a tua localização. Precisa de uma conta de email configurada no servidor (grátis):
+  1. Numa conta Gmail (pode ser uma só para isto), ativa a verificação em 2 passos e cria uma **"Palavra-passe de aplicação"** em https://myaccount.google.com/apppasswords (a palavra-passe normal da conta não funciona aqui, tem de ser esta)
+  2. No Railway/Render, define `EMAIL_USER` (o teu email Gmail) e `EMAIL_PASS` (a palavra-passe de aplicação de 16 letras)
+  3. (Opcional) Se preferires usar outro serviço de email em vez do Gmail, define também `SMTP_HOST` e `SMTP_PORT`
+  4. Sem essas variáveis, o botão mostra um aviso claro a pedir a configuração, em vez de travar
+
+## 📖 Notícias abrem dentro da própria app
+
+Tocar numa notícia (📰) já não abre o navegador — abre uma leitura dentro da própria app (com botão ← para voltar e 🔗 para abrir no navegador se preferires). **Aviso honesto:** alguns sites de notícias bloqueiam deliberadamente aparecer dentro de outras apps (proteção contra "clickjacking", uma medida de segurança do próprio site, não um limite desta app) — nesses casos aparece uma mensagem a convidar a tocar no 🔗 para abrir no navegador normalmente.
 
 ## 🎨 Quadro branco partilhado com todos numa chamada de grupo
 
