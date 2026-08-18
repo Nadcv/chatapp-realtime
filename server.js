@@ -375,6 +375,82 @@ app.get('/api/drivelisten/radio', async (req, res) => {
   }
 });
 
+// ==================== NOTÍCIAS (Portugal + Mundo) ====================
+// Agrega notícias via RSS público (sem chave, sem scraping) de fontes
+// conhecidas. Atualiza sozinho de X em X minutos e avisa quem estiver ligado
+// (via socket) assim que sai uma notícia nova — parecido com o Google Notícias.
+// Se alguma destas fontes deixar de responder (os sites mudam o endereço do
+// RSS de vez em quando), fica só sem essa fonte — as outras continuam a
+// funcionar normalmente (ver log do servidor para saber qual falhou).
+const NEWS_FEEDS = [
+  { id: 'publico', name: 'Público', flag: '🇵🇹', category: 'portugal', url: 'https://www.publico.pt/rss' },
+  { id: 'observador', name: 'Observador', flag: '🇵🇹', category: 'portugal', url: 'https://observador.pt/feed/' },
+  { id: 'rtp', name: 'RTP Notícias', flag: '🇵🇹', category: 'portugal', url: 'https://www.rtp.pt/noticias/rss' },
+  { id: 'bbc', name: 'BBC World', flag: '🌍', category: 'mundo', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' }
+];
+let newsItems = []; // lista mesclada de todas as fontes, mais recente primeiro
+let newsKnownLinks = new Set();
+let newsInitialized = false; // evita tratar a primeira carga inteira como "notícias novas"
+
+function decodeXmlEntities(str) {
+  return (str || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, '') // remove tags html residuais (comuns dentro de <description>)
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function extractTag(block, tag) {
+  const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return m ? decodeXmlEntities(m[1]) : '';
+}
+function extractLink(block) {
+  const rssLink = block.match(/<link>([\s\S]*?)<\/link>/i); // RSS: <link>URL</link>
+  if (rssLink) return decodeXmlEntities(rssLink[1]);
+  const atomLink = block.match(/<link[^>]*href=["']([^"']+)["']/i); // Atom: <link href="URL" .../>
+  return atomLink ? atomLink[1] : '';
+}
+function parseRssXml(xml, feed) {
+  const blocks = xml.match(/<item[\s\S]*?<\/item>/gi) || xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
+  return blocks.map(block => {
+    const title = extractTag(block, 'title');
+    const link = extractLink(block);
+    if (!title || !link) return null;
+    const dateStr = extractTag(block, 'pubDate') || extractTag(block, 'published') || extractTag(block, 'updated');
+    const date = dateStr ? new Date(dateStr) : new Date();
+    const snippet = (extractTag(block, 'description') || extractTag(block, 'summary')).slice(0, 220);
+    return {
+      title, link, snippet,
+      time: (isNaN(date.getTime()) ? new Date() : date).toISOString(),
+      source: feed.name, flag: feed.flag, category: feed.category
+    };
+  }).filter(Boolean);
+}
+async function fetchNewsFeed(feed) {
+  try {
+    const r = await fetch(feed.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatAppNews/1.0)' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return parseRssXml(await r.text(), feed);
+  } catch (err) {
+    console.error(`⚠️ Erro ao obter notícias de ${feed.name}:`, err.message);
+    return [];
+  }
+}
+async function refreshNews() {
+  const results = await Promise.all(NEWS_FEEDS.map(fetchNewsFeed));
+  const merged = results.flat().sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 80);
+  const brandNew = merged.filter(it => !newsKnownLinks.has(it.link));
+  newsItems = merged;
+  newsKnownLinks = new Set(merged.map(it => it.link));
+  if (newsInitialized && brandNew.length) {
+    brandNew.slice(0, 5).forEach(item => io.emit('news_new_item', item));
+    log(`📰 ${brandNew.length} notícia(s) nova(s)`, 'NEWS');
+  }
+  newsInitialized = true;
+}
+app.get('/api/news', (req, res) => res.json(newsItems));
+
 // ==================== SERVIDOR TURN ====================
 let turnCache = null;
 let turnCacheAt = 0;
@@ -2041,6 +2117,11 @@ connectDatabase().then(async () => {
   } else {
     console.log('⚠️ Cloudinary não configurado — fotos/áudios/documentos continuam em base64 (ver secção "Ficheiros em armazenamento externo" no README).');
   }
+
+  // Notícias: primeira busca já no arranque (não bloqueia o servidor — corre
+  // em segundo plano) e depois de 10 em 10 minutos.
+  refreshNews().catch(e => console.error('Erro ao carregar notícias:', e.message));
+  setInterval(() => refreshNews().catch(e => console.error('Erro ao atualizar notícias:', e.message)), 10 * 60 * 1000);
 
   // Mensagens temporárias: remove periodicamente as que já expiraram e avisa
   // quem está na conversa para as tirar do ecrã.

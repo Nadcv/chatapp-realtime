@@ -1009,6 +1009,55 @@
             gap: 14px;
             flex-wrap: wrap;
         }
+        .news-tab.btn-accept, .calc-tab.btn-accept { font-weight: 600; }
+        .news-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .news-card:hover { transform: translateY(-1px); }
+        .news-card .news-source {
+            font-size: 12px;
+            color: var(--green);
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .news-card .news-title {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            line-height: 1.35;
+        }
+        .news-card .news-snippet {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .news-card .news-time { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+        .calc-key {
+            border: none;
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 16px;
+            cursor: pointer;
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+        .calc-key:active { transform: scale(0.94); }
+        .calc-key.calc-op { background: var(--bg-tertiary); color: var(--green); }
+        .calc-key.calc-eq { background: var(--green); color: #fff; font-size: 20px; }
+        .calc-key.calc-clear { color: var(--red); }
         .music-player {
             position: absolute;
             bottom: 20px;
@@ -1259,6 +1308,9 @@
                 <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
+                <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
+                <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
+                <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
                 <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar aparência do app">🎨</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
@@ -1906,6 +1958,72 @@
                     <h4 style="margin:0 0 8px;">🔭 Satélites visíveis agora</h4>
                     <div id="satellitesList" style="font-size:13px;color:var(--text-secondary);">A carregar...</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ============ NOTÍCIAS ============ -->
+        <div class="location-screen" id="newsScreen">
+            <div class="location-header">
+                <strong>📰 Notícias</strong>
+                <button onclick="closeNewsScreen()">✖️</button>
+            </div>
+            <div style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;">
+                <button class="btn-small news-tab btn-accept" id="newsTabPortugal" onclick="setNewsTab('portugal')">🇵🇹 Portugal</button>
+                <button class="btn-small news-tab" id="newsTabMundo" onclick="setNewsTab('mundo')">🌍 Mundo</button>
+                <button class="btn-small" style="margin-left:auto;" onclick="loadNews(true)" title="Atualizar agora">🔄</button>
+            </div>
+            <div id="newsToast" style="display:none;margin:0 12px 8px;padding:8px 12px;background:var(--green);color:#fff;border-radius:8px;font-size:13px;cursor:pointer;"></div>
+            <div id="newsList" style="flex:1;overflow-y:auto;padding:0 12px 12px;">A carregar notícias...</div>
+        </div>
+
+        <!-- ============ CALCULADORA ============ -->
+        <div class="location-screen" id="calcScreen">
+            <div class="location-header">
+                <strong>🧮 Calculadora</strong>
+                <button onclick="closeCalcScreen()">✖️</button>
+            </div>
+            <div style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;">
+                <button class="btn-small calc-tab btn-accept" id="calcTabSci" onclick="setCalcTab('sci')">🔢 Científica</button>
+                <button class="btn-small calc-tab" id="calcTabGraph" onclick="setCalcTab('graph')">📈 Gráfica</button>
+            </div>
+            <div id="calcSciPanel" style="flex:1;display:flex;flex-direction:column;padding:0 14px 14px;overflow-y:auto;">
+                <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+                    <button class="btn-small" id="calcDegBtn" onclick="toggleCalcDeg()" style="font-size:12px;">DEG</button>
+                </div>
+                <input type="text" id="calcDisplay" readonly style="width:100%;font-size:26px;text-align:right;background:var(--bg-secondary);border:none;border-radius:10px;padding:16px 14px;color:var(--text-primary);margin-bottom:6px;">
+                <div id="calcResultPreview" style="text-align:right;font-size:14px;color:var(--text-secondary);min-height:18px;margin-bottom:10px;padding:0 4px;"></div>
+                <div id="calcKeypad" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;flex:1;"></div>
+            </div>
+            <div id="calcGraphPanel" style="display:none;flex:1;flex-direction:column;padding:0 14px 14px;min-height:0;">
+                <div style="display:flex;gap:8px;margin-bottom:8px;">
+                    <span style="align-self:center;color:var(--text-secondary);">f(x) =</span>
+                    <input type="text" id="graphFnInput" value="sin(x)" oninput="drawGraph()" style="flex:1;background:var(--bg-secondary);border:none;border-radius:8px;padding:10px 12px;color:var(--text-primary);">
+                </div>
+                <div id="graphError" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:4px;"></div>
+                <div style="flex:1;position:relative;min-height:0;background:var(--bg-secondary);border-radius:10px;overflow:hidden;">
+                    <canvas id="graphCanvas" style="width:100%;height:100%;display:block;touch-action:none;cursor:grab;"></canvas>
+                </div>
+                <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
+                    <button class="btn-small" onclick="zoomGraph(1.3)">➕</button>
+                    <button class="btn-small" onclick="zoomGraph(0.77)">➖</button>
+                    <button class="btn-small" onclick="resetGraphView()">🎯 Repor vista</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ VÍDEOS ENGRAÇADOS ============ -->
+        <div class="location-screen" id="funnyFeedScreen" style="background:#000;padding:0;">
+            <div class="location-header" style="position:absolute;top:0;left:0;right:0;z-index:5;background:linear-gradient(rgba(0,0,0,0.6),transparent);border:none;">
+                <strong style="color:#fff;">😂 Vídeos engraçados</strong>
+                <button onclick="closeFunnyFeedScreen()">✖️</button>
+            </div>
+            <div id="funnyFeedStage" style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;">
+                <div id="funnyFeedPlayer" style="width:100%;height:100%;"></div>
+                <div id="funnyFeedUnmute" onclick="toggleFunnyFeedMute()" style="position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.6);color:#fff;padding:8px 16px;border-radius:20px;font-size:13px;cursor:pointer;z-index:6;">🔇 Toque para ativar som</div>
+                <div id="funnyFeedError" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;color:#fff;text-align:center;padding:0 24px;font-size:14px;"></div>
+            </div>
+            <div style="position:absolute;bottom:20px;left:0;right:0;display:flex;justify-content:center;gap:24px;z-index:6;">
+                <button class="call-btn call-btn-action" onclick="funnyFeedNext()" title="Próximo vídeo (ou desliza para cima)">⬆️ Próximo</button>
             </div>
         </div>
 
@@ -3495,6 +3613,369 @@
             }
         }, () => { el.textContent = '⚠️ Precisamos da tua localização.'; }, { enableHighAccuracy: false, timeout: 10000 });
     }
+
+    function escapeHtml(str) {
+        return (str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // ==================== NOTÍCIAS ====================
+    const NEWS = { items: [], tab: 'portugal', loaded: false };
+    function openNewsScreen() {
+        document.getElementById('newsScreen').classList.add('active');
+        document.getElementById('newsBadge').style.display = 'none';
+        if (!NEWS.loaded) loadNews();
+    }
+    function closeNewsScreen() { document.getElementById('newsScreen').classList.remove('active'); }
+    function setNewsTab(tab) {
+        NEWS.tab = tab;
+        document.getElementById('newsTabPortugal').classList.toggle('btn-accept', tab === 'portugal');
+        document.getElementById('newsTabMundo').classList.toggle('btn-accept', tab === 'mundo');
+        renderNewsList();
+    }
+    async function loadNews(manual) {
+        const list = document.getElementById('newsList');
+        if (manual) list.innerHTML = 'A atualizar...';
+        try {
+            const res = await fetch('/api/news');
+            NEWS.items = await res.json();
+            NEWS.loaded = true;
+            renderNewsList();
+        } catch (e) {
+            list.innerHTML = '<p style="color:var(--text-secondary);">⚠️ Não foi possível carregar as notícias agora.</p>';
+        }
+    }
+    function timeAgo(iso) {
+        const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+        if (diffMin < 1) return 'agora mesmo';
+        if (diffMin < 60) return 'há ' + diffMin + ' min';
+        const diffH = Math.round(diffMin / 60);
+        if (diffH < 24) return 'há ' + diffH + 'h';
+        return 'há ' + Math.round(diffH / 24) + 'd';
+    }
+    function renderNewsList() {
+        const list = document.getElementById('newsList');
+        const filtered = NEWS.items.filter(it => it.category === NEWS.tab);
+        if (!filtered.length) { list.innerHTML = '<p style="color:var(--text-secondary);">Sem notícias por agora.</p>'; return; }
+        list.innerHTML = filtered.map(it => `
+            <div class="news-card" onclick="window.open('${it.link.replace(/'/g, "\\'")}', '_blank')">
+                <div class="news-source">${it.flag} ${escapeHtml(it.source)}</div>
+                <div class="news-title">${escapeHtml(it.title)}</div>
+                ${it.snippet ? `<div class="news-snippet">${escapeHtml(it.snippet)}</div>` : ''}
+                <div class="news-time">${timeAgo(it.time)}</div>
+            </div>
+        `).join('');
+    }
+    socket.on('news_new_item', (item) => {
+        NEWS.items = [item, ...NEWS.items].slice(0, 80);
+        const screenOpen = document.getElementById('newsScreen').classList.contains('active');
+        if (screenOpen) {
+            renderNewsList();
+            const toast = document.getElementById('newsToast');
+            toast.textContent = '📰 Nova notícia: ' + item.title;
+            toast.style.display = 'block';
+            toast.onclick = () => window.open(item.link, '_blank');
+            setTimeout(() => { toast.style.display = 'none'; }, 6000);
+        } else {
+            document.getElementById('newsBadge').style.display = 'block';
+        }
+    });
+
+    // ==================== CALCULADORA (científica + gráfica) ====================
+    // Avaliador de expressões próprio (sem eval/Function) — usado tanto pela
+    // calculadora científica como pela gráfica (esta última substitui "x" pelo
+    // valor de cada ponto ao desenhar a curva).
+    const MATH_FUNCS = {
+        sin: Math.sin, cos: Math.cos, tan: Math.tan,
+        asin: Math.asin, acos: Math.acos, atan: Math.atan,
+        sqrt: Math.sqrt, abs: Math.abs, exp: Math.exp,
+        ln: Math.log, log: Math.log10, floor: Math.floor, ceil: Math.ceil, round: Math.round
+    };
+    const MATH_CONSTS = { pi: Math.PI, e: Math.E };
+    function tokenizeMathExpr(expr) {
+        const tokens = [];
+        const re = /\s*([A-Za-z_][A-Za-z0-9_]*|\d+\.?\d*|\.\d+|[()+\-*/^,]|.)/g;
+        let m;
+        while ((m = re.exec(expr))) { if (m[1].trim() !== '') tokens.push(m[1]); }
+        return tokens;
+    }
+    function evalMathExpr(expr, vars, degrees) {
+        vars = vars || {};
+        const tokens = tokenizeMathExpr(expr);
+        let pos = 0;
+        const peek = () => tokens[pos];
+        const next = () => tokens[pos++];
+        function parseExpr() { return parseAddSub(); }
+        function parseAddSub() {
+            let left = parseMulDiv();
+            while (peek() === '+' || peek() === '-') { const op = next(); const right = parseMulDiv(); left = op === '+' ? left + right : left - right; }
+            return left;
+        }
+        function parseMulDiv() {
+            let left = parsePow();
+            while (peek() === '*' || peek() === '/') {
+                const op = next(); const right = parsePow();
+                if (op === '/' && right === 0) throw new Error('Divisão por zero');
+                left = op === '*' ? left * right : left / right;
+            }
+            return left;
+        }
+        function parsePow() {
+            let left = parseUnary();
+            if (peek() === '^') { next(); left = Math.pow(left, parsePow()); }
+            return left;
+        }
+        function parseUnary() {
+            if (peek() === '-') { next(); return -parseUnary(); }
+            if (peek() === '+') { next(); return parseUnary(); }
+            return parsePrimary();
+        }
+        function parsePrimary() {
+            const t = next();
+            if (t === undefined) throw new Error('Expressão incompleta');
+            if (t === '(') { const v = parseExpr(); if (next() !== ')') throw new Error('Falta fechar parêntesis'); return v; }
+            if (/^[\d.]/.test(t)) return parseFloat(t);
+            if (/^[A-Za-z_]/.test(t)) {
+                const name = t.toLowerCase();
+                if (peek() === '(') {
+                    next();
+                    const args = [parseExpr()];
+                    while (peek() === ',') { next(); args.push(parseExpr()); }
+                    if (next() !== ')') throw new Error('Falta fechar parêntesis');
+                    if (name === 'pow') return Math.pow(args[0], args[1]);
+                    if (name === 'log' && args.length === 2) return Math.log(args[1]) / Math.log(args[0]);
+                    if (!MATH_FUNCS[name]) throw new Error('Função desconhecida: ' + t);
+                    let a0 = args[0];
+                    if (degrees && (name === 'sin' || name === 'cos' || name === 'tan')) a0 = a0 * Math.PI / 180;
+                    let result = MATH_FUNCS[name](a0);
+                    if (degrees && (name === 'asin' || name === 'acos' || name === 'atan')) result = result * 180 / Math.PI;
+                    return result;
+                }
+                if (name in vars) return vars[name];
+                if (name in MATH_CONSTS) return MATH_CONSTS[name];
+                throw new Error('Desconhecido: ' + t);
+            }
+            throw new Error('Token inesperado: ' + t);
+        }
+        const result = parseExpr();
+        if (pos < tokens.length) throw new Error('Expressão inválida perto de "' + tokens[pos] + '"');
+        if (typeof result !== 'number' || isNaN(result)) throw new Error('Resultado inválido');
+        return result;
+    }
+
+    const CALC = { expr: '', tab: 'sci', degrees: true };
+    const CALC_KEYS = [
+        { l: 'C', cls: 'calc-clear', act: () => { CALC.expr = ''; updateCalcDisplay(); } },
+        { l: '(', act: () => calcAppend('(') },
+        { l: ')', act: () => calcAppend(')') },
+        { l: '⌫', cls: 'calc-clear', act: () => { CALC.expr = CALC.expr.slice(0, -1); updateCalcDisplay(); } },
+        { l: '÷', cls: 'calc-op', act: () => calcAppend('/') },
+        { l: 'sin', act: () => calcAppend('sin(') },
+        { l: 'cos', act: () => calcAppend('cos(') },
+        { l: 'tan', act: () => calcAppend('tan(') },
+        { l: '√', act: () => calcAppend('sqrt(') },
+        { l: '×', cls: 'calc-op', act: () => calcAppend('*') },
+        { l: '7', act: () => calcAppend('7') },
+        { l: '8', act: () => calcAppend('8') },
+        { l: '9', act: () => calcAppend('9') },
+        { l: 'xʸ', act: () => calcAppend('^') },
+        { l: '−', cls: 'calc-op', act: () => calcAppend('-') },
+        { l: '4', act: () => calcAppend('4') },
+        { l: '5', act: () => calcAppend('5') },
+        { l: '6', act: () => calcAppend('6') },
+        { l: 'ln', act: () => calcAppend('ln(') },
+        { l: '+', cls: 'calc-op', act: () => calcAppend('+') },
+        { l: '1', act: () => calcAppend('1') },
+        { l: '2', act: () => calcAppend('2') },
+        { l: '3', act: () => calcAppend('3') },
+        { l: 'log', act: () => calcAppend('log(') },
+        { l: 'π', act: () => calcAppend('pi') },
+        { l: '0', act: () => calcAppend('0') },
+        { l: '.', act: () => calcAppend('.') },
+        { l: 'e', act: () => calcAppend('e') },
+        { l: '%', act: () => calcAppend('/100') },
+        { l: '=', cls: 'calc-eq', act: () => calcEquals() }
+    ];
+    function renderCalcKeypad() {
+        document.getElementById('calcKeypad').innerHTML = CALC_KEYS.map((k, i) =>
+            `<button class="calc-key ${k.cls || ''}" onclick="CALC_KEYS[${i}].act()">${k.l}</button>`
+        ).join('');
+    }
+    function calcAppend(s) { CALC.expr += s; updateCalcDisplay(); }
+    function formatCalcNumber(n) {
+        if (!isFinite(n)) throw new Error('Resultado infinito');
+        return Math.round(n * 1e10) / 1e10;
+    }
+    function updateCalcDisplay() {
+        document.getElementById('calcDisplay').value = CALC.expr || '0';
+        const preview = document.getElementById('calcResultPreview');
+        if (!CALC.expr) { preview.textContent = ''; return; }
+        try { preview.textContent = '= ' + formatCalcNumber(evalMathExpr(CALC.expr, {}, CALC.degrees)); }
+        catch (e) { preview.textContent = ''; }
+    }
+    function calcEquals() {
+        try {
+            CALC.expr = String(formatCalcNumber(evalMathExpr(CALC.expr, {}, CALC.degrees)));
+            updateCalcDisplay();
+        } catch (e) {
+            document.getElementById('calcResultPreview').textContent = '⚠️ ' + e.message;
+        }
+    }
+    function toggleCalcDeg() {
+        CALC.degrees = !CALC.degrees;
+        document.getElementById('calcDegBtn').textContent = CALC.degrees ? 'DEG' : 'RAD';
+        updateCalcDisplay();
+    }
+    function openCalcScreen() {
+        document.getElementById('calcScreen').classList.add('active');
+        if (!document.getElementById('calcKeypad').children.length) renderCalcKeypad();
+        if (CALC.tab === 'graph') setTimeout(drawGraph, 50);
+    }
+    function closeCalcScreen() { document.getElementById('calcScreen').classList.remove('active'); }
+    function setCalcTab(tab) {
+        CALC.tab = tab;
+        document.getElementById('calcTabSci').classList.toggle('btn-accept', tab === 'sci');
+        document.getElementById('calcTabGraph').classList.toggle('btn-accept', tab === 'graph');
+        document.getElementById('calcSciPanel').style.display = tab === 'sci' ? 'flex' : 'none';
+        document.getElementById('calcGraphPanel').style.display = tab === 'graph' ? 'flex' : 'none';
+        if (tab === 'graph') setTimeout(drawGraph, 50);
+    }
+
+    const GRAPH = { scale: 40, offsetX: 0, offsetY: 0, dragging: false, lastX: 0, lastY: 0 };
+    function sizeGraphCanvas() {
+        const canvas = document.getElementById('graphCanvas');
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+    }
+    function drawGraph() {
+        const canvas = document.getElementById('graphCanvas');
+        if (!canvas || !canvas.offsetParent) return; // painel escondido, não desenha à toa
+        sizeGraphCanvas();
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        ctx.fillStyle = isLight ? '#ffffff' : '#0b141a';
+        ctx.fillRect(0, 0, w, h);
+        const cx = w / 2 + GRAPH.offsetX, cy = h / 2 + GRAPH.offsetY, scale = GRAPH.scale;
+        ctx.strokeStyle = 'rgba(134,150,160,0.25)'; ctx.lineWidth = 1;
+        for (let gx = cx % scale; gx < w; gx += scale) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h); ctx.stroke(); }
+        for (let gy = cy % scale; gy < h; gy += scale) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke(); }
+        ctx.strokeStyle = '#8696a0'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+        const fn = document.getElementById('graphFnInput').value.trim() || 'x';
+        const errEl = document.getElementById('graphError');
+        let hadError = false;
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--green').trim() || '#7c5cff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        let started = false;
+        for (let px = 0; px <= w; px++) {
+            const x = (px - cx) / scale;
+            let y;
+            try { y = evalMathExpr(fn, { x }, false); } catch (e) { hadError = true; started = false; continue; }
+            if (!isFinite(y)) { started = false; continue; }
+            const py = cy - y * scale;
+            if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        errEl.textContent = hadError ? '⚠️ Parte da expressão não pôde ser calculada (ex.: fora do domínio).' : '';
+    }
+    function zoomGraph(factor) { GRAPH.scale = Math.min(400, Math.max(4, GRAPH.scale * factor)); drawGraph(); }
+    function resetGraphView() { GRAPH.scale = 40; GRAPH.offsetX = 0; GRAPH.offsetY = 0; drawGraph(); }
+    (function initGraphDrag() {
+        const canvas = document.getElementById('graphCanvas');
+        const start = (x, y) => { GRAPH.dragging = true; GRAPH.lastX = x; GRAPH.lastY = y; };
+        const move = (x, y) => {
+            if (!GRAPH.dragging) return;
+            GRAPH.offsetX += x - GRAPH.lastX; GRAPH.offsetY += y - GRAPH.lastY;
+            GRAPH.lastX = x; GRAPH.lastY = y;
+            drawGraph();
+        };
+        const end = () => { GRAPH.dragging = false; };
+        canvas.addEventListener('mousedown', e => start(e.clientX, e.clientY));
+        canvas.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+        window.addEventListener('mouseup', end);
+        canvas.addEventListener('touchstart', e => { const t = e.touches[0]; start(t.clientX, t.clientY); }, { passive: true });
+        canvas.addEventListener('touchmove', e => { const t = e.touches[0]; move(t.clientX, t.clientY); }, { passive: true });
+        canvas.addEventListener('touchend', end);
+    })();
+    window.addEventListener('resize', () => {
+        if (CALC.tab === 'graph' && document.getElementById('calcScreen').classList.contains('active')) drawGraph();
+    });
+
+    // ==================== VÍDEOS ENGRAÇADOS (feed estilo TikTok/Reels) ====================
+    // Lista curada de vídeos do YouTube — mesmo espírito da lista de cidades do
+    // "Conduzir e Ouvir" (fácil de editar aqui). Se algum ID deixar de
+    // funcionar (vídeo removido), o feed salta sozinho para o próximo, sem travar.
+    const FUNNY_VIDEOS = [
+        { id: '8y1yaNW-eZ8', title: 'Charlie bit my finger' },
+        { id: '9T1vfsHYiKY', title: 'Sneezing Panda' },
+        { id: 'jwGfwbsF4c4', title: 'Dramatic Chipmunk' },
+        { id: 'FzRH3iTQPrk', title: 'Double Rainbow' },
+        { id: 'ZZ5LpwO-An4', title: 'Hey Jude Baby Dance' },
+        { id: 'MtN1YnoL46Q', title: 'Evolution of Dance' }
+    ];
+    const FUNNY_FEED = { queue: [], index: 0, ytPlayer: null, ytReady: false, muted: true };
+    function shuffleArray(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; }
+        return a;
+    }
+    function openFunnyFeedScreen() {
+        document.getElementById('funnyFeedScreen').classList.add('active');
+        loadYouTubeIframeAPI(); // já usado pelo "Conduzir e Ouvir" — reaproveita o mesmo carregamento
+        FUNNY_FEED.muted = true;
+        document.getElementById('funnyFeedUnmute').style.display = 'block';
+        document.getElementById('funnyFeedUnmute').textContent = '🔇 Toque para ativar som';
+        if (!FUNNY_FEED.queue.length) { FUNNY_FEED.queue = shuffleArray(FUNNY_VIDEOS); FUNNY_FEED.index = 0; }
+        startFunnyVideo();
+    }
+    function closeFunnyFeedScreen() {
+        document.getElementById('funnyFeedScreen').classList.remove('active');
+        if (FUNNY_FEED.ytPlayer && FUNNY_FEED.ytPlayer.pauseVideo) FUNNY_FEED.ytPlayer.pauseVideo();
+    }
+    function startFunnyVideo() {
+        document.getElementById('funnyFeedError').style.display = 'none';
+        const video = FUNNY_FEED.queue[FUNNY_FEED.index];
+        if (!video) return;
+        if (!(window.YT && window.YT.Player)) {
+            const wait = setInterval(() => { if (window.YT && window.YT.Player) { clearInterval(wait); startFunnyVideo(); } }, 300);
+            return;
+        }
+        if (!FUNNY_FEED.ytPlayer) {
+            FUNNY_FEED.ytPlayer = new YT.Player('funnyFeedPlayer', {
+                videoId: video.id,
+                playerVars: { autoplay: 1, mute: 1, controls: 1, rel: 0, playsinline: 1 },
+                events: {
+                    onReady: (e) => { e.target.mute(); e.target.playVideo(); },
+                    onError: () => funnyFeedNext() // vídeo indisponível — passa ao seguinte sozinho
+                }
+            });
+        } else {
+            FUNNY_FEED.ytPlayer.loadVideoById(video.id);
+            if (FUNNY_FEED.muted) FUNNY_FEED.ytPlayer.mute(); else FUNNY_FEED.ytPlayer.unMute();
+            FUNNY_FEED.ytPlayer.playVideo();
+        }
+    }
+    function funnyFeedNext() {
+        FUNNY_FEED.index++;
+        if (FUNNY_FEED.index >= FUNNY_FEED.queue.length) { FUNNY_FEED.queue = shuffleArray(FUNNY_VIDEOS); FUNNY_FEED.index = 0; } // "infinito": baralha de novo ao chegar ao fim
+        startFunnyVideo();
+    }
+    function toggleFunnyFeedMute() {
+        FUNNY_FEED.muted = !FUNNY_FEED.muted;
+        if (FUNNY_FEED.ytPlayer) { if (FUNNY_FEED.muted) FUNNY_FEED.ytPlayer.mute(); else FUNNY_FEED.ytPlayer.unMute(); }
+        document.getElementById('funnyFeedUnmute').style.display = FUNNY_FEED.muted ? 'block' : 'none';
+    }
+    (function initFunnyFeedSwipe() {
+        const stage = document.getElementById('funnyFeedStage');
+        let startY = 0;
+        stage.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+        stage.addEventListener('touchend', e => {
+            if (startY - e.changedTouches[0].clientY > 60) funnyFeedNext(); // deslizar para cima = próximo, como nas redes sociais
+        }, { passive: true });
+    })();
 
     // ==================== CONVERSAS ARQUIVADAS ====================
     APP.archivedChats = new Set(JSON.parse(localStorage.getItem('archivedChatsCache') || '[]'));
