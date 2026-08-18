@@ -1241,7 +1241,7 @@ io.on('connection', (socket) => {
     groups[id] = newGroup;
 
     if (isDbConnected) {
-      await GroupModel.create(newGroup);
+      await GroupModel.create(newGroup).catch(e => console.error('Erro Mongo (criar grupo):', e.message));
     } else {
       saveGroupsLocal();
     }
@@ -1263,7 +1263,7 @@ io.on('connection', (socket) => {
     else if (role === 'moderator') group.moderators.push(targetPhone);
 
     if (isDbConnected) {
-      await GroupModel.updateOne({ id: groupId }, { admins: group.admins, moderators: group.moderators });
+      await GroupModel.updateOne({ id: groupId }, { admins: group.admins, moderators: group.moderators }).catch(e => console.error('Erro Mongo (cargo do grupo):', e.message));
     } else {
       saveGroupsLocal();
     }
@@ -1279,7 +1279,7 @@ io.on('connection', (socket) => {
     if (muted) group.mutedPhones.push(targetPhone);
 
     if (isDbConnected) {
-      await GroupModel.updateOne({ id: groupId }, { mutedPhones: group.mutedPhones });
+      await GroupModel.updateOne({ id: groupId }, { mutedPhones: group.mutedPhones }).catch(e => console.error('Erro Mongo (silenciar no grupo):', e.message));
     } else {
       saveGroupsLocal();
     }
@@ -1296,7 +1296,7 @@ io.on('connection', (socket) => {
     group.moderators = group.moderators.filter(p => p !== targetPhone);
 
     if (isDbConnected) {
-      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones, admins: group.admins, moderators: group.moderators });
+      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones, admins: group.admins, moderators: group.moderators }).catch(e => console.error('Erro Mongo (remover do grupo):', e.message));
     } else {
       saveGroupsLocal();
     }
@@ -1311,7 +1311,7 @@ io.on('connection', (socket) => {
     group.bannedPhones = group.bannedPhones.filter(p => p !== targetPhone);
 
     if (isDbConnected) {
-      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones });
+      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones }).catch(e => console.error('Erro Mongo (desbanir do grupo):', e.message));
     } else {
       saveGroupsLocal();
     }
@@ -1426,7 +1426,7 @@ io.on('connection', (socket) => {
         msg.deleted = true; 
         msg.fileData = null; 
         if (isDbConnected) {
-          await MessageModel.updateOne({ id: data.messageId }, { text: 'Mensagem apagada', deleted: true, fileData: null });
+          await MessageModel.updateOne({ id: data.messageId }, { text: 'Mensagem apagada', deleted: true, fileData: null }).catch(e => console.error('Erro Mongo (apagar mensagem):', e.message));
         } else {
           saveMessagesLocal();
         }
@@ -1468,7 +1468,7 @@ io.on('connection', (socket) => {
         if (!msg.reactions[data.emoji].includes(who)) msg.reactions[data.emoji].push(who);
         
         if (isDbConnected) {
-          await MessageModel.updateOne({ id: data.messageId }, { reactions: msg.reactions });
+          await MessageModel.updateOne({ id: data.messageId }, { reactions: msg.reactions }).catch(e => console.error('Erro Mongo (reação):', e.message));
         } else {
           saveMessagesLocal();
         }
