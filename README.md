@@ -415,5 +415,17 @@ Novo botão 📺 no cabeçalho, com aba própria e duas categorias:
 - Por agora tirei a categoria de Jogos (a única opção gratuita que encontrei também não estava mesmo ao vivo no YouTube) — se quiseres, posso voltar a tentar com outra abordagem.
 - **Importante ser honesto:** não consigo testar a transmissão/o vídeo em si a partir daqui (o YouTube e o Internet Archive estão bloqueados no ambiente onde desenvolvo) — confirmei os identificadores dos filmes por pesquisa, mas se algum não abrir, diz-me que troco por outro título de domínio público confirmado.
 
+## 🍿 Onde Assistir (filmes e séries atuais)
+
+Pediste para ver "qualquer filme ou série" dentro da app — isso não dá para fazer de forma legal e gratuita (seria preciso pagar licenças de streaming ou recorrer a pirataria, nenhuma das duas eu faço). Em vez disso, criei o botão 🍿 **Onde Assistir**: pesquisas o nome de um filme ou série e a app mostra em que serviços de streaming está disponível na tua região (Netflix, Prime Video, Disney+, HBO Max, etc.), com logotipos e um link para veres mais detalhes — o mesmo modelo do JustWatch. Nunca mostra o filme/série em si.
+
+- Usa a API gratuita do **TMDB** (The Movie Database), cujos dados de disponibilidade de streaming são licenciados da JustWatch
+- A região usada é a que escolheste no registo (país); separa entre "incluído na subscrição", "alugar" e "comprar"
+
+**Precisa de configuração** (grátis):
+1. Cria uma conta em https://www.themoviedb.org/signup e pede uma chave de API em https://www.themoviedb.org/settings/api (escolhe "Developer", é gratuito e aprovação é imediata)
+2. No Railway/Render, define a variável de ambiente `TMDB_API_KEY` com essa chave (usa a "API Key (v3 auth)", não o "Read Access Token")
+3. Sem essa variável, o ecrã mostra um aviso claro a pedir a configuração, em vez de travar
+
 
 

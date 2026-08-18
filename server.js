@@ -436,6 +436,71 @@ app.post('/api/fires/send-email', async (req, res) => {
   }
 });
 
+// ==================== ONDE ASSISTIR (filmes e séries) ====================
+// Pesquisa um título e mostra em que serviços de streaming está disponível
+// (Netflix, Prime Video, Disney+, etc.) — usa a API gratuita do TMDB (The
+// Movie Database), cujos dados de disponibilidade vêm licenciados da
+// JustWatch. Nunca mostra o filme/série em si, só a informação de onde
+// assistir legalmente, com um link para abrir no serviço — o mesmo modelo
+// do próprio JustWatch. Precisa de uma chave gratuita (ver README).
+const watchCacheStore = {};
+async function tmdbFetch(path, params = {}) {
+  const url = new URL(`https://api.themoviedb.org/3${path}`);
+  url.searchParams.set('api_key', process.env.TMDB_API_KEY);
+  url.searchParams.set('language', 'pt-PT');
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const r = await fetch(url.toString());
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+app.get('/api/watch/search', async (req, res) => {
+  if (!process.env.TMDB_API_KEY) return res.json({ configured: false, results: [] });
+  const query = (req.query.q || '').trim();
+  if (!query) return res.json({ configured: true, results: [] });
+  const cacheKey = 'search_' + query.toLowerCase();
+  const now = Date.now();
+  if (watchCacheStore[cacheKey] && (now - watchCacheStore[cacheKey].t) < 60 * 60 * 1000) {
+    return res.json({ configured: true, results: watchCacheStore[cacheKey].data });
+  }
+  try {
+    const data = await tmdbFetch('/search/multi', { query, include_adult: 'false' });
+    const results = (data.results || [])
+      .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+      .slice(0, 20)
+      .map((r) => ({
+        id: r.id,
+        mediaType: r.media_type,
+        title: r.title || r.name,
+        year: (r.release_date || r.first_air_date || '').slice(0, 4),
+        posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w200${r.poster_path}` : null
+      }));
+    watchCacheStore[cacheKey] = { t: now, data: results };
+    res.json({ configured: true, results });
+  } catch (err) {
+    console.error('Erro TMDB (pesquisa):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar agora.' });
+  }
+});
+app.get('/api/watch/providers', async (req, res) => {
+  if (!process.env.TMDB_API_KEY) return res.json({ configured: false });
+  const { id, type } = req.query;
+  if (!id || (type !== 'movie' && type !== 'tv')) return res.status(400).json({ error: 'Dados em falta.' });
+  const cacheKey = `providers_${type}_${id}`;
+  const now = Date.now();
+  if (watchCacheStore[cacheKey] && (now - watchCacheStore[cacheKey].t) < 6 * 60 * 60 * 1000) {
+    return res.json({ configured: true, results: watchCacheStore[cacheKey].data });
+  }
+  try {
+    const data = await tmdbFetch(`/${type}/${id}/watch/providers`);
+    const results = data.results || {};
+    watchCacheStore[cacheKey] = { t: now, data: results };
+    res.json({ configured: true, results });
+  } catch (err) {
+    console.error('Erro TMDB (fornecedores):', err.message);
+    res.status(502).json({ error: 'Não foi possível obter onde assistir agora.' });
+  }
+});
+
 // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
 // Inspirado no driveandlisten.app: vídeo de condução pela cidade (YouTube) +
 // rádio local a tocar ao mesmo tempo. A lista de cidades é curada à mão (com

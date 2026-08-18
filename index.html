@@ -1324,6 +1324,7 @@
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
                 <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias e filmes">📺</button>
+                <button class="btn-icon" onclick="openWatchScreen()" title="Onde Assistir — em que serviço de streaming está um filme ou série">🍿</button>
                 <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
                 <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
@@ -2061,6 +2062,31 @@
                 <iframe id="tvFrame" style="position:absolute;inset:0;width:100%;height:100%;border:none;" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
             </div>
             <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Nas notícias, se um canal aparecer "offline", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app). Os filmes são de domínio público (Internet Archive) — escolhe o género e o título.</p>
+        </div>
+
+        <!-- ============ ONDE ASSISTIR ============ -->
+        <div class="location-screen" id="watchScreen">
+            <div class="location-header">
+                <strong>🍿 Onde Assistir</strong>
+                <button onclick="closeWatchScreen()">✖️</button>
+            </div>
+            <div style="display:flex;gap:8px;padding:10px 12px;flex-shrink:0;">
+                <input type="text" id="watchSearchInput" placeholder="Nome do filme ou série..." style="flex:1;padding:10px 12px;border-radius:10px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);" onkeypress="if(event.key==='Enter')doWatchSearch()">
+                <button class="btn-small btn-accept" onclick="doWatchSearch()">🔍</button>
+            </div>
+            <div id="watchResults" style="flex:1;overflow-y:auto;padding:0 12px 12px;"></div>
+            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Só mostra em que serviços de streaming (Netflix, Prime Video, Disney+, etc.) o título está disponível — nunca mostra o filme/série dentro da app. Dados fornecidos pelo TMDB.</p>
+        </div>
+
+        <!-- ============ ONDE ASSISTIR: PROVEDORES ============ -->
+        <div class="modal-overlay" id="modalWatchProviders" style="z-index:200;">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3 id="watchProviderTitle">🍿 Onde assistir</h3>
+                <div id="watchProviderContent"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalWatchProviders')">Fechar</button>
+                </div>
+            </div>
         </div>
 
         <!-- ============ CALCULADORA ============ -->
@@ -3982,6 +4008,76 @@
         renderMovieList();
         document.getElementById('tvFrame').src = `https://archive.org/embed/${archiveId}`;
     }
+
+    // ==================== ONDE ASSISTIR (filmes e séries) ====================
+    const WATCH_COUNTRY_TO_REGION = {
+        'Portugal': 'PT', 'Brasil': 'BR', 'Angola': 'AO', 'Moçambique': 'MZ', 'Cabo Verde': 'CV',
+        'Estados Unidos': 'US', 'Espanha': 'ES', 'França': 'FR', 'Reino Unido': 'GB'
+    };
+    const WATCH = { region: 'PT', lastResults: [] };
+    function openWatchScreen() {
+        WATCH.region = WATCH_COUNTRY_TO_REGION[APP.user?.country] || 'PT';
+        document.getElementById('watchScreen').classList.add('active');
+        document.getElementById('watchSearchInput').value = '';
+        document.getElementById('watchResults').innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Pesquisa um filme ou série para ver em que serviços de streaming está disponível.</p>';
+        setTimeout(() => document.getElementById('watchSearchInput').focus(), 150);
+    }
+    function closeWatchScreen() { document.getElementById('watchScreen').classList.remove('active'); }
+    async function doWatchSearch() {
+        const query = document.getElementById('watchSearchInput').value.trim();
+        if (!query) return;
+        const el = document.getElementById('watchResults');
+        el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">A pesquisar...</p>';
+        try {
+            const r = await fetch('/api/watch/search?q=' + encodeURIComponent(query));
+            const data = await r.json();
+            if (!data.configured) {
+                el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:30px;">⚠️ Esta funcionalidade ainda não está configurada no servidor (falta a chave gratuita do TMDB — ver README).</p>';
+                return;
+            }
+            WATCH.lastResults = data.results || [];
+            if (!WATCH.lastResults.length) {
+                el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Nada encontrado para "' + escapeHtml(query) + '".</p>';
+                return;
+            }
+            el.innerHTML = WATCH.lastResults.map((r, i) => `
+                <div class="chat-item" style="cursor:pointer;" onclick="openWatchProviders(${i})">
+                    ${r.posterUrl ? `<img src="${r.posterUrl}" style="width:40px;height:60px;object-fit:cover;border-radius:6px;flex:0 0 auto;">` : `<div class="chat-item-avatar avatar-group">🎬</div>`}
+                    <div class="chat-item-info"><h4>${escapeHtml(r.title)}${r.year ? ' (' + escapeHtml(r.year) + ')' : ''}</h4><p>${r.mediaType === 'tv' ? 'Série' : 'Filme'}</p></div>
+                </div>`).join('');
+        } catch (err) {
+            el.innerHTML = '<p style="color:var(--red);text-align:center;padding:30px;">Erro ao pesquisar. Tenta outra vez.</p>';
+        }
+    }
+    async function openWatchProviders(index) {
+        const item = WATCH.lastResults[index];
+        if (!item) return;
+        document.getElementById('watchProviderTitle').textContent = '🍿 ' + item.title + (item.year ? ' (' + item.year + ')' : '');
+        const content = document.getElementById('watchProviderContent');
+        content.innerHTML = '<p style="color:#8696a0;text-align:center;">A carregar...</p>';
+        document.getElementById('modalWatchProviders').classList.add('active');
+        try {
+            const r = await fetch(`/api/watch/providers?id=${item.id}&type=${item.mediaType}`);
+            const data = await r.json();
+            if (!data.configured) { content.innerHTML = '<p style="color:var(--text-secondary);">Funcionalidade não configurada no servidor.</p>'; return; }
+            const region = data.results?.[WATCH.region] || Object.values(data.results || {})[0];
+            if (!region) { content.innerHTML = '<p style="color:#8696a0;">Não há informação de onde assistir para este título.</p>'; return; }
+            const section = (label, list) => (list && list.length) ? `
+                <p style="font-weight:600;margin:10px 0 4px;">${label}</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">${list.map(p => `
+                    <div style="display:flex;flex-direction:column;align-items:center;width:56px;" title="${escapeHtml(p.provider_name)}">
+                        <img src="https://image.tmdb.org/t/p/w92${p.logo_path}" style="width:40px;height:40px;border-radius:8px;">
+                        <span style="font-size:9px;text-align:center;margin-top:2px;">${escapeHtml(p.provider_name)}</span>
+                    </div>`).join('')}</div>` : '';
+            const hasAny = region.flatrate?.length || region.rent?.length || region.buy?.length;
+            content.innerHTML = section('📺 Incluído na subscrição', region.flatrate) + section('💳 Alugar', region.rent) + section('🛒 Comprar', region.buy)
+                + (!hasAny ? '<p style="color:#8696a0;">Não há informação de onde assistir para este título na tua região.</p>' : '')
+                + (region.link ? `<div class="modal-actions" style="margin-top:14px;"><a href="${region.link}" target="_blank" rel="noopener" class="btn-small btn-accept" style="text-decoration:none;display:inline-block;">🔗 Ver todas as opções</a></div>` : '');
+        } catch (err) {
+            content.innerHTML = '<p style="color:var(--red);">Erro ao obter informação. Tenta outra vez.</p>';
+        }
+    }
+
     function openNewsScreen() {
         document.getElementById('newsScreen').classList.add('active');
         document.getElementById('newsBadge').style.display = 'none';
