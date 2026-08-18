@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
     <title>ChatApp Completo - Mensageiro + IA + Multimídia</title>
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#00a884">
+    <meta name="theme-color" content="#7c5cff">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
@@ -19,11 +19,11 @@
             --bg-chat: #0b141a;
             --text-primary: #e9edef;
             --text-secondary: #8696a0;
-            --green: #00a884;
-            --green-dark: #005c4b;
+            --green: #7c5cff;
+            --green-dark: #503aa5;
             --blue: #53bdeb;
             --red: #ef4444;
-            --msg-out: #005c4b;
+            --msg-out: #503aa5;
             --msg-in: #202c33;
             --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
             --radius: 12px;
@@ -37,11 +37,11 @@
             --bg-chat: #efeae2;
             --text-primary: #111b21;
             --text-secondary: #667781;
-            --green: #00a884;
-            --green-dark: #d9fdd3;
+            --green: #7c5cff;
+            --green-dark: #ebe6ff;
             --blue: #027eb5;
             --red: #ef4444;
-            --msg-out: #d9fdd3;
+            --msg-out: #ebe6ff;
             --msg-in: #ffffff;
             --shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
         }
@@ -140,7 +140,7 @@
         }
         .reply-quote {
             background: rgba(0,0,0,0.15);
-            border-left: 3px solid var(--green, #00a884);
+            border-left: 3px solid var(--green, #7c5cff);
             padding: 4px 8px;
             border-radius: 6px;
             font-size: 12px;
@@ -178,7 +178,7 @@
             gap: 8px;
             background: var(--bg-tertiary);
             padding: 8px 14px;
-            border-left: 3px solid var(--green, #00a884);
+            border-left: 3px solid var(--green, #7c5cff);
             color: var(--text-primary);
             font-size: 12px;
         }
@@ -234,7 +234,7 @@
         #navMap { flex: 1; width: 100%; }
         #issMap { width: 100%; }
         .transport-tab.active, .activities-tab.active {
-            background: var(--green, #00a884);
+            background: var(--green, #7c5cff);
             color: #fff;
         }
         #activityMap { width: 100%; }
@@ -1168,6 +1168,7 @@
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
+                <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar aparência do app">🎨</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
             </div>
         </div>
@@ -1499,6 +1500,43 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalCustomize">
+            <div class="modal" style="max-height:85vh;overflow-y:auto;">
+                <h3>🎨 Personalizar aparência</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">A tua escolha fica guardada na tua conta — abre o ChatApp noutro telemóvel ou computador e a cor e o fundo seguem-te.</p>
+
+                <div style="font-weight:600;font-size:14px;margin:16px 0 4px;">Cor de destaque</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 8px;">Muda ao vivo os botões, as bolhas de mensagem enviadas e outros detalhes em toda a app.</p>
+                <div style="display:flex;align-items:center;gap:14px;margin:10px 0;">
+                    <input type="color" id="accentColorPicker" value="#7c5cff" oninput="applyAccentColor(this.value)" onchange="chooseAccentColor(this.value)" style="width:56px;height:56px;border:none;border-radius:14px;cursor:pointer;background:none;padding:0;">
+                    <div>
+                        <div style="font-size:12px;color:var(--text-secondary);">Cor escolhida</div>
+                        <div id="accentColorHex" style="font-weight:600;font-size:16px;">#7C5CFF</div>
+                    </div>
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Sugestões rápidas</div>
+                <div id="accentPresets" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px;"></div>
+                <div class="modal-actions" style="margin-bottom:10px;">
+                    <button class="btn-small" onclick="resetAccentColor()">↩️ Repor cor padrão</button>
+                </div>
+
+                <div style="border-top:1px solid var(--bg-tertiary);margin:14px 0;"></div>
+
+                <div style="font-weight:600;font-size:14px;margin:0 0 4px;">Fundo das conversas</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 8px;">Escolhe uma cor/gradiente ou envia a tua própria imagem de fundo.</p>
+                <div id="wallpaperPresets" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;"></div>
+                <input type="file" id="wallpaperPhotoInput" accept="image/*" style="display:none;" onchange="handleWallpaperPhotoSelected(this)">
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="document.getElementById('wallpaperPhotoInput').click()">🖼️ Imagem personalizada</button>
+                    <button class="btn-small" onclick="resetChatWallpaper()">↩️ Repor fundo padrão</button>
+                </div>
+
+                <div class="modal-actions" style="margin-top:16px;">
+                    <button class="btn-small" onclick="closeModal('modalCustomize')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="modalTranslator">
             <div class="modal">
                 <h3>🌐 Idioma do Tradutor</h3>
@@ -2121,10 +2159,14 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0] };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
+        // A conta pode ter uma cor/fundo guardados de outro aparelho — aplica-os
+        // agora, para a personalização acompanhar a pessoa em qualquer login.
+        if (APP.user.accentColor) applyAccentColor(APP.user.accentColor);
+        applyChatWallpaper(APP.user.chatWallpaper || null, { save: true });
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
         renderHeaderAvatar();
@@ -2219,7 +2261,162 @@
         const next = current === 'light' ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', next);
         localStorage.setItem('themeMode', next);
+        applyAccentColor(localStorage.getItem('accentColor') || DEFAULT_ACCENT, { save: false });
+        applyChatWallpaper(localStorage.getItem('chatWallpaper') || null, { save: false });
     }
+
+    // ==================== COR DE DESTAQUE PERSONALIZADA ====================
+    const DEFAULT_ACCENT = '#7c5cff';
+    const ACCENT_PRESETS = [
+        { name: 'Violeta', hex: '#7c5cff' },
+        { name: 'Índigo', hex: '#4f6df5' },
+        { name: 'Céu', hex: '#0ea5e9' },
+        { name: 'Turquesa', hex: '#14b8a6' },
+        { name: 'Esmeralda', hex: '#10b981' },
+        { name: 'Âmbar', hex: '#f59e0b' },
+        { name: 'Coral', hex: '#fb7185' },
+        { name: 'Rosa', hex: '#ec4899' }
+    ];
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const n = parseInt(hex, 16);
+        return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    }
+    function rgbToHex(r, g, b) {
+        return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+    }
+    function mixColor(hex, withHex, ratio) {
+        const a = hexToRgb(hex), b = hexToRgb(withHex);
+        return rgbToHex(a.r + (b.r - a.r) * ratio, a.g + (b.g - a.g) * ratio, a.b + (b.b - a.b) * ratio);
+    }
+    function getAccentHex() {
+        return (localStorage.getItem('accentColor') || DEFAULT_ACCENT);
+    }
+    function applyAccentColor(hex, opts = {}) {
+        if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+        const root = document.documentElement;
+        root.style.setProperty('--green', hex);
+        const isLight = root.getAttribute('data-theme') === 'light';
+        const bubble = isLight ? mixColor(hex, '#ffffff', 0.85) : mixColor(hex, '#000000', 0.35);
+        root.style.setProperty('--green-dark', bubble);
+        root.style.setProperty('--msg-out', bubble);
+        const metaTheme = document.querySelector('meta[name="theme-color"]');
+        if (metaTheme) metaTheme.setAttribute('content', hex);
+        const label = document.getElementById('accentColorHex');
+        if (label) label.textContent = hex.toUpperCase();
+        const picker = document.getElementById('accentColorPicker');
+        if (picker) picker.value = hex;
+        if (opts.save !== false) localStorage.setItem('accentColor', hex);
+    }
+    // Guarda a cor no servidor, associada à conta — assim ela acompanha a
+    // pessoa quando faz login noutro aparelho (chamar só em escolhas
+    // "finais", não a cada frame do arrastar do seletor de cor).
+    function syncAccentColorToServer(hex) {
+        if (!APP.user || !socket) return;
+        socket.emit('update_accent_color', { color: hex });
+    }
+    function chooseAccentColor(hex) {
+        applyAccentColor(hex);
+        syncAccentColorToServer(hex);
+    }
+    function resetAccentColor() {
+        localStorage.removeItem('accentColor');
+        applyAccentColor(DEFAULT_ACCENT, { save: false });
+        syncAccentColorToServer(DEFAULT_ACCENT);
+    }
+    function renderAccentPresets() {
+        const el = document.getElementById('accentPresets');
+        if (!el) return;
+        el.innerHTML = ACCENT_PRESETS.map(p =>
+            `<button onclick="chooseAccentColor('${p.hex}')" title="${p.name}" style="width:34px;height:34px;border-radius:50%;border:2px solid var(--bg-tertiary);background:${p.hex};cursor:pointer;padding:0;"></button>`
+        ).join('');
+    }
+    function openCustomizeModal() {
+        const current = getAccentHex();
+        renderAccentPresets();
+        renderWallpaperPresets();
+        applyAccentColor(current, { save: false });
+        document.getElementById('modalCustomize').classList.add('active');
+    }
+    (function initAccentColor() {
+        applyAccentColor(getAccentHex(), { save: false });
+    })();
+
+    // ==================== FUNDO DAS CONVERSAS PERSONALIZADO ====================
+    const WALLPAPER_PRESETS = [
+        { name: 'Padrão', value: null },
+        { name: 'Grafite', value: '#1a1f24' },
+        { name: 'Meia-noite', value: '#0d1321' },
+        { name: 'Oceano', value: 'linear-gradient(135deg,#0f2027,#203a43,#2c5364)' },
+        { name: 'Pôr do sol', value: 'linear-gradient(135deg,#3a1c71,#d76d77,#ffaf7b)' },
+        { name: 'Floresta', value: 'linear-gradient(135deg,#134e5e,#71b280)' },
+        { name: 'Ameixa', value: 'linear-gradient(135deg,#41295a,#2f0743)' }
+    ];
+    function applyChatWallpaper(value, opts = {}) {
+        const root = document.documentElement;
+        const isLight = root.getAttribute('data-theme') === 'light';
+        root.style.setProperty('--bg-chat', value || (isLight ? '#efeae2' : '#0b141a'));
+        if (opts.save !== false) {
+            if (value) localStorage.setItem('chatWallpaper', value);
+            else localStorage.removeItem('chatWallpaper');
+        }
+    }
+    function syncChatWallpaperToServer(value) {
+        if (!APP.user || !socket) return;
+        socket.emit('update_chat_wallpaper', { wallpaper: value || '' });
+    }
+    function selectWallpaperPreset(value) {
+        applyChatWallpaper(value);
+        syncChatWallpaperToServer(value);
+    }
+    function resetChatWallpaper() {
+        applyChatWallpaper(null);
+        syncChatWallpaperToServer('');
+    }
+    function renderWallpaperPresets() {
+        const el = document.getElementById('wallpaperPresets');
+        if (!el) return;
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        el.innerHTML = WALLPAPER_PRESETS.map(p => {
+            const bg = p.value || (isLight ? '#efeae2' : '#0b141a');
+            const safeValue = p.value ? `'${p.value.replace(/'/g, "\\'")}'` : 'null';
+            return `<button onclick="selectWallpaperPreset(${safeValue})" title="${p.name}" style="width:44px;height:44px;border-radius:10px;border:2px solid var(--bg-tertiary);background:${bg};cursor:pointer;padding:0;"></button>`;
+        }).join('');
+    }
+    function handleWallpaperPhotoSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return alert('Escolhe um ficheiro de imagem.');
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => {
+            img.onload = async () => {
+                const maxW = 900, maxH = 1400;
+                const scale = Math.min(1, maxW / img.width, maxH / img.height);
+                const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+                const cssValue = `url('${finalUrl}') center/cover no-repeat`;
+                applyChatWallpaper(cssValue);
+                syncChatWallpaperToServer(cssValue);
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    (function initChatWallpaper() {
+        applyChatWallpaper(localStorage.getItem('chatWallpaper') || null, { save: false });
+    })();
 
     // ==================== FOTO DE PERFIL ====================
     function avatarInnerHtml(name, avatarUrl) {
@@ -2987,7 +3184,7 @@
         NAV.routeLines.forEach(l => NAV.map.removeLayer(l));
         NAV.routeLines = NAV.routes.map((r, i) => {
             const latlngs = r.geometry.coordinates.map(c => [c[1], c[0]]);
-            const line = L.polyline(latlngs, { color: i === NAV.selectedRouteIndex ? '#00a884' : '#8696a0', weight: i === NAV.selectedRouteIndex ? 6 : 4, opacity: i === NAV.selectedRouteIndex ? 0.95 : 0.6 }).addTo(NAV.map);
+            const line = L.polyline(latlngs, { color: i === NAV.selectedRouteIndex ? getAccentHex() : '#8696a0', weight: i === NAV.selectedRouteIndex ? 6 : 4, opacity: i === NAV.selectedRouteIndex ? 0.95 : 0.6 }).addTo(NAV.map);
             line.on('click', () => selectRoute(i));
             return line;
         });
@@ -3625,7 +3822,7 @@
             TRANSPORT.layers.bus.clearLayers();
             data.forEach(v => {
                 if (!v.lat || !v.lon) return;
-                L.circleMarker([v.lat, v.lon], { radius: 5, color: '#00a884', fillColor: '#00a884', fillOpacity: 0.9, weight: 1 })
+                L.circleMarker([v.lat, v.lon], { radius: 5, color: getAccentHex(), fillColor: getAccentHex(), fillOpacity: 0.9, weight: 1 })
                     .bindPopup(`🚌 Linha <strong>${v.line_id || '?'}</strong><br>Velocidade: ${v.speed != null ? Math.round(v.speed * 3.6) + ' km/h' : '—'}`)
                     .addTo(TRANSPORT.layers.bus);
             });
@@ -4194,7 +4391,7 @@
                 }
                 ACTIVITY.route.push({ lat, lng });
                 if (!ACTIVITY.polyline) {
-                    ACTIVITY.polyline = L.polyline([[lat, lng]], { color: '#00a884', weight: 5 }).addTo(ACTIVITY.map);
+                    ACTIVITY.polyline = L.polyline([[lat, lng]], { color: getAccentHex(), weight: 5 }).addTo(ACTIVITY.map);
                 } else {
                     ACTIVITY.polyline.addLatLng([lat, lng]);
                 }
