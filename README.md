@@ -48,14 +48,23 @@ garantida entre deploys, o próximo passo é usar um banco de dados de verdade
 
 O código já inclui:
 - **STUN** (Google) — resolve a maioria das conexões na mesma rede ou redes simples
-- **TURN** (OpenRelay, gratuito para testes) — retransmite a mídia quando os dois
-  lados estão atrás de NAT/roteadores restritivos (a situação mais comum entre
-  redes diferentes, ex: um no Wi-Fi de casa e outro no 4G)
+- **TURN** — retransmite a mídia quando os dois lados estão atrás de NAT/roteadores
+  restritivos (a situação mais comum entre redes diferentes, ex: um no Wi-Fi de
+  casa e outro no 4G). Sem TURN fiável, as chamadas ligam mas ficam com "Ligação
+  instável — a tentar recuperar", vídeo preto e sem som.
 
-Para um app em produção com uso real, o TURN gratuito do OpenRelay tem limite de
-banda. Vale migrar para:
-- Seu próprio servidor **coturn** (open-source, instala num VPS)
-- Um serviço pago como **metered.ca** ou **Twilio STUN/TURN**
+Por padrão usa o TURN público e gratuito do OpenRelay — funciona, mas é partilhado
+por muita gente e fica sobrecarregado, causando quedas de ligação. **Recomendo
+configurar um TURN dedicado (grátis, sem cartão):**
+
+1. Cria uma conta grátis em https://dashboard.metered.ca/register (não pede cartão)
+2. No painel, cria uma aplicação e copia o **nome da aplicação** (ex.: `oteuapp` de `oteuapp.metered.live`) e a **API Key**
+3. No Railway/Render, define `METERED_APP_NAME` (o nome da aplicação) e `METERED_API_KEY` (a chave)
+4. Sem essas variáveis, continua a usar o TURN público partilhado — nunca trava, só fica menos fiável
+
+Se preferires, também dá para usar o **Cloudflare Realtime** (TURN com cota generosa, mas pede cartão associado à conta mesmo no plano grátis) — define `CF_TURN_KEY_ID` e `CF_TURN_API_TOKEN`. A prioridade é: Cloudflare (se configurado) → Metered.ca (se configurado) → TURN público partilhado.
+
+Para uso ainda maior, dá para migrar para o teu próprio servidor **coturn** (open-source, instala num VPS).
 
 ## Estrutura
 

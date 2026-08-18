@@ -790,37 +790,52 @@ app.get('/api/nav/route', async (req, res) => {
   }
 });
 
+// Prioridade: Cloudflare Realtime (se configurado) > Metered.ca (se configurado)
+// > TURN público partilhado (grátis, mas sobrecarregado — só como último recurso).
+const TURN_FALLBACK = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ]
+};
+async function fetchCloudflareTurn() {
+  const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + process.env.CF_TURN_API_TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ttl: 3600 })
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const data = await r.json();
+  return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...(data.iceServers || [])] };
+}
+async function fetchMeteredTurn() {
+  const r = await fetch(`https://${process.env.METERED_APP_NAME}.metered.live/api/v1/turn/credentials?apiKey=${process.env.METERED_API_KEY}`);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const iceServers = await r.json();
+  return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...(Array.isArray(iceServers) ? iceServers : [])] };
+}
 app.get('/api/turn-credentials', async (req, res) => {
-  const FALLBACK = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-      { urls: 'stun:openrelay.metered.ca:80' },
-      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-    ]
-  };
-  if (!process.env.CF_TURN_KEY_ID || !process.env.CF_TURN_API_TOKEN) {
-    return res.json(FALLBACK);
-  }
+  const now = Date.now();
+  if (turnCache && (now - turnCacheAt) < 20 * 60 * 1000) return res.json(turnCache);
   try {
-    const now = Date.now();
-    if (turnCache && (now - turnCacheAt) < 20 * 60 * 1000) return res.json(turnCache);
-    const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`, {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + process.env.CF_TURN_API_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ttl: 3600 })
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    const combined = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...(data.iceServers || [])] };
+    let combined;
+    if (process.env.CF_TURN_KEY_ID && process.env.CF_TURN_API_TOKEN) {
+      combined = await fetchCloudflareTurn();
+    } else if (process.env.METERED_APP_NAME && process.env.METERED_API_KEY) {
+      combined = await fetchMeteredTurn();
+    } else {
+      return res.json(TURN_FALLBACK);
+    }
     turnCache = combined;
     turnCacheAt = now;
     res.json(combined);
   } catch (err) {
     console.error('Erro ao gerar credenciais TURN:', err.message);
-    res.json(FALLBACK);
+    res.json(TURN_FALLBACK);
   }
 });
 
