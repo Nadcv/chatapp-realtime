@@ -538,15 +538,16 @@ app.get('/api/space/satellites', async (req, res) => {
   }
 });
 
-// ==================== NAVEGAÇÃO GPS (tipo Waze, Portugal e Espanha) ====================
+// ==================== NAVEGAÇÃO GPS (tipo Waze, mundo inteiro) ====================
 // Endereço -> coordenadas, via Nominatim (OpenStreetMap) — gratuita, mas exige
 // um User-Agent identificável e pede para não bombardear com pedidos; aqui é
 // sempre 1 pedido por pesquisa feita pelo utilizador, com cache de 1 minuto.
+// Sem restrição de país — pesquisa em qualquer lugar do mundo.
 app.get('/api/nav/geocode', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Escreve um endereço para procurar.' });
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=pt,es&limit=6&addressdetails=1&q=${encodeURIComponent(q)}`;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&addressdetails=1&q=${encodeURIComponent(q)}`;
     const data = await cachedFetch('geocode_' + q.toLowerCase(), url, 60000, { headers: { 'User-Agent': 'SinalApp/1.0 (navegacao dentro da app de mensagens)' } });
     res.json(data);
   } catch (err) {

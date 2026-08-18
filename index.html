@@ -1303,7 +1303,7 @@
                 <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
                 <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
                 <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
-                <button class="btn-icon" onclick="openNavScreen()" title="Navegação GPS (Portugal e Espanha)">🧭</button>
+                <button class="btn-icon" onclick="openNavScreen()" title="Navegação GPS — mundo inteiro, tipo Waze">🧭</button>
                 <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
                 <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
                 <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
@@ -1879,10 +1879,10 @@
             </div>
         </div>
 
-        <!-- ============ NAVEGAÇÃO GPS (tipo Waze — Portugal e Espanha) ============ -->
+        <!-- ============ NAVEGAÇÃO GPS (tipo Waze — mundo inteiro) ============ -->
         <div class="location-screen" id="navScreen">
             <div class="location-header">
-                <strong>🧭 Navegação GPS · Portugal e Espanha</strong>
+                <strong>🧭 Navegação GPS</strong>
                 <div style="display:flex;gap:10px;align-items:center;">
                     <button id="navVoiceBtn" onclick="toggleNavVoice()" title="Ligar/desligar voz" style="background:none;border:none;color:var(--text-primary);font-size:18px;cursor:pointer;">🔊</button>
                     <button onclick="closeNavScreen()">✖️</button>
@@ -3257,7 +3257,7 @@
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    // ==================== NAVEGAÇÃO GPS (tipo Waze — Portugal e Espanha) ====================
+    // ==================== NAVEGAÇÃO GPS (tipo Waze — mundo inteiro) ====================
     const NAV = {
         map: null, userMarker: null, destMarker: null, routeLines: [], routes: [], selectedRouteIndex: 0,
         steps: [], currentStepIndex: 0, origin: null, destination: null, watchId: null, navigating: false,
@@ -3272,7 +3272,7 @@
         document.getElementById('navScreen').classList.add('active');
         document.getElementById('navVoiceBtn').textContent = NAV.voiceEnabled ? '🔊' : '🔇';
         if (!NAV.map) {
-            NAV.map = L.map('navMap').setView([40.0, -4.5], 6);
+            NAV.map = L.map('navMap').setView([20, 0], 2); // vista mundial por padrão, até sabermos a tua localização
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(NAV.map);
         }
         setTimeout(() => NAV.map.invalidateSize(), 200);
@@ -3371,7 +3371,7 @@
             const res = await fetch('/api/nav/geocode?q=' + encodeURIComponent(q));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Falha na pesquisa');
-            if (!data.length) { list.innerHTML = '<p style="padding:12px;color:var(--text-secondary);font-size:13px;">Nada encontrado em Portugal/Espanha para essa pesquisa.</p>'; return; }
+            if (!data.length) { list.innerHTML = '<p style="padding:12px;color:var(--text-secondary);font-size:13px;">Nada encontrado para essa pesquisa.</p>'; return; }
             list.innerHTML = data.map((r) => `
                 <div class="chat-item" style="cursor:pointer;" onclick='selectNavResult(${JSON.stringify(r.lat)}, ${JSON.stringify(r.lon)}, ${JSON.stringify(r.display_name)})'>
                     <div class="chat-item-avatar avatar-user">📍</div>
