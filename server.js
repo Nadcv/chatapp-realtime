@@ -481,7 +481,11 @@ const NEWS_FEEDS = [
   { id: 'publico', name: 'Público', flag: '🇵🇹', category: 'portugal', url: 'https://www.publico.pt/rss' },
   { id: 'observador', name: 'Observador', flag: '🇵🇹', category: 'portugal', url: 'https://observador.pt/feed/' },
   { id: 'rtp', name: 'RTP Notícias', flag: '🇵🇹', category: 'portugal', url: 'https://www.rtp.pt/noticias/rss' },
-  { id: 'bbc', name: 'BBC World', flag: '🌍', category: 'mundo', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' }
+  { id: 'bbc', name: 'BBC World', flag: '🌍', category: 'mundo', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
+  { id: 'euronews', name: 'Euronews', flag: '🇪🇺', category: 'mundo', url: 'https://pt.euronews.com/rss' },
+  { id: 'cnn', name: 'CNN', flag: '🌍', category: 'mundo', url: 'http://rss.cnn.com/rss/edition.rss' },
+  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://www.rtp.pt/africa/rss' },
+  { id: 'record', name: 'Record', flag: '⚽', category: 'futebol', url: 'https://www.record.pt/rss' }
 ];
 let newsItems = []; // lista mesclada de todas as fontes, mais recente primeiro
 let newsKnownLinks = new Set();
