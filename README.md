@@ -470,9 +470,14 @@ A GitHub retirou o **GitHub Models** por completo a 30 de julho de 2026 — não
 - O botão "📝 Resumir conversa" (que também usava o GitHub Models) passou a usar o Gemini
 - Sobra só o contacto "✨ Gemini" como assistente de IA — já suportava tudo o mesmo (texto, fotos, vídeos, documentos), só precisa da `GEMINI_API_KEY` (ver secção "Como ativar o Assistente de IA" acima)
 
-## ⋯ Menu "Mais funcionalidades" (organiza o cabeçalho)
+## ⋯ Menu "Mais funcionalidades" e 🎬 menu de Media (organizam o cabeçalho)
 
-O cabeçalho já ia em ~25 ícones, difícil de navegar a deslizar. Criei um botão único **"⋯ Mais"** que abre uma grelha organizada com as funcionalidades menos usadas no dia a dia: 🧮 Calculadora, 🏦 Câmbio, 🧭 Navegação, 🔥 Incêndios, 🛰️ Espaço, 🚌 Transportes, 🚗 Conduzir e Ouvir, e 🌦️ Meteorologia. Nenhuma funcionalidade foi alterada, só a forma de lá chegar — os ícones mais usados (pesquisa, chamadas, grupos, admin) continuam diretamente no cabeçalho.
+O cabeçalho já ia em ~25 ícones, difícil de navegar a deslizar. Criei dois botões que agrupam o resto em grelhas organizadas, sem alterar nenhuma funcionalidade em si — só a forma de lá chegar:
+
+- **"⋯ Mais"**: 🧮 Calculadora, 🏦 Câmbio, 🧭 Navegação, 🔥 Incêndios, 🛰️ Espaço, 🚌 Transportes, 🚗 Conduzir e Ouvir, 🌦️ Meteorologia, 🏃 Atividades
+- **"🎬" (TV, Notícias e Media)**: 📺 TV em Direto, 🍿 Onde Assistir, 📰 Notícias (mantém a bolinha vermelha de notícias novas), 🎧 Música, 😂 Vídeos engraçados
+
+Os ícones mais usados no dia a dia (pesquisa, chamadas, grupos, admin, estados, histórico de chamadas, arquivadas, tema) continuam diretamente no cabeçalho.
 
 ## 🌦️ Meteorologia (Open-Meteo)
 
