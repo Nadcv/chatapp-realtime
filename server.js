@@ -50,7 +50,8 @@ const accountSchema = new mongoose.Schema({
   accentColor: String, // cor de destaque escolhida na personalização da app (ex.: '#7c5cff')
   chatWallpaper: String, // fundo das conversas escolhido (cor, gradiente CSS ou url() de uma imagem)
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
-  pushSubscriptions: { type: [Object], default: [] } // inscrições de notificações push (um dispositivo pode ter mais do que uma)
+  pushSubscriptions: { type: [Object], default: [] }, // inscrições de notificações push (um dispositivo pode ter mais do que uma)
+  totalTimeSpentSec: { type: Number, default: 0 } // tempo total acumulado com a app em primeiro plano, para o cronómetro "quantas horas perdeu"
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -210,7 +211,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0 };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -280,6 +281,26 @@ app.post('/api/publish-key', async (req, res) => {
 
   notifyContactsOfStatusChange(phone); // avisa quem te tem como contacto de que a tua chave pública mudou
   res.json({ success: true });
+});
+
+// Cronómetro "quantas horas perdeu na app" — o cliente manda um incremento de
+// vez em quando (só enquanto a aba está em primeiro plano), e isto vai
+// somando ao total guardado na conta. Limita a 5 minutos por pedido para
+// não deixar um cliente malicioso inflacionar o próprio contador.
+app.post('/api/time-spent', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  if (!phone || !accounts[phone]) return res.status(403).json({ error: 'Sessão inválida.' });
+  const seconds = Math.min(Math.max(Number(req.body?.seconds) || 0, 0), 300);
+  if (seconds > 0) {
+    accounts[phone].totalTimeSpentSec = (accounts[phone].totalTimeSpentSec || 0) + seconds;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone }, { totalTimeSpentSec: accounts[phone].totalTimeSpentSec }).catch(e => console.error('Erro Mongo (tempo gasto):', e.message));
+    } else {
+      saveUsers();
+    }
+  }
+  res.json({ success: true, totalTimeSpentSec: accounts[phone].totalTimeSpentSec });
 });
 
 // ==================== TRANSPORTES ====================
