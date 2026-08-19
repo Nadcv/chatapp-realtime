@@ -438,5 +438,13 @@ Pediste para ver "qualquer filme ou série" dentro da app — isso não dá para
 2. No Railway/Render, define a variável de ambiente `TMDB_API_KEY` com essa chave (usa a "API Key (v3 auth)", não o "Read Access Token")
 3. Sem essa variável, o ecrã mostra um aviso claro a pedir a configuração, em vez de travar
 
+## 🏦 Câmbio (conversor de moedas do mundo todo)
+
+Novo botão 🏦 no cabeçalho: converte entre qualquer par de moedas, com destaque para as lusófonas — Euro (Portugal), Dólar (EUA), Real (Brasil), Kwanza (Angola), Escudo (Cabo Verde), Metical (Moçambique), Dobra (São Tomé e Príncipe), Pataca (Macau) — mais cerca de 150 outras moedas do mundo inteiro.
+
+- Usa a **ExchangeRate-API** (endpoint de acesso livre, sem chave nem registo), com taxas atualizadas uma vez por dia
+- Não precisa de nenhuma configuração — funciona logo, ao contrário de outras funcionalidades desta secção que pedem uma chave
+- Também serviu como teste para confirmar que os deploys estavam mesmo a chegar ao Railway, depois do incidente deles que causou a confusão com os canais da TV em Direto
+
 
 

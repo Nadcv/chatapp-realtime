@@ -1325,6 +1325,7 @@
                 <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
                 <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias e filmes">📺</button>
                 <button class="btn-icon" onclick="openWatchScreen()" title="Onde Assistir — em que serviço de streaming está um filme ou série">🍿</button>
+                <button class="btn-icon" onclick="openCurrencyScreen()" title="Câmbio — conversor de moedas do mundo todo">🏦</button>
                 <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
                 <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
@@ -2087,6 +2088,25 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalWatchProviders')">Fechar</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- ============ CÂMBIO ============ -->
+        <div class="location-screen" id="currencyScreen">
+            <div class="location-header">
+                <strong>🏦 Câmbio</strong>
+                <button onclick="closeCurrencyScreen()">✖️</button>
+            </div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;">
+                <input type="number" id="currencyAmount" value="1" min="0" step="any" oninput="convertCurrency()" style="padding:12px;font-size:20px;border-radius:10px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);text-align:center;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <select id="currencyFrom" onchange="convertCurrency()" style="flex:1;min-width:0;padding:10px;border-radius:10px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);"></select>
+                    <button class="btn-icon" onclick="swapCurrency()" title="Trocar" style="flex:0 0 auto;">🔄</button>
+                    <select id="currencyTo" onchange="convertCurrency()" style="flex:1;min-width:0;padding:10px;border-radius:10px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);"></select>
+                </div>
+                <div id="currencyResult" style="text-align:center;font-size:26px;font-weight:600;padding:20px;background:var(--bg-secondary);border-radius:14px;word-break:break-word;">—</div>
+                <p id="currencyUpdated" style="font-size:11px;color:var(--text-secondary);text-align:center;margin:0;"></p>
+                <p style="font-size:11px;color:var(--text-secondary);text-align:center;margin:0;">Taxas fornecidas pela ExchangeRate-API (atualizadas uma vez por dia, gratuita e sem chave).</p>
             </div>
         </div>
 
@@ -4093,6 +4113,86 @@
         } catch (err) {
             content.innerHTML = '<p style="color:var(--red);">Erro ao obter informação. Tenta outra vez.</p>';
         }
+    }
+
+    // ==================== CÂMBIO (conversor de moedas) ====================
+    const CURRENCY_INFO = {
+        EUR: { name: 'Euro', flag: '🇪🇺' }, USD: { name: 'Dólar americano', flag: '🇺🇸' },
+        BRL: { name: 'Real brasileiro', flag: '🇧🇷' }, AOA: { name: 'Kwanza (Angola)', flag: '🇦🇴' },
+        CVE: { name: 'Escudo cabo-verdiano', flag: '🇨🇻' }, MZN: { name: 'Metical (Moçambique)', flag: '🇲🇿' },
+        STN: { name: 'Dobra (São Tomé e Príncipe)', flag: '🇸🇹' }, MOP: { name: 'Pataca (Macau)', flag: '🇲🇴' },
+        GBP: { name: 'Libra esterlina', flag: '🇬🇧' }, JPY: { name: 'Iene japonês', flag: '🇯🇵' },
+        CHF: { name: 'Franco suíço', flag: '🇨🇭' }, CAD: { name: 'Dólar canadiano', flag: '🇨🇦' },
+        AUD: { name: 'Dólar australiano', flag: '🇦🇺' }, CNY: { name: 'Yuan chinês', flag: '🇨🇳' },
+        INR: { name: 'Rupia indiana', flag: '🇮🇳' }, RUB: { name: 'Rublo russo', flag: '🇷🇺' },
+        ZAR: { name: 'Rand sul-africano', flag: '🇿🇦' }, MXN: { name: 'Peso mexicano', flag: '🇲🇽' },
+        ARS: { name: 'Peso argentino', flag: '🇦🇷' }, NOK: { name: 'Coroa norueguesa', flag: '🇳🇴' },
+        SEK: { name: 'Coroa sueca', flag: '🇸🇪' }, DKK: { name: 'Coroa dinamarquesa', flag: '🇩🇰' },
+        PLN: { name: 'Zloty polaco', flag: '🇵🇱' }, TRY: { name: 'Lira turca', flag: '🇹🇷' },
+        KRW: { name: 'Won sul-coreano', flag: '🇰🇷' }, SGD: { name: 'Dólar de Singapura', flag: '🇸🇬' },
+        AED: { name: 'Dirham dos EAU', flag: '🇦🇪' }, SAR: { name: 'Riyal saudita', flag: '🇸🇦' },
+        EGP: { name: 'Libra egípcia', flag: '🇪🇬' }, NGN: { name: 'Naira nigeriana', flag: '🇳🇬' }
+    };
+    const CURRENCY_PRIORITY = ['EUR', 'USD', 'BRL', 'AOA', 'CVE', 'MZN', 'STN', 'GBP'];
+    const CURRENCY = { rates: null, loaded: false };
+    function openCurrencyScreen() {
+        document.getElementById('currencyScreen').classList.add('active');
+        if (!CURRENCY.loaded) loadCurrencyRates();
+    }
+    function closeCurrencyScreen() { document.getElementById('currencyScreen').classList.remove('active'); }
+    async function loadCurrencyRates() {
+        document.getElementById('currencyResult').textContent = 'A carregar...';
+        try {
+            const r = await fetch('/api/currency/rates?base=EUR');
+            const data = await r.json();
+            if (data.error) throw new Error(data.error);
+            CURRENCY.rates = data.rates;
+            CURRENCY.loaded = true;
+            populateCurrencySelects();
+            document.getElementById('currencyUpdated').textContent = data.updated ? ('Atualizado: ' + data.updated) : '';
+            convertCurrency();
+        } catch (err) {
+            document.getElementById('currencyResult').textContent = '⚠️ Não foi possível carregar as taxas agora.';
+        }
+    }
+    function populateCurrencySelects() {
+        const codes = Object.keys(CURRENCY.rates);
+        const sorted = [...codes].sort((a, b) => {
+            const pa = CURRENCY_PRIORITY.indexOf(a), pb = CURRENCY_PRIORITY.indexOf(b);
+            if (pa !== -1 || pb !== -1) return (pa === -1 ? 999 : pa) - (pb === -1 ? 999 : pb);
+            return a.localeCompare(b);
+        });
+        const optionsHtml = sorted.map(code => {
+            const info = CURRENCY_INFO[code];
+            const label = info ? `${info.flag} ${code} — ${info.name}` : code;
+            return `<option value="${code}">${escapeHtml(label)}</option>`;
+        }).join('');
+        const fromSel = document.getElementById('currencyFrom');
+        const toSel = document.getElementById('currencyTo');
+        fromSel.innerHTML = optionsHtml;
+        toSel.innerHTML = optionsHtml;
+        if (codes.includes('EUR')) fromSel.value = 'EUR';
+        if (codes.includes('USD')) toSel.value = 'USD';
+    }
+    function convertCurrency() {
+        if (!CURRENCY.rates) return;
+        const amount = parseFloat(document.getElementById('currencyAmount').value) || 0;
+        const from = document.getElementById('currencyFrom').value;
+        const to = document.getElementById('currencyTo').value;
+        const fromRate = CURRENCY.rates[from];
+        const toRate = CURRENCY.rates[to];
+        if (!fromRate || !toRate) return;
+        // As taxas são relativas à moeda base (EUR): converte para EUR primeiro, depois para o destino.
+        const result = (amount / fromRate) * toRate;
+        document.getElementById('currencyResult').textContent = result.toLocaleString('pt-PT', { maximumFractionDigits: 4 }) + ' ' + to;
+    }
+    function swapCurrency() {
+        const fromSel = document.getElementById('currencyFrom');
+        const toSel = document.getElementById('currencyTo');
+        const tmp = fromSel.value;
+        fromSel.value = toSel.value;
+        toSel.value = tmp;
+        convertCurrency();
     }
 
     function openNewsScreen() {

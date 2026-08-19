@@ -501,6 +501,24 @@ app.get('/api/watch/providers', async (req, res) => {
   }
 });
 
+// ==================== CÂMBIO (conversor de moedas) ====================
+// API gratuita, mundial, sem chave nem registo — ExchangeRate-API (endpoint
+// de acesso livre, atualizado uma vez por dia). Cobre ~160 moedas, incluindo
+// as menos comuns como a Dobra de São Tomé e Príncipe (STN) e o Kwanza
+// angolano (AOA).
+app.get('/api/currency/rates', async (req, res) => {
+  const base = (req.query.base || 'EUR').toUpperCase();
+  if (!/^[A-Z]{3}$/.test(base)) return res.status(400).json({ error: 'Moeda base inválida.' });
+  try {
+    const data = await cachedFetch('currency_' + base, `https://open.er-api.com/v6/latest/${base}`, 6 * 60 * 60 * 1000);
+    if (data.result !== 'success') throw new Error('A API de câmbio devolveu um erro.');
+    res.json({ base: data.base_code, rates: data.rates, updated: data.time_last_update_utc });
+  } catch (err) {
+    console.error('Erro ao obter taxas de câmbio:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter as taxas de câmbio agora.' });
+  }
+});
+
 // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
 // Inspirado no driveandlisten.app: vídeo de condução pela cidade (YouTube) +
 // rádio local a tocar ao mesmo tempo. A lista de cidades é curada à mão (com
