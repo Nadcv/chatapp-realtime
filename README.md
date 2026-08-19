@@ -470,3 +470,15 @@ A GitHub retirou o **GitHub Models** por completo a 30 de julho de 2026 — não
 - O botão "📝 Resumir conversa" (que também usava o GitHub Models) passou a usar o Gemini
 - Sobra só o contacto "✨ Gemini" como assistente de IA — já suportava tudo o mesmo (texto, fotos, vídeos, documentos), só precisa da `GEMINI_API_KEY` (ver secção "Como ativar o Assistente de IA" acima)
 
+## ⋯ Menu "Mais funcionalidades" (organiza o cabeçalho)
+
+O cabeçalho já ia em ~25 ícones, difícil de navegar a deslizar. Criei um botão único **"⋯ Mais"** que abre uma grelha organizada com as funcionalidades menos usadas no dia a dia: 🧮 Calculadora, 🏦 Câmbio, 🧭 Navegação, 🔥 Incêndios, 🛰️ Espaço, 🚌 Transportes, 🚗 Conduzir e Ouvir, e 🌦️ Meteorologia. Nenhuma funcionalidade foi alterada, só a forma de lá chegar — os ícones mais usados (pesquisa, chamadas, grupos, admin) continuam diretamente no cabeçalho.
+
+## 🌦️ Meteorologia (Open-Meteo)
+
+Nova funcionalidade dentro do menu "⋯ Mais": pesquisas uma cidade ou localidade e vês o tempo atual (temperatura, sensação térmica, humidade, vento) e a previsão para os próximos dias, com hipótese de chuva.
+
+- Usa a **Open-Meteo** (gratuita, sem chave nem registo) — primeiro converte o nome da localidade em coordenadas (geocoding), depois pede a previsão
+- Não precisa de nenhuma configuração — funciona logo
+- (Havia já um endpoint `/api/weather` antigo no servidor, à espera de coordenadas em vez do nome da cidade, mas nunca tinha sido ligado a nenhum ecrã — código morto que removi ao criar esta funcionalidade, para não ficarem dois a responder ao mesmo caminho.)
+

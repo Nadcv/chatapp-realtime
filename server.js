@@ -570,6 +570,34 @@ app.get('/api/music/search', async (req, res) => {
   }
 });
 
+// ==================== METEOROLOGIA (Open-Meteo) ====================
+// API gratuita, mundial, sem chave nem registo — Open-Meteo. Primeiro
+// converte o nome da localidade em coordenadas (geocoding), depois pede a
+// previsão para essas coordenadas. Não precisa de nenhuma configuração.
+app.get('/api/weather', async (req, res) => {
+  const query = (req.query.q || '').trim();
+  if (!query) return res.status(400).json({ error: 'Indica uma cidade ou localidade.' });
+  try {
+    const geoData = await cachedFetch(
+      'weather_geo_' + query.toLowerCase(),
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=pt&format=json`,
+      24 * 60 * 60 * 1000
+    );
+    const place = (geoData.results || [])[0];
+    if (!place) return res.status(404).json({ error: 'Não encontrei essa localidade.' });
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`;
+    const data = await cachedFetch('weather_fc_' + place.id, forecastUrl, 30 * 60 * 1000);
+    res.json({
+      place: { name: place.name, country: place.country, admin1: place.admin1 || null },
+      current: data.current,
+      daily: data.daily
+    });
+  } catch (err) {
+    console.error('Erro ao obter meteorologia:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter a meteorologia agora.' });
+  }
+});
+
 // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
 // Inspirado no driveandlisten.app: vídeo de condução pela cidade (YouTube) +
 // rádio local a tocar ao mesmo tempo. A lista de cidades é curada à mão (com
@@ -740,22 +768,6 @@ app.get('/api/news/read', async (req, res) => {
 // ==================== SERVIDOR TURN ====================
 let turnCache = null;
 let turnCacheAt = 0;
-// ==================== TEMPO/METEOROLOGIA ====================
-// Open-Meteo — gratuita, sem chave, sem limite de pedidos para uso normal.
-app.get('/api/weather', async (req, res) => {
-  const { lat, lon } = req.query;
-  if (!lat || !lon) return res.status(400).json({ error: 'Localização em falta.' });
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    res.json(data);
-  } catch (err) {
-    console.error('Erro meteorologia:', err.message);
-    res.status(502).json({ error: 'Não foi possível obter o tempo agora.' });
-  }
-});
 
 // ==================== ESPAÇO (ISS, Sol e satélites visíveis) ====================
 // Posição da Estação Espacial Internacional em tempo real + tripulação atual —
