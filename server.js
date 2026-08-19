@@ -519,6 +519,57 @@ app.get('/api/currency/rates', async (req, res) => {
   }
 });
 
+// ==================== MÚSICA (Jamendo) ====================
+// Catálogo de artistas independentes com licenças abertas (Creative
+// Commons e afins) — ao contrário do Spotify, a própria Jamendo distribui
+// o ficheiro áudio completo de cada faixa (não é só um preview de 30s),
+// por isso dá para tocar a música toda dentro da própria app com um
+// simples <audio>. Precisa de um client_id gratuito (ver README).
+const jamendoCacheStore = {};
+async function jamendoFetch(params = {}) {
+  const url = new URL('https://api.jamendo.com/v3.0/tracks/');
+  url.searchParams.set('client_id', process.env.JAMENDO_CLIENT_ID);
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('imagesize', '300');
+  url.searchParams.set('include', 'musicinfo');
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const r = await fetch(url.toString());
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function mapJamendoTrack(t) {
+  return {
+    id: t.id,
+    title: t.name,
+    artist: t.artist_name,
+    album: t.album_name || '',
+    image: t.image || t.album_image || null,
+    audio: t.audio,
+    duration: t.duration
+  };
+}
+app.get('/api/music/search', async (req, res) => {
+  if (!process.env.JAMENDO_CLIENT_ID) return res.json({ configured: false, results: [] });
+  const query = (req.query.q || '').trim();
+  const cacheKey = 'music_' + (query ? 'q_' + query.toLowerCase() : 'popular');
+  const now = Date.now();
+  if (jamendoCacheStore[cacheKey] && (now - jamendoCacheStore[cacheKey].t) < 60 * 60 * 1000) {
+    return res.json({ configured: true, results: jamendoCacheStore[cacheKey].data });
+  }
+  try {
+    const params = query
+      ? { search: query, order: 'relevance', limit: '30' }
+      : { order: 'popularity_month', limit: '30' };
+    const data = await jamendoFetch(params);
+    const results = (data.results || []).filter((t) => t.audio).map(mapJamendoTrack);
+    jamendoCacheStore[cacheKey] = { t: now, data: results };
+    res.json({ configured: true, results });
+  } catch (err) {
+    console.error('Erro Jamendo (pesquisa):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar música agora.' });
+  }
+});
+
 // ==================== SALA "CONDUZIR E OUVIR" (Drive & Listen) ====================
 // Inspirado no driveandlisten.app: vídeo de condução pela cidade (YouTube) +
 // rádio local a tocar ao mesmo tempo. A lista de cidades é curada à mão (com
