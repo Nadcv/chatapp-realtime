@@ -1308,16 +1308,11 @@
             <div class="header-actions">
                 <button class="btn-icon" onclick="openTranslatorModal()" title="Idioma do tradutor">🌐</button>
                 <button class="btn-icon" onclick="toggleMusicPlayer()" title="Música de fundo">🎵</button>
-                <button class="btn-icon" onclick="openCreateGroupModal()" title="Criar grupo">👥</button>
-                <button class="btn-icon" onclick="openBroadcastScreen()" title="Listas de transmissão">📢</button>
-                <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
-                <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
                 <button class="btn-icon" onclick="openMoreFeaturesModal()" title="Mais funcionalidades">⋯</button>
                 <button class="btn-icon" id="mediaBtn" onclick="openMediaFeaturesModal()" title="TV, Onde Assistir, Notícias, Música, Vídeos engraçados" style="position:relative;">🎬<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
+                <button class="btn-icon" onclick="openContactsFeaturesModal()" title="Grupos, chamadas e contactos">📇</button>
                 <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
-                <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
-                <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
                 <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar aparência do app">🎨</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
@@ -1772,6 +1767,24 @@
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMediaFeatures')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ GRUPOS, CHAMADAS E CONTACTOS ============ -->
+        <div class="modal-overlay" id="modalContactsFeatures">
+            <div class="modal">
+                <h3>📇 Grupos, chamadas e contactos</h3>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCreateGroupModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">👥<span style="font-size:11px;">Criar grupo</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openBroadcastScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📢<span style="font-size:11px;">Lista de transmissão</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openNewCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📞<span style="font-size:11px;">Nova chamada</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openSearchUserModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔍<span style="font-size:11px;">Utilizadores cadastrados</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCallLogScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📋<span style="font-size:11px;">Histórico de chamadas</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openArchivedScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Conversas arquivadas</span></button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -8032,6 +8045,7 @@
     function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
     function openMoreFeaturesModal() { document.getElementById('modalMoreFeatures').classList.add('active'); }
     function openMediaFeaturesModal() { document.getElementById('modalMediaFeatures').classList.add('active'); }
+    function openContactsFeaturesModal() { document.getElementById('modalContactsFeatures').classList.add('active'); }
     document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
