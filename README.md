@@ -476,8 +476,9 @@ O cabeçalho já ia em ~25 ícones, difícil de navegar a deslizar. Criei dois b
 
 - **"⋯ Mais"**: 🧮 Calculadora, 🏦 Câmbio, 🧭 Navegação, 🔥 Incêndios, 🛰️ Espaço, 🚌 Transportes, 🚗 Conduzir e Ouvir, 🌦️ Meteorologia, 🏃 Atividades
 - **"🎬" (TV, Notícias e Media)**: 📺 TV em Direto, 🍿 Onde Assistir, 📰 Notícias (mantém a bolinha vermelha de notícias novas), 🎧 Música, 😂 Vídeos engraçados
+- **"📇" (Grupos, chamadas e contactos)**: 👥 Criar grupo, 📢 Lista de transmissão, 📞 Nova chamada, 🔍 Utilizadores cadastrados (procurar por username), 📋 Histórico de chamadas, 🗄️ Conversas arquivadas
 
-Os ícones mais usados no dia a dia (pesquisa, chamadas, grupos, admin, estados, histórico de chamadas, arquivadas, tema) continuam diretamente no cabeçalho.
+Fica diretamente no cabeçalho o que sobrou: idioma do tradutor, música de fundo, admin (só para o admin), os três menus, estados, tema e personalizar/sair.
 
 ## 🌦️ Meteorologia (Open-Meteo)
 
