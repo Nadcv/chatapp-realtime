@@ -1509,6 +1509,14 @@ function deliverToPhone(phone, event, payload, excludeSocketId) {
 const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20+ pessoas em simultâneo)
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
+const TIC_TAC_TOE_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+function checkGameWinner(board) {
+  for (const [a, b, c] of TIC_TAC_TOE_LINES) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
+  }
+  return board.every((c) => c) ? 'draw' : null;
+}
+
 function contactPublicInfo(u) {
   return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null };
 }
@@ -1947,6 +1955,30 @@ io.on('connection', (socket) => {
       saveMessagesLocal();
     }
     io.to(data.chatId).emit('poll_updated', { chatId: data.chatId, messageId: data.messageId, poll: msg.poll });
+  });
+
+  // Jogo do galo dentro de uma conversa 1-para-1 — X é sempre quem começou o
+  // jogo, O é sempre a outra pessoa (ver 'players' guardado na mensagem).
+  // Validação de turno e deteção de vitória feitas aqui, não no cliente, para
+  // não dar para fazer batota alterando o código no navegador.
+  socket.on('move_game', async (data) => {
+    if (!data?.chatId || !data?.messageId || typeof data?.cell !== 'number' || data.cell < 0 || data.cell > 8) return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find((m) => m.id === data.messageId);
+    if (!msg?.game || msg.game.winner || msg.game.board[data.cell]) return;
+    const myMark = msg.game.players[0] === myPhone ? 'X' : (msg.game.players[1] === myPhone ? 'O' : null);
+    if (!myMark || myMark !== msg.game.turn) return;
+    msg.game.board[data.cell] = myMark;
+    msg.game.winner = checkGameWinner(msg.game.board);
+    msg.game.turn = myMark === 'X' ? 'O' : 'X';
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { game: msg.game }).catch((e) => console.error('Erro Mongo (jogo do galo):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(data.chatId).emit('game_updated', { chatId: data.chatId, messageId: data.messageId, game: msg.game });
   });
 
   socket.on('message_read', (data) => {

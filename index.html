@@ -1384,6 +1384,7 @@
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
+                    <button class="btn-icon" id="ticTacToeBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="startTicTacToe()" title="Jogar Jogo do Galo">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
@@ -5291,6 +5292,7 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('ticTacToeBtn').style.display = (chat.type === 'user') ? 'flex' : 'none';
         updateEncryptionBadge();
         const avatarContent = isAI ? '✨' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
         document.getElementById('chatAvatar').innerHTML = avatarContent;
@@ -6446,7 +6448,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.fileData ? renderAttachment(msg) : msg.text))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? renderGame(msg) : (msg.fileData ? renderAttachment(msg) : msg.text)))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 ${threadHtml}
@@ -6737,7 +6739,8 @@
                 fileName: m.fileName || null,
                 fileType: m.fileType || null,
                 transcript: m.transcript || null,
-                poll: m.poll || null
+                poll: m.poll || null,
+                game: m.game || null
             };
         }));
         APP.messages[data.chatId] = APP.messages[data.chatId].concat(historyEntries);
@@ -6777,7 +6780,8 @@
             fileName: data.fileName || null,
             fileType: data.fileType || null,
             transcript: data.transcript || null,
-            poll: data.poll || null
+            poll: data.poll || null,
+            game: data.game || null
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();
@@ -6989,6 +6993,53 @@
         const msg = msgs?.find(m => m.id === data.messageId);
         if (!msg) return;
         msg.poll = data.poll;
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
+
+    // ==================== JOGO DO GALO (numa conversa 1-para-1) ====================
+    // Quem é X e quem é O é fixo: X é sempre quem começa o jogo, O é sempre a
+    // outra pessoa da conversa (numa DM só há duas pessoas, não é preciso
+    // perguntar "queres jogar?" antes — o jogo já aparece pronto a jogar).
+    function startTicTacToe() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'user') return;
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const game = { board: Array(9).fill(null), players: [APP.user.phone, chat.phone], turn: 'X', winner: null };
+        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', game, read: false });
+        renderMessages();
+        renderChatList();
+        socket.emit('send_message', { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.phone, text: '', time, game });
+    }
+    function renderGame(msg) {
+        const game = msg.game;
+        const myMark = game.players[0] === APP.user.phone ? 'X' : (game.players[1] === APP.user.phone ? 'O' : null);
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const otherName = chat?.type === 'user' ? chat.name : 'a outra pessoa';
+        let statusLine;
+        if (game.winner === 'draw') statusLine = '🤝 Empate!';
+        else if (game.winner) statusLine = (game.winner === myMark ? '🎉 Ganhaste!' : `😅 ${escapeHtml(otherName)} ganhou!`);
+        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(otherName)}`) + ` (és ${myMark || '—'})`;
+        const cellsHtml = game.board.map((cell, i) => {
+            const clickable = !game.winner && cell === null && game.turn === myMark;
+            return `<div data-cell="${i}" onclick="${clickable ? `moveGame('${msg.id}', ${i})` : ''}" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;background:rgba(255,255,255,0.08);border-radius:6px;cursor:${clickable ? 'pointer' : 'default'};">${cell || ''}</div>`;
+        }).join('');
+        return `<div style="min-width:130px;">
+            <div style="font-size:12px;margin-bottom:6px;">${statusLine}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,36px);gap:4px;">${cellsHtml}</div>
+        </div>`;
+    }
+    function moveGame(messageId, cell) {
+        if (!APP.currentChatId) return;
+        socket.emit('move_game', { chatId: APP.currentChatId, messageId, cell });
+    }
+    socket.on('game_updated', (data) => {
+        if (!data?.chatId || !data?.messageId) return;
+        const msgs = APP.messages[data.chatId];
+        const msg = msgs?.find(m => m.id === data.messageId);
+        if (!msg) return;
+        msg.game = data.game;
         if (APP.currentChatId === data.chatId) renderMessages();
     });
 
