@@ -6729,20 +6729,52 @@
         startRingtone();
     });
 
-    // Som de toque de chamada a chegar — igual para voz e vídeo, sintetizado
-    // com a Web Audio API (dois "beeps" a repetir, como um toque clássico de
-    // telefone) em vez de um ficheiro de áudio, para não depender de nenhum
-    // recurso externo. Continua a tocar até a pessoa aceitar, recusar, ou
-    // quem ligou desistir — e pode ser silenciado sem recusar a chamada.
+    // Som de toque de chamada a chegar — igual para voz e vídeo (mas o tom
+    // varia por conta, ver ringFrequencyForUser), sintetizado com a Web Audio
+    // API (dois "beeps" a repetir, como um toque clássico de telefone) em vez
+    // de um ficheiro de áudio, para não depender de nenhum recurso externo.
+    // Continua a tocar até a pessoa aceitar, recusar, ou quem ligou desistir
+    // — e pode ser silenciado sem recusar a chamada.
+    //
+    // O AudioContext é criado UMA VEZ e reaproveitado (nunca fechado) — criar
+    // um novo a cada chamada tinha um problema real: um AudioContext novo
+    // nasce sempre "suspended" nos navegadores mais restritos (sobretudo em
+    // telemóvel), e só um toque genuíno do utilizador o desbloqueia. Um
+    // contexto criado ao ligar não tinha esse toque por perto e ficava mudo;
+    // reaproveitar o mesmo contexto, desbloqueado assim que a pessoa mexe
+    // pela primeira vez na app (ver unlockRingtoneAudio), resolve isso.
     let ringtoneCtx = null;
     let ringtoneTimer = null;
     let ringtoneMuted = false;
-    function playRingtoneBeeps(ctx, startTime) {
+    function getRingtoneCtx() {
+        if (!ringtoneCtx) {
+            try { ringtoneCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+            catch (e) { console.warn('Web Audio API não disponível:', e.message); return null; }
+        }
+        return ringtoneCtx;
+    }
+    function unlockRingtoneAudio() {
+        const ctx = getRingtoneCtx();
+        if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+    }
+    ['click', 'touchstart', 'keydown'].forEach(evt => document.addEventListener(evt, unlockRingtoneAudio, { once: true, passive: true }));
+
+    // Cada conta tem um tom ligeiramente diferente (derivado do próprio
+    // telefone de quem RECEBE a chamada), assim dá para reconhecer de ouvido
+    // em que aparelho se está sem olhar para o ecrã, mesmo sem escolher nada.
+    function ringFrequencyForUser() {
+        const phone = APP.user?.phone || '';
+        let hash = 0;
+        for (let i = 0; i < phone.length; i++) hash = (hash * 31 + phone.charCodeAt(i)) >>> 0;
+        const tones = [780, 880, 950, 1040, 1120];
+        return tones[hash % tones.length];
+    }
+    function playRingtoneBeeps(ctx, startTime, freq) {
         [0, 0.35].forEach(offset => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = 'sine';
-            osc.frequency.value = 950;
+            osc.frequency.value = freq;
             gain.gain.setValueAtTime(0, startTime + offset);
             gain.gain.linearRampToValueAtTime(0.25, startTime + offset + 0.02);
             gain.gain.setValueAtTime(0.25, startTime + offset + 0.28);
@@ -6756,19 +6788,16 @@
         stopRingtone();
         ringtoneMuted = false;
         updateRingtoneMuteBtn();
-        try {
-            ringtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
-            ringtoneCtx.resume().catch(() => {});
-            const ring = () => { if (ringtoneCtx && !ringtoneMuted) playRingtoneBeeps(ringtoneCtx, ringtoneCtx.currentTime); };
-            ring();
-            ringtoneTimer = setInterval(ring, 2000);
-        } catch (e) {
-            console.warn('Não foi possível tocar o som de chamada:', e.message);
-        }
+        const ctx = getRingtoneCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const freq = ringFrequencyForUser();
+        const ring = () => { if (!ringtoneMuted) playRingtoneBeeps(ctx, ctx.currentTime, freq); };
+        ring();
+        ringtoneTimer = setInterval(ring, 2000);
     }
     function stopRingtone() {
         if (ringtoneTimer) { clearInterval(ringtoneTimer); ringtoneTimer = null; }
-        if (ringtoneCtx) { ringtoneCtx.close().catch(() => {}); ringtoneCtx = null; }
     }
     function toggleRingtoneMute() {
         ringtoneMuted = !ringtoneMuted;
