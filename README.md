@@ -414,7 +414,7 @@ Novo botão 📢 no cabeçalho, com aba própria. Cria uma lista com vários con
 
 Novo botão 📺 no cabeçalho, com aba própria e duas categorias:
 
-- **📰 Notícias (ao vivo)** — Euronews em Português (🇵🇹), Euronews en Español (🇪🇸), France 24 (🇫🇷), Record News (🇧🇷), DW Español (🇩🇪) e El Doce — Córdoba, Argentina (🇦🇷). Usa o endpoint público do YouTube que resolve sozinho "o que está em direto agora" naquele canal — não dependemos de um vídeo específico que muda a cada transmissão.
+- **📰 Notícias (ao vivo)** — Euronews em Português (🇵🇹), Euronews en Español (🇪🇸), France 24 (🇫🇷), TVS — São Tomé e Príncipe (🇸🇹, via site oficial `tvs.st`), Record News (🇧🇷), DW Español (🇩🇪) e El Doce — Córdoba, Argentina (🇦🇷). A maioria usa o endpoint público do YouTube que resolve sozinho "o que está em direto agora" naquele canal — não dependemos de um vídeo específico que muda a cada transmissão.
   - Chegámos a esta lista depois de testar várias emissoras públicas mais pequenas (TVS, TPA, RTC, TVM, RTTL, Record Europa, TVG, TV Aparecida, RTVE) — a maioria não transmite mesmo pelo sistema de Live 24h do YouTube (dá "vídeo não disponível"), ou está bloqueada por região. Os 6 que ficaram são os que se confirmou funcionarem de verdade.
   - Não incluí a **TDM (Macau)**, a **TV Girassol** nem a **TVOne** — não consegui confirmar um canal de YouTube fiável para nenhuma delas.
   - **Recusei adicionar** conteúdo infantil com direitos de autor válidos (PJ Masks, Miraculous, Blippi, Disney Channel, Disney Jr) que foi pedido a par destes canais — não há forma legal e gratuita de os disponibilizar, tal como já tinha explicado sobre a série "Mentalista".
