@@ -488,3 +488,11 @@ Nova funcionalidade dentro do menu "⋯ Mais": pesquisas uma cidade ou localidad
 - Não precisa de nenhuma configuração — funciona logo
 - (Havia já um endpoint `/api/weather` antigo no servidor, à espera de coordenadas em vez do nome da cidade, mas nunca tinha sido ligado a nenhum ecrã — código morto que removi ao criar esta funcionalidade, para não ficarem dois a responder ao mesmo caminho.)
 
+## ⏱️ Cronómetro "tempo passado na app"
+
+Por cima da barra de pesquisa, mostra o tempo total (não só desta sessão) que já passaste com a app aberta e em primeiro plano — tipo "Tempo de Ecrã" do telemóvel.
+
+- O tempo fica guardado na tua conta (campo `totalTimeSpentSec`), não no navegador — acompanha-te entre aparelhos
+- Pausa sozinho quando a aba fica em segundo plano ou minimizada, para não contar tempo que não foi mesmo gasto a olhar para a app
+- O relógio no ecrã atualiza-se ao vivo, a cada segundo; o valor só é mesmo gravado no servidor de 30 em 30 segundos (e ao sair/fechar a aba), para não sobrecarregar com pedidos constantes
+

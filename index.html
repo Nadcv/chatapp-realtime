@@ -1320,6 +1320,7 @@
         </div>
         <div class="main-content">
             <div class="sidebar" id="sidebar">
+                <div id="timeSpentBar" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);text-align:center;cursor:default;" title="Tempo total que já passaste nesta app, desde que criaste a conta">⏱️ <span id="timeSpentValue">—</span> nesta app</div>
                 <div class="search-bar">
                     <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)">
                 </div>
@@ -2641,7 +2642,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0 };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -2664,6 +2665,52 @@
         await initE2EE();
         APP.chats.forEach(chat => socket.emit('join_room', chat.id));
         initPushNotifications(); // não bloqueia a entrada na app — corre em segundo plano
+        startTimeSpentTracking();
+    }
+
+    // ==================== CRONÓMETRO "QUANTAS HORAS PERDEU NA APP" ====================
+    // Conta o tempo total acumulado (guardado na conta, não só nesta sessão) que
+    // a pessoa já passou com a app em primeiro plano — pausa sozinho quando a
+    // aba fica em segundo plano, para não contar tempo que não foi mesmo gasto
+    // a olhar para a app.
+    const TIME_SPENT = { pendingSec: 0, tickTimer: null, flushTimer: null };
+    function formatTimeSpent(totalSec) {
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+    function updateTimeSpentDisplay() {
+        const el = document.getElementById('timeSpentValue');
+        if (el && APP.user) el.textContent = formatTimeSpent(APP.user.totalTimeSpentSec);
+    }
+    function startTimeSpentTracking() {
+        stopTimeSpentTracking();
+        updateTimeSpentDisplay();
+        TIME_SPENT.tickTimer = setInterval(() => {
+            if (document.hidden || !APP.user) return;
+            APP.user.totalTimeSpentSec++;
+            TIME_SPENT.pendingSec++;
+            updateTimeSpentDisplay();
+        }, 1000);
+        TIME_SPENT.flushTimer = setInterval(flushTimeSpent, 30000);
+        window.addEventListener('beforeunload', flushTimeSpent);
+    }
+    function stopTimeSpentTracking() {
+        if (TIME_SPENT.tickTimer) clearInterval(TIME_SPENT.tickTimer);
+        if (TIME_SPENT.flushTimer) clearInterval(TIME_SPENT.flushTimer);
+        TIME_SPENT.tickTimer = null;
+        TIME_SPENT.flushTimer = null;
+    }
+    function flushTimeSpent() {
+        if (TIME_SPENT.pendingSec <= 0 || !APP.token) return;
+        const seconds = TIME_SPENT.pendingSec;
+        TIME_SPENT.pendingSec = 0;
+        const payload = JSON.stringify({ token: APP.token, seconds });
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/time-spent', new Blob([payload], { type: 'application/json' }));
+        } else {
+            fetch('/api/time-spent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {});
+        }
     }
 
     // ==================== PWA: SERVICE WORKER + NOTIFICAÇÕES PUSH ====================
@@ -2715,6 +2762,8 @@
         if (APP.callStream) endCall();
         if (VR.active) closeVrRoom();
         stopMusic();
+        flushTimeSpent();
+        stopTimeSpentTracking();
         socket.emit('user_logout');
         APP.user = null;
         APP.token = null;
