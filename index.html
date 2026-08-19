@@ -1574,6 +1574,7 @@
             </div>
             <div class="selfie-chip-row" id="selfieFrameRow"></div>
             <div class="selfie-chip-row" id="selfieFilterRow"></div>
+            <div class="selfie-chip-row" id="selfieBackgroundRow"></div>
             <div class="selfie-footer">
                 <button class="selfie-shutter" id="selfieShutterBtn" onclick="captureSelfie()" title="Tirar foto"></button>
                 <div class="selfie-result-actions" id="selfieResultActions">
@@ -7106,13 +7107,26 @@
         { name: 'Paisagem', id: 'landscape', ratio: 16 / 9 },
         { name: 'Original', id: 'auto', ratio: null }
     ];
-    const SELFIE = { active: false, raf: null, filter: 'none', frame: 'auto', captured: null };
+    // Fundos decorativos do self — não recortam a pessoa (isso precisaria de
+    // um modelo de IA a correr no telemóvel), é só uma "moldura" atrás do
+    // vídeo inteiro, que passa a aparecer completo (sem recortar as pontas)
+    // quando um fundo está escolhido.
+    const SELFIE_BACKGROUNDS = [
+        { name: 'Nenhum', id: 'none' },
+        { name: 'Branco', id: 'white', color: '#ffffff' },
+        { name: 'Preto', id: 'black', color: '#000000' },
+        { name: 'Roxo', id: 'purple', gradient: ['#6c5ce7', '#a29bfe'] },
+        { name: 'Azul', id: 'blue', gradient: ['#4285F4', '#9b72cb'] },
+        { name: 'Pôr do sol', id: 'sunset', gradient: ['#f093fb', '#f5576c'] }
+    ];
+    const SELFIE = { active: false, raf: null, filter: 'none', frame: 'auto', background: 'none', captured: null };
 
     function openSelfieCam() {
         if (!APP.callStream || !APP.callStream.getVideoTracks().length) return alert('A câmara da chamada ainda não está pronta.');
         SELFIE.active = true;
         SELFIE.filter = 'none';
         SELFIE.frame = 'auto';
+        SELFIE.background = 'none';
         SELFIE.captured = null;
         document.getElementById('selfieCamOverlay').classList.add('active');
         document.getElementById('selfieCanvas').style.display = 'block';
@@ -7121,6 +7135,7 @@
         document.getElementById('selfieResultActions').style.display = 'none';
         renderSelfieFilters();
         renderSelfieFrames();
+        renderSelfieBackgrounds();
         startSelfiePreview();
     }
 
@@ -7133,7 +7148,12 @@
     function startSelfiePreview() {
         const canvas = document.getElementById('selfieCanvas');
         const ctx = canvas.getContext('2d');
-        const video = document.getElementById('pipVideo'); // já mostra o teu próprio vídeo da chamada
+        // Nas chamadas 1-para-1 o teu próprio vídeo está no #pipVideo; nas
+        // chamadas em grupo (grelha em malha) está no tile "tile_me" — sem
+        // esta distinção, o self ficava sempre a tentar ler o #pipVideo
+        // vazio durante uma chamada em grupo e não mostrava nada.
+        const video = GROUP_CALL.active ? document.querySelector('#tile_me video') : document.getElementById('pipVideo');
+        if (!video) { if (SELFIE.active) SELFIE.raf = requestAnimationFrame(startSelfiePreview); return; }
         function draw() {
             if (!SELFIE.active || SELFIE.captured) return;
             const vw = video.videoWidth, vh = video.videoHeight;
@@ -7141,16 +7161,40 @@
                 const filterCss = SELFIE_FILTERS.find(f => f.id === SELFIE.filter)?.css || 'none';
                 const frameDef = SELFIE_FRAMES.find(f => f.id === SELFIE.frame) || SELFIE_FRAMES[3];
                 const ratio = frameDef.ratio || (vw / vh);
-                let sw = vw, sh = vh, sx = 0, sy = 0;
-                if (vw / vh > ratio) { sw = vh * ratio; sx = (vw - sw) / 2; }
-                else { sh = vw / ratio; sy = (vh - sh) / 2; }
                 canvas.width = 640;
                 canvas.height = Math.round(640 / ratio);
+                const bg = SELFIE_BACKGROUNDS.find(b => b.id === SELFIE.background) || SELFIE_BACKGROUNDS[0];
+                let sw, sh, sx, sy, dw, dh, dx, dy;
+                if (bg.id === 'none') {
+                    // Sem fundo: o vídeo preenche o quadro todo (recorta as pontas), como sempre foi.
+                    sw = vw; sh = vh; sx = 0; sy = 0;
+                    if (vw / vh > ratio) { sw = vh * ratio; sx = (vw - sw) / 2; }
+                    else { sh = vw / ratio; sy = (vh - sh) / 2; }
+                    dx = 0; dy = 0; dw = canvas.width; dh = canvas.height;
+                } else {
+                    // Com fundo: mostra o vídeo inteiro (sem recortar), centrado, e o
+                    // fundo escolhido preenche o espaço à volta que sobra — não é um
+                    // recorte real da pessoa, é só uma "moldura" atrás do vídeo inteiro.
+                    sw = vw; sh = vh; sx = 0; sy = 0;
+                    const scale = Math.min(canvas.width / vw, canvas.height / vh);
+                    dw = vw * scale; dh = vh * scale;
+                    dx = (canvas.width - dw) / 2; dy = (canvas.height - dh) / 2;
+                }
                 ctx.save();
+                if (bg.id !== 'none') {
+                    if (bg.gradient) {
+                        const g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+                        bg.gradient.forEach((color, i) => g.addColorStop(i / (bg.gradient.length - 1), color));
+                        ctx.fillStyle = g;
+                    } else {
+                        ctx.fillStyle = bg.color;
+                    }
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
                 ctx.filter = filterCss;
                 ctx.translate(canvas.width, 0);
                 ctx.scale(-1, 1); // espelha, como numa câmera frontal normal
-                ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh); // dx é centrado, por isso fica igual espelhado ou não
                 ctx.restore();
             }
             SELFIE.raf = requestAnimationFrame(draw);
@@ -7160,6 +7204,7 @@
 
     function setSelfieFilter(id) { SELFIE.filter = id; renderSelfieFilters(); }
     function setSelfieFrame(id) { SELFIE.frame = id; renderSelfieFrames(); }
+    function setSelfieBackground(id) { SELFIE.background = id; renderSelfieBackgrounds(); }
 
     function renderSelfieFilters() {
         document.getElementById('selfieFilterRow').innerHTML = SELFIE_FILTERS.map(f =>
@@ -7169,6 +7214,11 @@
     function renderSelfieFrames() {
         document.getElementById('selfieFrameRow').innerHTML = SELFIE_FRAMES.map(f =>
             `<button class="selfie-chip ${f.id === SELFIE.frame ? 'active' : ''}" onclick="setSelfieFrame('${f.id}')">${f.name}</button>`
+        ).join('');
+    }
+    function renderSelfieBackgrounds() {
+        document.getElementById('selfieBackgroundRow').innerHTML = SELFIE_BACKGROUNDS.map(b =>
+            `<button class="selfie-chip ${b.id === SELFIE.background ? 'active' : ''}" onclick="setSelfieBackground('${b.id}')">${b.name}</button>`
         ).join('');
     }
 
