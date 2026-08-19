@@ -1314,20 +1314,14 @@
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
                 <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
-                <button class="btn-icon" onclick="openTransportScreen()" title="Transportes em tempo real">🚌</button>
-                <button class="btn-icon" onclick="openDriveListenScreen()" title="Conduzir e Ouvir — passeio virtual pelo mundo">🚗</button>
-                <button class="btn-icon" onclick="openNavScreen()" title="Navegação GPS — mundo inteiro, tipo Waze">🧭</button>
-                <button class="btn-icon" onclick="openFiresScreen()" title="Incêndios em tempo real (mundo inteiro)">🔥</button>
+                <button class="btn-icon" onclick="openMoreFeaturesModal()" title="Mais funcionalidades">⋯</button>
                 <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
                 <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
-                <button class="btn-icon" onclick="openSpaceScreen()" title="Espaço — ISS, Sol e Lua">🛰️</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
                 <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
                 <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias e filmes">📺</button>
                 <button class="btn-icon" onclick="openWatchScreen()" title="Onde Assistir — em que serviço de streaming está um filme ou série">🍿</button>
-                <button class="btn-icon" onclick="openCurrencyScreen()" title="Câmbio — conversor de moedas do mundo todo">🏦</button>
                 <button class="btn-icon" onclick="openJamendoScreen()" title="Música — artistas independentes, faixas completas">🎧</button>
-                <button class="btn-icon" onclick="openCalcScreen()" title="Calculadora científica e gráfica">🧮</button>
                 <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
                 <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar aparência do app">🎨</button>
@@ -1745,6 +1739,25 @@
 
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalTranslator')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ MAIS FUNCIONALIDADES ============ -->
+        <div class="modal-overlay" id="modalMoreFeatures">
+            <div class="modal">
+                <h3>⋯ Mais funcionalidades</h3>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openCalcScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧮<span style="font-size:11px;">Calculadora</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openCurrencyScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏦<span style="font-size:11px;">Câmbio</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openNavScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧭<span style="font-size:11px;">Navegação</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openFiresScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔥<span style="font-size:11px;">Incêndios</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSpaceScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛰️<span style="font-size:11px;">Espaço</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDriveListenScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚗<span style="font-size:11px;">Conduzir e Ouvir</span></button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -7927,6 +7940,7 @@
     }
 
     function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
+    function openMoreFeaturesModal() { document.getElementById('modalMoreFeatures').classList.add('active'); }
     document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
