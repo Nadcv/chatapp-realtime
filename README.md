@@ -192,12 +192,14 @@ A "Conferência" antes usava a mesma ligação 1-para-1 de sempre (só funcionav
 
 
 
-### Como ativar o Assistente de IA (GitHub Models)
+### Como ativar o Assistente de IA (Gemini)
 
-1. Cria um Personal Access Token em https://github.com/settings/tokens (não precisa marcar nenhum scope especial para uso básico dos modelos).
-2. No Railway/Render, vai a Settings → Variables e adiciona `GITHUB_TOKEN` com o valor do token.
-3. (Opcional) Define `GITHUB_MODEL` para escolher outro modelo — o padrão é `openai/gpt-4o-mini`. Lista de modelos disponíveis: https://github.com/marketplace/models
-4. Sem o `GITHUB_TOKEN` configurado, o chat da IA continua a funcionar mas mostra um aviso a pedir a configuração, em vez de travar.
+A GitHub retirou por completo o **GitHub Models** a 30 de julho de 2026 (o serviço deixou de existir, não é possível voltar a usá-lo) — por isso o contacto "🤖 Assistente IA" que usava esse serviço foi removido da app. O assistente de IA agora é só o **"✨ Gemini"**, que já suportava tudo o mesmo (texto, fotos, vídeos e documentos):
+
+1. Cria uma conta gratuita em https://aistudio.google.com/apikey e gera uma API key.
+2. No Railway/Render, vai a Settings → Variables e adiciona `GEMINI_API_KEY` com o valor da chave.
+3. (Opcional) Define `GEMINI_MODEL` para escolher outro modelo — o padrão é `gemini-flash-latest` (um "alias" que a Google mantém sempre a apontar para a versão Flash mais recente, para a app não voltar a partir se um modelo específico for desativado).
+4. Sem o `GEMINI_API_KEY` configurado, o chat da IA continua a abrir mas mostra um aviso a pedir a configuração, em vez de travar.
 
 ### Sobre os arquivos `messages.json`, `users.json` e `groups.json`
 
@@ -459,4 +461,12 @@ Pediste uma aba "tipo Spotify" — o Spotify em si não dá (é um serviço pago
 1. Cria uma conta gratuita em https://developer.jamendo.com/v3.0 e regista uma aplicação para obteres um `client_id`
 2. No Railway/Render, define a variável de ambiente `JAMENDO_CLIENT_ID` com esse valor
 3. Sem essa variável, o ecrã mostra um aviso claro a pedir a configuração, em vez de travar
+
+## Assistente de IA agora é só o Gemini (GitHub Models fechou de vez)
+
+A GitHub retirou o **GitHub Models** por completo a 30 de julho de 2026 — não é uma instabilidade temporária, o serviço deixou de existir (playground, catálogo de modelos e API de inferência, tudo). O contacto "🤖 Assistente IA", que usava esse serviço, começou a falhar sempre (erro 410 "retirement brownout") e nenhum token novo resolvia, porque o problema não era a chave.
+
+- Removi o contacto "🤖 Assistente IA" e o endpoint `/api/ai-chat` no servidor — código morto, já que o serviço por trás não existe mais
+- O botão "📝 Resumir conversa" (que também usava o GitHub Models) passou a usar o Gemini
+- Sobra só o contacto "✨ Gemini" como assistente de IA — já suportava tudo o mesmo (texto, fotos, vídeos, documentos), só precisa da `GEMINI_API_KEY` (ver secção "Como ativar o Assistente de IA" acima)
 

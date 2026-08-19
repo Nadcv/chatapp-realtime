@@ -910,64 +910,13 @@ app.get('/api/turn-credentials', async (req, res) => {
   }
 });
 
-// ==================== ASSISTENTE DE IA ====================
-app.post('/api/ai-chat', async (req, res) => {
-  const { messages } = req.body || {};
-  if (!process.env.GITHUB_TOKEN) {
-    return res.status(500).json({ error: 'Assistente de IA não configurado: falta GITHUB_TOKEN.' });
-  }
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'Mensagem vazia.' });
-  }
-  // O GitHub Models é uma infraestrutura partilhada gratuita e às vezes fica
-  // sobrecarregada ou com o limite de pedidos atingido (erros 429/503) — nesses
-  // casos, muitas vezes uma segunda tentativa alguns segundos depois já resolve,
-  // por isso tentamos até 3 vezes antes de desistir e avisar o usuário.
-  const MAX_ATTEMPTS = 3;
-  let lastError = null;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const r = await fetch('https://models.github.ai/inference/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN
-        },
-        body: JSON.stringify({
-          model: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
-          messages,
-          temperature: 1
-        })
-      });
-      if (r.status === 429 || r.status === 503) {
-        lastError = { status: r.status, transient: true };
-        if (attempt < MAX_ATTEMPTS) { await new Promise(res => setTimeout(res, attempt * 1200)); continue; }
-        break;
-      }
-      const data = await r.json();
-      if (!r.ok) {
-        console.error('Erro GitHub Models (' + r.status + '):', data?.error?.message || 'sem detalhe');
-        return res.status(502).json({ error: 'Não foi possível obter resposta da IA agora. Tenta novamente em instantes.' });
-      }
-      const reply = data.choices?.[0]?.message?.content || 'Desculpe, não consegui gerar resposta.';
-      return res.json({ reply });
-    } catch (err) {
-      lastError = { message: err.message, transient: false };
-      if (attempt < MAX_ATTEMPTS) { await new Promise(res => setTimeout(res, attempt * 1000)); continue; }
-    }
-  }
-  console.error('IA indisponível após', MAX_ATTEMPTS, 'tentativas:', lastError);
-  const msg = lastError?.transient
-    ? 'O GitHub Models (a IA gratuita) está temporariamente sobrecarregado ou atingiu o limite de pedidos. É uma instabilidade do próprio serviço gratuito, não da nossa app — tenta novamente daqui a um ou dois minutos.'
-    : 'Falha ao contactar o serviço de IA. Tenta novamente em instantes.';
-  res.status(503).json({ error: msg });
-});
-
 // ==================== ASSISTENTE GEMINI (Google) ====================
-// Segundo assistente de IA, à parte do GitHub Models — usa a API gratuita do
-// Google AI Studio (Gemini), que aceita nativamente texto, imagens, vídeo e
-// documentos na mesma conversa. Precisa da variável de ambiente GEMINI_API_KEY
-// (gratuita em https://aistudio.google.com/apikey).
+// Assistente de IA da app — usa a API gratuita do Google AI Studio (Gemini),
+// que aceita nativamente texto, imagens, vídeo e documentos na mesma
+// conversa. Precisa da variável de ambiente GEMINI_API_KEY (gratuita em
+// https://aistudio.google.com/apikey).
+// (Antes havia um segundo assistente via GitHub Models, mas a GitHub retirou
+// esse serviço por completo a 30 de julho de 2026 — deixou de existir.)
 //
 // Importante ser realista sobre "sem limites": mesmo gratuito, o Gemini tem
 // limites reais de uso (pedidos por minuto/dia) e ficheiros muito grandes
