@@ -593,6 +593,33 @@ app.get('/api/music/search', async (req, res) => {
   }
 });
 
+// ==================== FRASE DO DIA ====================
+// API gratuita (ZenQuotes) — sem chave, mas pede atribuição de origem quando
+// usada sem chave paga, por isso mostramos "— ZenQuotes.io" no ecrã. Vem em
+// inglês; traduz-se para português com o mesmo serviço gratuito já usado no
+// tradutor da app (falha graciosamente para o texto original se a tradução
+// não estiver disponível). Cache de 24h, já que é "do dia" e igual para todos.
+app.get('/api/quote-of-day', async (req, res) => {
+  try {
+    const data = await cachedFetch('quote_of_day', 'https://zenquotes.io/api/today', 24 * 60 * 60 * 1000);
+    const entry = (data || [])[0];
+    if (!entry?.q) throw new Error('Resposta inesperada da ZenQuotes.');
+    let quote = entry.q;
+    try {
+      const translateUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt&dt=t&q=${encodeURIComponent(entry.q)}`;
+      const tr = await fetch(translateUrl);
+      if (tr.ok) {
+        const trData = await tr.json();
+        quote = (trData[0] || []).map(chunk => chunk[0]).join('') || entry.q;
+      }
+    } catch (e) { /* se a tradução falhar, segue com a frase original em inglês */ }
+    res.json({ quote, author: entry.a || 'Desconhecido' });
+  } catch (err) {
+    console.error('Erro na frase do dia:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter a frase do dia agora.' });
+  }
+});
+
 // ==================== METEOROLOGIA (Open-Meteo) ====================
 // API gratuita, mundial, sem chave nem registo — Open-Meteo. Primeiro
 // converte o nome da localidade em coordenadas (geocoding), depois pede a
