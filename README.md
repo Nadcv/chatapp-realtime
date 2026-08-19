@@ -504,3 +504,11 @@ Campo opcional de data de nascimento — no registo, ou depois no perfil (clica 
 - É opcional; contas sem data de nascimento simplesmente não aparecem no aviso
 - A data fica visível só para quem te tem como contacto
 
+## 💬 Frase do dia
+
+Uma frase inspiradora por cima da barra de pesquisa, diferente a cada dia.
+
+- Usa a **ZenQuotes** (gratuita, sem chave) — a frase original vem em inglês e é traduzida para português com o mesmo serviço gratuito já usado no tradutor da app; se a tradução falhar, mostra o texto original em inglês em vez de nada
+- Cache de 24h no servidor (é "do dia", igual para todos)
+- Se a API estiver em baixo, a barra simplesmente não aparece — sem mensagens de erro feias
+

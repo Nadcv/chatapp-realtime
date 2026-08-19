@@ -1327,6 +1327,7 @@
             <div class="sidebar" id="sidebar">
                 <div id="birthdayBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:linear-gradient(135deg, #f093fb, #f5576c);color:#fff;"></div>
                 <div id="timeSpentBar" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);text-align:center;cursor:default;" title="Tempo total que já passaste nesta app, desde que criaste a conta">⏱️ <span id="timeSpentValue">—</span> nesta app</div>
+                <div id="quoteOfDayBar" style="display:none;padding:4px 12px 8px;font-size:11px;color:var(--text-secondary);font-style:italic;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;"></div>
                 <div class="search-bar">
                     <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)">
                 </div>
@@ -2703,6 +2704,23 @@
         initPushNotifications(); // não bloqueia a entrada na app — corre em segundo plano
         startTimeSpentTracking();
         checkBirthdaysToday();
+        loadQuoteOfDay();
+    }
+
+    // ==================== FRASE DO DIA ====================
+    async function loadQuoteOfDay() {
+        try {
+            const r = await fetch('/api/quote-of-day');
+            const data = await r.json();
+            if (!r.ok || !data.quote) return;
+            const bar = document.getElementById('quoteOfDayBar');
+            const text = `💬 "${data.quote}" — ${data.author} · ZenQuotes.io`;
+            bar.textContent = text;
+            bar.title = text;
+            bar.style.display = 'block';
+        } catch (err) {
+            // sem frase do dia hoje, sem problema — a barra simplesmente não aparece
+        }
     }
 
     // ==================== CRONÓMETRO "QUANTAS HORAS PERDEU NA APP" ====================
