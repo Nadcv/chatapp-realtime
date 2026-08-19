@@ -528,3 +528,11 @@ Botão 📊 na barra de escrever mensagens, visível só em conversas de grupo: 
 - Os votos atualizam ao vivo em todos os ecrãs abertos do grupo (sem precisar de recarregar)
 - A enquete é guardada como uma mensagem normal (persiste no histórico da conversa, tal como qualquer outra mensagem)
 
+## 🎮 Jogo do galo (numa conversa 1-para-1)
+
+Botão 🎮 na barra de escrever, visível só em conversas 1-para-1 (não em grupos, onde não faria sentido um jogo de 2). Quem começa o jogo é sempre X; a outra pessoa da conversa é sempre O — não é preciso convidar ninguém, o jogo já aparece pronto a jogar dentro da própria mensagem.
+
+- Validação de turno e deteção de vitória feitas no servidor (não dá para fazer batota alterando o código no navegador)
+- Atualiza ao vivo dos dois lados a cada jogada
+- Tal como as enquetes, o jogo é guardado como uma mensagem normal e persiste no histórico
+
