@@ -1757,6 +1757,7 @@
                 </div>
                 <input type="file" id="profilePhotoInput" accept="image/*" style="display:none;" onchange="handleProfilePhotoSelected(this)">
                 <p style="color:#8696a0;font-size:13px;" id="profileNameLabel"></p>
+                <p style="color:#8696a0;font-size:12px;margin-top:2px;" id="profilePhoneLabel"></p>
                 <div style="text-align:left;margin-top:14px;">
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🌐 A língua que eu falo</label>
                     <select id="profileLangSelect" onchange="setPreferredLang(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
@@ -2861,6 +2862,7 @@
         if (!APP.user) return;
         document.getElementById('profilePhotoPreview').innerHTML = avatarInnerHtml(APP.user.name, APP.user.avatarUrl);
         document.getElementById('profileNameLabel').textContent = APP.user.name;
+        document.getElementById('profilePhoneLabel').textContent = APP.user.phone + (APP.user.username ? ' · @' + APP.user.username : '');
         const select = document.getElementById('profileLangSelect');
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
