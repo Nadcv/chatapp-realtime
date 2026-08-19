@@ -1313,16 +1313,11 @@
                 <button class="btn-icon" onclick="openNewCallModal()" title="Nova chamada">📞</button>
                 <button class="btn-icon" id="adminBtn" onclick="openAdminModal()" title="Painel do administrador" style="display:none;">⚙️</button>
                 <button class="btn-icon" onclick="openSearchUserModal()" title="Procurar utilizador">🔍</button>
-                <button class="btn-icon" onclick="openActivitiesScreen()" title="Atividades (corrida, caminhada, bicicleta)">🏃</button>
                 <button class="btn-icon" onclick="openMoreFeaturesModal()" title="Mais funcionalidades">⋯</button>
+                <button class="btn-icon" id="mediaBtn" onclick="openMediaFeaturesModal()" title="TV, Onde Assistir, Notícias, Música, Vídeos engraçados" style="position:relative;">🎬<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
                 <button class="btn-icon" onclick="openStatusScreen()" title="Estados">🟢</button>
                 <button class="btn-icon" onclick="openCallLogScreen()" title="Histórico de chamadas">📋</button>
                 <button class="btn-icon" onclick="openArchivedScreen()" title="Conversas arquivadas">🗄️</button>
-                <button class="btn-icon" id="newsBtn" onclick="openNewsScreen()" title="Notícias de Portugal e do Mundo" style="position:relative;">📰<span id="newsBadge" style="display:none;position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--red);"></span></button>
-                <button class="btn-icon" onclick="openTvScreen()" title="Televisão em direto — notícias e filmes">📺</button>
-                <button class="btn-icon" onclick="openWatchScreen()" title="Onde Assistir — em que serviço de streaming está um filme ou série">🍿</button>
-                <button class="btn-icon" onclick="openJamendoScreen()" title="Música — artistas independentes, faixas completas">🎧</button>
-                <button class="btn-icon" onclick="openFunnyFeedScreen()" title="Vídeos engraçados">😂</button>
                 <button class="btn-icon" onclick="toggleTheme()" title="Tema claro/escuro">🌓</button>
                 <button class="btn-icon" onclick="openCustomizeModal()" title="Personalizar aparência do app">🎨</button>
                 <button class="btn-icon" onclick="logout()" title="Sair">🚪</button>
@@ -1756,9 +1751,27 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDriveListenScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚗<span style="font-size:11px;">Conduzir e Ouvir</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openWeatherScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌦️<span style="font-size:11px;">Meteorologia</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openActivitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏃<span style="font-size:11px;">Atividades</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ TV, ONDE ASSISTIR, NOTÍCIAS, MÚSICA, VÍDEOS ENGRAÇADOS ============ -->
+        <div class="modal-overlay" id="modalMediaFeatures">
+            <div class="modal">
+                <h3>🎬 TV, Notícias e Media</h3>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="closeModal('modalMediaFeatures');openTvScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📺<span style="font-size:11px;">TV em Direto</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMediaFeatures');openWatchScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🍿<span style="font-size:11px;">Onde Assistir</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMediaFeatures');openNewsScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📰<span style="font-size:11px;">Notícias</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMediaFeatures');openJamendoScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎧<span style="font-size:11px;">Música</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMediaFeatures');openFunnyFeedScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">😂<span style="font-size:11px;">Vídeos engraçados</span></button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalMediaFeatures')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -8018,6 +8031,7 @@
 
     function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
     function openMoreFeaturesModal() { document.getElementById('modalMoreFeatures').classList.add('active'); }
+    function openMediaFeaturesModal() { document.getElementById('modalMediaFeatures').classList.add('active'); }
     document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
