@@ -447,5 +447,16 @@ Novo botão 🏦 no cabeçalho: converte entre qualquer par de moedas, com desta
 - Não precisa de nenhuma configuração — funciona logo, ao contrário de outras funcionalidades desta secção que pedem uma chave
 - Também serviu como teste para confirmar que os deploys estavam mesmo a chegar ao Railway, depois do incidente deles que causou a confusão com os canais da TV em Direto
 
+## 🎧 Música (Jamendo — faixas completas, 100% legal)
 
+Pediste uma aba "tipo Spotify" — o Spotify em si não dá (é um serviço pago e fechado, não tem API pública para tocar faixas completas de graça), mas há uma alternativa legal e real: a **Jamendo**, uma plataforma de música de artistas independentes com licenças abertas (Creative Commons e afins). A diferença chave para o TMDB/"Onde Assistir": a própria Jamendo distribui o ficheiro áudio **completo** de cada faixa (não é um preview de 30 segundos), por isso a música toca mesmo dentro da app, com um leitor de áudio normal.
+
+- Botão 🎧 no cabeçalho: pesquisa por artista, faixa ou género, ou mostra as faixas populares do momento quando a pesquisa está vazia
+- Toca com um `<audio>` normal numa barra fixa no fundo do ecrã, com capa, título e artista
+- Catálogo é só de artistas independentes/licenças abertas — não tem êxitos comerciais mainstream (isso continua a não dar para fazer de forma legal e gratuita)
+
+**Precisa de configuração** (grátis):
+1. Cria uma conta gratuita em https://developer.jamendo.com/v3.0 e regista uma aplicação para obteres um `client_id`
+2. No Railway/Render, define a variável de ambiente `JAMENDO_CLIENT_ID` com esse valor
+3. Sem essa variável, o ecrã mostra um aviso claro a pedir a configuração, em vez de travar
 
