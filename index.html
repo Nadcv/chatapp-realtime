@@ -1498,6 +1498,7 @@
                     <button class="call-btn call-btn-end" onclick="declineIncomingCall()" style="width:60px;height:60px;font-size:24px;">❌</button>
                     <button class="call-btn" style="background:var(--green);width:60px;height:60px;font-size:24px;" onclick="acceptIncomingCall()">✅</button>
                 </div>
+                <button class="btn-small" id="ringtoneMuteBtn" onclick="toggleRingtoneMute()" style="margin-top:14px;">🔊 Silenciar toque</button>
             </div>
         </div>
         <div class="call-screen" id="callScreen">
@@ -6725,7 +6726,58 @@
         document.getElementById('incomingCallerName').textContent = data.callerName;
         document.getElementById('incomingCallType').textContent = data.callType === 'video' ? '📹 Videochamada a chegar...' : '📞 Chamada de voz a chegar...';
         document.getElementById('modalIncomingCall').classList.add('active');
+        startRingtone();
     });
+
+    // Som de toque de chamada a chegar — igual para voz e vídeo, sintetizado
+    // com a Web Audio API (dois "beeps" a repetir, como um toque clássico de
+    // telefone) em vez de um ficheiro de áudio, para não depender de nenhum
+    // recurso externo. Continua a tocar até a pessoa aceitar, recusar, ou
+    // quem ligou desistir — e pode ser silenciado sem recusar a chamada.
+    let ringtoneCtx = null;
+    let ringtoneTimer = null;
+    let ringtoneMuted = false;
+    function playRingtoneBeeps(ctx, startTime) {
+        [0, 0.35].forEach(offset => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 950;
+            gain.gain.setValueAtTime(0, startTime + offset);
+            gain.gain.linearRampToValueAtTime(0.25, startTime + offset + 0.02);
+            gain.gain.setValueAtTime(0.25, startTime + offset + 0.28);
+            gain.gain.linearRampToValueAtTime(0, startTime + offset + 0.32);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(startTime + offset);
+            osc.stop(startTime + offset + 0.35);
+        });
+    }
+    function startRingtone() {
+        stopRingtone();
+        ringtoneMuted = false;
+        updateRingtoneMuteBtn();
+        try {
+            ringtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
+            ringtoneCtx.resume().catch(() => {});
+            const ring = () => { if (ringtoneCtx && !ringtoneMuted) playRingtoneBeeps(ringtoneCtx, ringtoneCtx.currentTime); };
+            ring();
+            ringtoneTimer = setInterval(ring, 2000);
+        } catch (e) {
+            console.warn('Não foi possível tocar o som de chamada:', e.message);
+        }
+    }
+    function stopRingtone() {
+        if (ringtoneTimer) { clearInterval(ringtoneTimer); ringtoneTimer = null; }
+        if (ringtoneCtx) { ringtoneCtx.close().catch(() => {}); ringtoneCtx = null; }
+    }
+    function toggleRingtoneMute() {
+        ringtoneMuted = !ringtoneMuted;
+        updateRingtoneMuteBtn();
+    }
+    function updateRingtoneMuteBtn() {
+        const btn = document.getElementById('ringtoneMuteBtn');
+        if (btn) btn.textContent = ringtoneMuted ? '🔇 Toque silenciado' : '🔊 Silenciar toque';
+    }
 
     // A pessoa para quem ligaste está offline / sem nenhum dispositivo ligado
     // neste momento — antes disto a chamada ficava "Chamando..." para sempre.
@@ -6739,6 +6791,7 @@
     });
 
     function declineIncomingCall() {
+        stopRingtone();
         if (incomingCallData) {
             socket.emit('end_call', { targetRoomId: incomingCallData.targetRoomId, targetPhone: incomingCallData.callerPhone });
             socket.emit('call_log_entry', { peerPhone: incomingCallData.callerPhone, peerName: incomingCallData.callerName, type: incomingCallData.callType, direction: 'incoming', status: 'declined', durationSec: 0 });
@@ -6748,6 +6801,7 @@
     }
 
     async function acceptIncomingCall() {
+        stopRingtone();
         const data = incomingCallData;
         document.getElementById('modalIncomingCall').classList.remove('active');
         if (!data) return;
@@ -7244,6 +7298,7 @@
         document.getElementById('callUnlockOverlay').style.display = 'none';
         document.getElementById('modalIncomingCall').classList.remove('active');
         incomingCallData = null;
+        stopRingtone();
         const mainVideo = document.getElementById('mainVideo');
         mainVideo.srcObject = null;
         mainVideo.src = '';
