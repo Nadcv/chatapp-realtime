@@ -474,7 +474,7 @@ A GitHub retirou o **GitHub Models** por completo a 30 de julho de 2026 — não
 
 O cabeçalho já ia em ~25 ícones, difícil de navegar a deslizar. Criei dois botões que agrupam o resto em grelhas organizadas, sem alterar nenhuma funcionalidade em si — só a forma de lá chegar:
 
-- **"⋯ Mais"**: 🧮 Calculadora, 🏦 Câmbio, 🧭 Navegação, 🔥 Incêndios, 🛰️ Espaço, 🚌 Transportes, 🚗 Conduzir e Ouvir, 🌦️ Meteorologia, 🏃 Atividades
+- **"⋯ Mais"**: 🧮 Calculadora, 🏦 Câmbio, 🧭 Navegação, 🔥 Incêndios, 🛰️ Espaço, 🚌 Transportes, 🚗 Conduzir e Ouvir, 🌦️ Meteorologia, 🏃 Atividades, 🎯 Roleta/Sorteio
 - **"🎬" (TV, Notícias e Media)**: 📺 TV em Direto, 🍿 Onde Assistir, 📰 Notícias (mantém a bolinha vermelha de notícias novas), 🎧 Música, 😂 Vídeos engraçados
 - **"📇" (Grupos, chamadas e contactos)**: 👥 Criar grupo, 📢 Lista de transmissão, 📞 Nova chamada, 🔍 Utilizadores cadastrados (procurar por username), 📋 Histórico de chamadas, 🗄️ Conversas arquivadas
 
@@ -511,4 +511,12 @@ Uma frase inspiradora por cima da barra de pesquisa, diferente a cada dia.
 - Usa a **ZenQuotes** (gratuita, sem chave) — a frase original vem em inglês e é traduzida para português com o mesmo serviço gratuito já usado no tradutor da app; se a tradução falhar, mostra o texto original em inglês em vez de nada
 - Cache de 24h no servidor (é "do dia", igual para todos)
 - Se a API estiver em baixo, a barra simplesmente não aparece — sem mensagens de erro feias
+
+## 🎯 Roleta / Sorteio
+
+Dentro do menu "⋯ Mais": adiciona várias opções (nomes, comidas, o que for) e gira uma roleta para escolher uma ao calhas — útil para decidir algo em grupo.
+
+- Ferramenta 100% local, não precisa de nenhuma API nem configuração
+- O resultado é sorteado (`Math.random()`) antes de a animação começar; a roda só gira até parar exatamente nessa opção — não é encenado ao contrário
+- Mínimo de 2 opções para poder girar
 
