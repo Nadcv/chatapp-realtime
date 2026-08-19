@@ -1927,6 +1927,28 @@ io.on('connection', (socket) => {
     socket.to(data.chatId).emit('reaction_received', { ...data, who: users[socket.id]?.phone || socket.id });
   });
 
+  // Voto numa enquete — uma escolha por pessoa (votar noutra opção troca o
+  // voto; votar na mesma opção outra vez retira-o). A mensagem da enquete em
+  // si já chegou pelo 'send_message' normal (com um campo 'poll'), isto só
+  // atualiza os votos guardados nela.
+  socket.on('vote_poll', async (data) => {
+    if (!data?.chatId || !data?.messageId || typeof data?.optionIndex !== 'number') return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find(m => m.id === data.messageId);
+    if (!msg || !msg.poll?.options?.[data.optionIndex]) return;
+    const alreadyVotedHere = msg.poll.options[data.optionIndex].votes.includes(myPhone);
+    msg.poll.options.forEach((opt) => { opt.votes = opt.votes.filter((p) => p !== myPhone); });
+    if (!alreadyVotedHere) msg.poll.options[data.optionIndex].votes.push(myPhone);
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { poll: msg.poll }).catch((e) => console.error('Erro Mongo (voto enquete):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(data.chatId).emit('poll_updated', { chatId: data.chatId, messageId: data.messageId, poll: msg.poll });
+  });
+
   socket.on('message_read', (data) => {
     if (!data?.chatId) return;
     socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: users[socket.id]?.phone });

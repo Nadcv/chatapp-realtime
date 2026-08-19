@@ -520,3 +520,11 @@ Dentro do menu "⋯ Mais": adiciona várias opções (nomes, comidas, o que for)
 - O resultado é sorteado (`Math.random()`) antes de a animação começar; a roda só gira até parar exatamente nessa opção — não é encenado ao contrário
 - Mínimo de 2 opções para poder girar
 
+## 📊 Enquetes em grupo
+
+Botão 📊 na barra de escrever mensagens, visível só em conversas de grupo: pergunta + até 8 opções, e o grupo todo vota em tempo real.
+
+- Um voto por pessoa — votar noutra opção troca o voto, votar na mesma opção outra vez retira-o
+- Os votos atualizam ao vivo em todos os ecrãs abertos do grupo (sem precisar de recarregar)
+- A enquete é guardada como uma mensagem normal (persiste no histórico da conversa, tal como qualquer outra mensagem)
+

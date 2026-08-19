@@ -1383,6 +1383,7 @@
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
+                    <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
@@ -1618,6 +1619,21 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalCreateGroup')">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="createGroup()">Criar Grupo</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalCreatePoll">
+            <div class="modal">
+                <h3>📊 Criar enquete</h3>
+                <input type="text" id="pollQuestionInput" placeholder="Pergunta da enquete...">
+                <div id="pollOptionsInputs" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+                    <input type="text" class="poll-option-input" placeholder="Opção 1">
+                    <input type="text" class="poll-option-input" placeholder="Opção 2">
+                </div>
+                <button class="btn-small" onclick="addPollOptionInput()" style="margin-top:8px;">➕ Mais uma opção</button>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalCreatePoll')">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="sendPoll()">Criar</button>
                 </div>
             </div>
         </div>
@@ -5274,6 +5290,7 @@
         document.getElementById('chatSubtitle').textContent = isAI ? 'Gemini (Google) · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
         updateEncryptionBadge();
         const avatarContent = isAI ? '✨' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
         document.getElementById('chatAvatar').innerHTML = avatarContent;
@@ -6429,7 +6446,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.fileData ? renderAttachment(msg) : msg.text)}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.fileData ? renderAttachment(msg) : msg.text))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 ${threadHtml}
@@ -6719,7 +6736,8 @@
                 fileData: m.fileData || null,
                 fileName: m.fileName || null,
                 fileType: m.fileType || null,
-                transcript: m.transcript || null
+                transcript: m.transcript || null,
+                poll: m.poll || null
             };
         }));
         APP.messages[data.chatId] = APP.messages[data.chatId].concat(historyEntries);
@@ -6758,7 +6776,8 @@
             fileData: data.fileData || null,
             fileName: data.fileName || null,
             fileType: data.fileType || null,
-            transcript: data.transcript || null
+            transcript: data.transcript || null,
+            poll: data.poll || null
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();
@@ -6900,6 +6919,78 @@
         // A lista de conversas é atualizada assim que o servidor confirmar via 'groups_update'
         // (chega para todos os usuários cadastrados, não só para quem criou).
     }
+
+    // ==================== ENQUETES EM GRUPO ====================
+    function openCreatePollModal() {
+        document.getElementById('pollQuestionInput').value = '';
+        document.getElementById('pollOptionsInputs').innerHTML = `
+            <input type="text" class="poll-option-input" placeholder="Opção 1">
+            <input type="text" class="poll-option-input" placeholder="Opção 2">`;
+        document.getElementById('modalCreatePoll').classList.add('active');
+    }
+    function addPollOptionInput() {
+        const container = document.getElementById('pollOptionsInputs');
+        const count = container.querySelectorAll('.poll-option-input').length;
+        if (count >= 8) return alert('Máximo de 8 opções.');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'poll-option-input';
+        input.placeholder = 'Opção ' + (count + 1);
+        container.appendChild(input);
+    }
+    function sendPoll() {
+        const question = document.getElementById('pollQuestionInput').value.trim();
+        const options = [...document.querySelectorAll('.poll-option-input')]
+            .map(el => el.value.trim())
+            .filter(Boolean);
+        if (!question) return alert('Escreve a pergunta da enquete.');
+        if (options.length < 2) return alert('Adiciona pelo menos 2 opções.');
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') return;
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const poll = { question, options: options.map(text => ({ text, votes: [] })) };
+        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', poll, read: false });
+        renderMessages();
+        renderChatList();
+        closeModal('modalCreatePoll');
+        socket.emit('send_message', { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, text: '', time, poll });
+    }
+    function renderPoll(msg) {
+        const poll = msg.poll;
+        const totalVotes = poll.options.reduce((sum, o) => sum + o.votes.length, 0);
+        const myVoteIndex = poll.options.findIndex(o => o.votes.includes(APP.user.phone));
+        const optionsHtml = poll.options.map((opt, i) => {
+            const pct = totalVotes ? Math.round((opt.votes.length / totalVotes) * 100) : 0;
+            const isMine = i === myVoteIndex;
+            return `
+                <div onclick="votePoll('${msg.id}', ${i})" style="cursor:pointer;margin:6px 0;padding:8px 10px;border-radius:8px;background:${isMine ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isMine ? 'var(--green)' : 'transparent'};position:relative;overflow:hidden;">
+                    <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(255,255,255,0.1);z-index:0;"></div>
+                    <div style="position:relative;z-index:1;display:flex;justify-content:space-between;gap:8px;">
+                        <span>${isMine ? '✓ ' : ''}${escapeHtml(opt.text)}</span>
+                        <span style="flex-shrink:0;">${pct}% (${opt.votes.length})</span>
+                    </div>
+                </div>`;
+        }).join('');
+        return `<div style="min-width:200px;">
+            <div style="font-weight:600;margin-bottom:6px;">📊 ${escapeHtml(poll.question)}</div>
+            ${optionsHtml}
+            <div style="font-size:11px;opacity:0.7;margin-top:4px;">${totalVotes} voto${totalVotes !== 1 ? 's' : ''}</div>
+        </div>`;
+    }
+    function votePoll(messageId, optionIndex) {
+        if (!APP.currentChatId) return;
+        socket.emit('vote_poll', { chatId: APP.currentChatId, messageId, optionIndex });
+    }
+    socket.on('poll_updated', (data) => {
+        if (!data?.chatId || !data?.messageId) return;
+        const msgs = APP.messages[data.chatId];
+        const msg = msgs?.find(m => m.id === data.messageId);
+        if (!msg) return;
+        msg.poll = data.poll;
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
 
     function openNewCallModal() {
         updateCallContactList();
