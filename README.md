@@ -496,3 +496,11 @@ Por cima da barra de pesquisa, mostra o tempo total (não só desta sessão) que
 - Pausa sozinho quando a aba fica em segundo plano ou minimizada, para não contar tempo que não foi mesmo gasto a olhar para a app
 - O relógio no ecrã atualiza-se ao vivo, a cada segundo; o valor só é mesmo gravado no servidor de 30 em 30 segundos (e ao sair/fechar a aba), para não sobrecarregar com pedidos constantes
 
+## 🎂 Aniversários
+
+Campo opcional de data de nascimento — no registo, ou depois no perfil (clica no teu avatar no canto superior esquerdo). Quando é o teu aniversário ou o de um contacto, aparece um aviso por cima da barra de pesquisa.
+
+- Só compara mês e dia (não o ano) — funciona todos os anos sem precisares de atualizar nada
+- É opcional; contas sem data de nascimento simplesmente não aparecem no aviso
+- A data fica visível só para quem te tem como contacto
+

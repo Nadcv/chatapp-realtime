@@ -1289,6 +1289,11 @@
                 </select>
             </div>
             <input type="email" id="regEmail" placeholder="Email">
+            <div class="login-row">
+                <label style="flex:1;font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:4px;">🎂 Data de nascimento (opcional)
+                    <input type="date" id="regBirthday">
+                </label>
+            </div>
             <input type="password" id="regPassword" placeholder="Senha (mín. 4 caracteres)">
             <div class="login-error" id="registerError"></div>
             <button class="btn btn-primary" onclick="doRegister()">✅ Criar conta</button>
@@ -1320,6 +1325,7 @@
         </div>
         <div class="main-content">
             <div class="sidebar" id="sidebar">
+                <div id="birthdayBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:linear-gradient(135deg, #f093fb, #f5576c);color:#fff;"></div>
                 <div id="timeSpentBar" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);text-align:center;cursor:default;" title="Tempo total que já passaste nesta app, desde que criaste a conta">⏱️ <span id="timeSpentValue">—</span> nesta app</div>
                 <div class="search-bar">
                     <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)">
@@ -1805,6 +1811,11 @@
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🌐 A língua que eu falo</label>
                     <select id="profileLangSelect" onchange="setPreferredLang(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🎂 Data de nascimento</label>
+                    <input type="date" id="profileBirthdayInput" onchange="setBirthday(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">Os teus contactos veem um aviso quando fizeres anos. Fica visível só para quem te tem como contacto.</p>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
@@ -2492,7 +2503,31 @@
     socket.on('contacts_update', (list) => {
         APP.onlineContacts = list || [];
         rebuildChatsFromServer();
+        checkBirthdaysToday();
     });
+
+    // ==================== ANIVERSÁRIOS ====================
+    // Aviso simples (mês/dia, sem depender do ano) quando é hoje o aniversário
+    // do próprio utilizador ou de algum contacto — comparado com 'YYYY-MM-DD'
+    // guardado em cada conta.
+    function checkBirthdaysToday() {
+        const banner = document.getElementById('birthdayBanner');
+        if (!banner || !APP.user) return;
+        const today = new Date();
+        const todayMD = String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+        const isToday = (birthday) => typeof birthday === 'string' && birthday.slice(5) === todayMD;
+        const lines = [];
+        if (isToday(APP.user.birthday)) lines.push('🎉 É o teu aniversário! Parabéns!');
+        (APP.onlineContacts || []).forEach(c => {
+            if (isToday(c.birthday)) lines.push('🎂 Hoje é aniversário de ' + escapeHtml(c.name) + '!');
+        });
+        if (lines.length) {
+            banner.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+            banner.style.display = 'block';
+        } else {
+            banner.style.display = 'none';
+        }
+    }
 
     socket.on('groups_update', (list) => {
         APP.groupsList = list || [];
@@ -2528,12 +2563,13 @@
         const phone = document.getElementById('regPhone').value.trim();
         const country = document.getElementById('regCountry').value;
         const email = document.getElementById('regEmail').value.trim();
+        const birthday = document.getElementById('regBirthday').value || null;
         const password = document.getElementById('regPassword').value;
         const errEl = document.getElementById('registerError');
         errEl.textContent = '';
         if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
         try {
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, password }) });
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
             enterApp(data.user, data.token);
@@ -2642,7 +2678,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0 };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -2666,6 +2702,7 @@
         APP.chats.forEach(chat => socket.emit('join_room', chat.id));
         initPushNotifications(); // não bloqueia a entrada na app — corre em segundo plano
         startTimeSpentTracking();
+        checkBirthdaysToday();
     }
 
     // ==================== CRONÓMETRO "QUANTAS HORAS PERDEU NA APP" ====================
@@ -2971,8 +3008,16 @@
         const select = document.getElementById('profileLangSelect');
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
+        document.getElementById('profileBirthdayInput').value = APP.user.birthday || '';
         loadDndSettingsIntoProfile();
         document.getElementById('modalProfile').classList.add('active');
+    }
+    function setBirthday(birthday) {
+        if (!APP.user || !birthday) return;
+        APP.user.birthday = birthday;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        socket.emit('set_birthday', { birthday });
+        checkBirthdaysToday();
     }
     function setPreferredLang(lang) {
         if (!APP.user) return;
