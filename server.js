@@ -51,7 +51,8 @@ const accountSchema = new mongoose.Schema({
   chatWallpaper: String, // fundo das conversas escolhido (cor, gradiente CSS ou url() de uma imagem)
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
   pushSubscriptions: { type: [Object], default: [] }, // inscrições de notificações push (um dispositivo pode ter mais do que uma)
-  totalTimeSpentSec: { type: Number, default: 0 } // tempo total acumulado com a app em primeiro plano, para o cronómetro "quantas horas perdeu"
+  totalTimeSpentSec: { type: Number, default: 0 }, // tempo total acumulado com a app em primeiro plano, para o cronómetro "quantas horas perdeu"
+  birthday: String // 'YYYY-MM-DD', opcional — mostrado aos contactos para lembrete de aniversário
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -211,11 +212,11 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0 };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null };
 }
 
 app.post('/api/register', async (req, res) => {
-  const { name, phone, country, email, password } = req.body || {};
+  const { name, phone, country, email, password, birthday } = req.body || {};
   let { username } = req.body || {};
   if (!name || !phone || !country || !password || !username) {
     return res.status(400).json({ error: 'Nome, nome de utilizador, telefone, país e senha são obrigatórios.' });
@@ -227,7 +228,8 @@ app.post('/api/register', async (req, res) => {
   if (String(password).length < 4) return res.status(400).json({ error: 'A senha deve ter pelo menos 4 caracteres.' });
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
-  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', salt, passwordHash, createdAt: new Date().toISOString(), contacts: [] };
+  const validBirthday = typeof birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(birthday) ? birthday : null;
+  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', birthday: validBirthday, salt, passwordHash, createdAt: new Date().toISOString(), contacts: [] };
   accounts[phone] = user;
   usernameIndex[username] = phone;
   if (!firstRegisteredPhone) firstRegisteredPhone = phone;
@@ -1481,7 +1483,7 @@ const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
 function contactPublicInfo(u) {
-  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null };
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null };
 }
 
 function sendContactsTo(phone) {
@@ -1585,6 +1587,21 @@ io.on('connection', (socket) => {
     }
     notifyContactsOfStatusChange(myPhone);
     socket.emit('preferred_lang_updated', { lang: data.lang });
+  });
+
+  // Guarda/atualiza a data de nascimento (para o lembrete de aniversários dos
+  // contactos) e avisa os contactos, para o lembrete deles atualizar também.
+  socket.on('set_birthday', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.birthday !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(data.birthday)) return;
+    accounts[myPhone].birthday = data.birthday;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { birthday: data.birthday }).catch(e => console.error('Erro Mongo (aniversário):', e.message));
+    } else {
+      saveUsers();
+    }
+    notifyContactsOfStatusChange(myPhone);
+    socket.emit('birthday_updated', { birthday: data.birthday });
   });
 
   // Guarda a cor de destaque escolhida na personalização da app, para
