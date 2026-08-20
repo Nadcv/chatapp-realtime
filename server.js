@@ -1967,7 +1967,7 @@ io.on('connection', (socket) => {
     const myPhone = users[socket.id]?.phone;
     if (!msgs || !myPhone) return;
     const msg = msgs.find((m) => m.id === data.messageId);
-    if (!msg?.game || msg.game.winner || msg.game.board[data.cell]) return;
+    if (!msg?.game || msg.game.type === 'checkers' || msg.game.winner || msg.game.board[data.cell]) return;
     const myMark = msg.game.players[0] === myPhone ? 'X' : (msg.game.players[1] === myPhone ? 'O' : null);
     if (!myMark || myMark !== msg.game.turn) return;
     msg.game.board[data.cell] = myMark;
@@ -1975,6 +1975,53 @@ io.on('connection', (socket) => {
     msg.game.turn = myMark === 'X' ? 'O' : 'X';
     if (isDbConnected) {
       await MessageModel.updateOne({ id: data.messageId }, { game: msg.game }).catch((e) => console.error('Erro Mongo (jogo do galo):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(data.chatId).emit('game_updated', { chatId: data.chatId, messageId: data.messageId, game: msg.game });
+  });
+
+  // Damas — versão simplificada (ver comentário no cliente): captura opcional,
+  // um movimento por turno mesmo que fosse possível encadear outra captura.
+  // X é sempre "owner" 0 (peças 🔴), O é sempre "owner" 1 (peças ⚪).
+  socket.on('move_checkers', async (data) => {
+    if (!data?.chatId || !data?.messageId || typeof data?.from !== 'number' || typeof data?.to !== 'number') return;
+    if (data.from < 0 || data.from > 63 || data.to < 0 || data.to > 63) return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find((m) => m.id === data.messageId);
+    if (!msg?.game || msg.game.type !== 'checkers' || msg.game.winner) return;
+    const myMark = msg.game.players[0] === myPhone ? 'X' : (msg.game.players[1] === myPhone ? 'O' : null);
+    if (!myMark || myMark !== msg.game.turn) return;
+    const myOwner = myMark === 'X' ? 0 : 1;
+    const board = msg.game.board;
+    const piece = board[data.from];
+    if (!piece || piece.owner !== myOwner || board[data.to]) return;
+    const fr = Math.floor(data.from / 8), fc = data.from % 8;
+    const tr = Math.floor(data.to / 8), tc = data.to % 8;
+    const dr = tr - fr, dc = tc - fc;
+    if (Math.abs(dr) !== Math.abs(dc) || (Math.abs(dr) !== 1 && Math.abs(dr) !== 2)) return;
+    const dist = Math.abs(dr);
+    const forward = myOwner === 0 ? 1 : -1;
+    if (!piece.king && dr !== forward * dist) return; // peças normais só andam/capturam para a frente
+    let capturedIdx = null;
+    if (dist === 2) {
+      const mr = fr + dr / 2, mc = fc + dc / 2;
+      capturedIdx = mr * 8 + mc;
+      const midPiece = board[capturedIdx];
+      if (!midPiece || midPiece.owner === myOwner) return;
+    }
+    board[data.to] = board[data.from];
+    board[data.from] = null;
+    if (capturedIdx !== null) board[capturedIdx] = null;
+    if ((myOwner === 0 && tr === 7) || (myOwner === 1 && tr === 0)) board[data.to].king = true;
+    const opponent = myOwner === 0 ? 1 : 0;
+    const opponentHasPieces = board.some((p) => p && p.owner === opponent);
+    msg.game.winner = opponentHasPieces ? null : myMark;
+    msg.game.turn = myMark === 'X' ? 'O' : 'X';
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { game: msg.game }).catch((e) => console.error('Erro Mongo (damas):', e.message));
     } else {
       saveMessagesLocal();
     }

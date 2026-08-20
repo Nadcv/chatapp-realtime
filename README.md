@@ -528,13 +528,19 @@ Botão 📊 na barra de escrever mensagens, visível só em conversas de grupo: 
 - Os votos atualizam ao vivo em todos os ecrãs abertos do grupo (sem precisar de recarregar)
 - A enquete é guardada como uma mensagem normal (persiste no histórico da conversa, tal como qualquer outra mensagem)
 
-## 🎮 Jogo do galo (numa conversa 1-para-1)
+## 🎮 Jogos (numa conversa 1-para-1): Jogo do Galo e Damas
 
-Botão 🎮 na barra de escrever, visível só em conversas 1-para-1 (não em grupos, onde não faria sentido um jogo de 2). Quem começa o jogo é sempre X; a outra pessoa da conversa é sempre O — não é preciso convidar ninguém, o jogo já aparece pronto a jogar dentro da própria mensagem.
+Botão 🎮 na barra de escrever, visível só em conversas 1-para-1 (não em grupos, onde não faria sentido um jogo de 2 pessoas). Ao tocar, escolhes entre 🎯 Jogo do Galo ou ♟️ Damas. Em qualquer um dos dois, quem começa o jogo é sempre X (🔴 nas damas); a outra pessoa da conversa é sempre O (⚪) — não é preciso convidar ninguém, o jogo já aparece pronto a jogar dentro da própria mensagem.
 
 - Validação de turno e deteção de vitória feitas no servidor (não dá para fazer batota alterando o código no navegador)
 - Atualiza ao vivo dos dois lados a cada jogada
-- Tal como as enquetes, o jogo é guardado como uma mensagem normal e persiste no histórico
+- Ambos os jogos são guardados como mensagens normais e persistem no histórico
+
+**Damas — regras simplificadas** (para não precisar de um motor de regras enorme dentro de uma mensagem de chat):
+- A captura é **opcional** — não é obrigatório saltar mesmo que seja possível
+- Cada turno permite **um único movimento**, mesmo que uma captura pudesse encadear noutra a seguir
+- Peças normais só andam/capturam para a frente; ao chegar à última linha, tornam-se dama (👑) e passam a mover-se em qualquer direção
+- Ganha quem deixar o adversário sem peças
 
 ## ⋯ Menu "Mais desta conversa" (organiza o cabeçalho de cada chat)
 
