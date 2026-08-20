@@ -1372,7 +1372,7 @@
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
-                    <button class="btn-icon" id="ticTacToeBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="startTicTacToe()" title="Jogar Jogo do Galo">🎮</button>
+                    <button class="btn-icon" id="gamesBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo ou Damas)">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
@@ -1623,6 +1623,18 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalCreatePoll')">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="sendPoll()">Criar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalGameChooser">
+            <div class="modal">
+                <h3>🎮 Jogar</h3>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="startTicTacToe()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🎯<span style="font-size:12px;">Jogo do Galo</span></button>
+                    <button class="btn-small" onclick="startCheckers()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">♟️<span style="font-size:12px;">Damas</span></button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalGameChooser')">Cancelar</button>
                 </div>
             </div>
         </div>
@@ -5306,7 +5318,7 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
-        document.getElementById('ticTacToeBtn').style.display = (chat.type === 'user') ? 'flex' : 'none';
+        document.getElementById('gamesBtn').style.display = (chat.type === 'user') ? 'flex' : 'none';
         updateEncryptionBadge();
         const avatarContent = isAI ? '✨' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
         document.getElementById('chatAvatar').innerHTML = avatarContent;
@@ -6462,7 +6474,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? renderGame(msg) : (msg.fileData ? renderAttachment(msg) : msg.text)))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : renderGame(msg)) : (msg.fileData ? renderAttachment(msg) : msg.text)))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 ${threadHtml}
@@ -7010,21 +7022,30 @@
         if (APP.currentChatId === data.chatId) renderMessages();
     });
 
-    // ==================== JOGO DO GALO (numa conversa 1-para-1) ====================
-    // Quem é X e quem é O é fixo: X é sempre quem começa o jogo, O é sempre a
-    // outra pessoa da conversa (numa DM só há duas pessoas, não é preciso
-    // perguntar "queres jogar?" antes — o jogo já aparece pronto a jogar).
-    function startTicTacToe() {
+    // ==================== JOGOS (numa conversa 1-para-1) ====================
+    // Quem é X e quem é O é fixo em qualquer jogo: X é sempre quem começou,
+    // O é sempre a outra pessoa da conversa (numa DM só há duas pessoas, não
+    // é preciso perguntar "queres jogar?" antes — o jogo já aparece pronto).
+    function openGameChooserModal() {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         if (!chat || chat.type !== 'user') return;
+        document.getElementById('modalGameChooser').classList.add('active');
+    }
+    function startNewGameMessage(game) {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        const game = { board: Array(9).fill(null), players: [APP.user.phone, chat.phone], turn: 'X', winner: null };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', game, read: false });
         renderMessages();
         renderChatList();
+        closeModal('modalGameChooser');
         socket.emit('send_message', { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.phone, text: '', time, game });
+    }
+    function startTicTacToe() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'user') return;
+        startNewGameMessage({ type: 'tictactoe', board: Array(9).fill(null), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
     }
     function renderGame(msg) {
         const game = msg.game;
@@ -7056,6 +7077,81 @@
         msg.game = data.game;
         if (APP.currentChatId === data.chatId) renderMessages();
     });
+
+    // ==================== DAMAS ====================
+    // Versão simplificada das regras clássicas: a captura é opcional (não é
+    // obrigatório saltar mesmo que possas) e cada turno só permite um
+    // movimento, mesmo que uma captura pudesse encadear noutra — em troca de
+    // regras mais simples, evita todo o código de "sequências de captura
+    // obrigatórias" que tornaria isto bem mais complexo para um jogo dentro
+    // de uma mensagem de chat.
+    function initCheckersBoard() {
+        const board = Array(64).fill(null);
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 8; col++) {
+                if ((row + col) % 2 === 1) board[row * 8 + col] = { owner: 0, king: false };
+            }
+        }
+        for (let row = 5; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                if ((row + col) % 2 === 1) board[row * 8 + col] = { owner: 1, king: false };
+            }
+        }
+        return board;
+    }
+    function startCheckers() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'user') return;
+        startNewGameMessage({ type: 'checkers', board: initCheckersBoard(), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
+    }
+    // Estado só local (não sincronizado) de qual peça está selecionada
+    // enquanto se escolhe o destino — um jogo de damas precisa de 2 cliques
+    // por jogada (escolher a peça, depois o destino), ao contrário do galo.
+    const CHECKERS_SELECTED = { messageId: null, cell: null };
+    function renderCheckers(msg) {
+        const game = msg.game;
+        const myMark = game.players[0] === APP.user.phone ? 'X' : (game.players[1] === APP.user.phone ? 'O' : null);
+        const myOwner = myMark === 'X' ? 0 : 1;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const otherName = chat?.type === 'user' ? chat.name : 'a outra pessoa';
+        let statusLine;
+        if (game.winner) statusLine = (game.winner === myMark ? '🎉 Ganhaste!' : `😅 ${escapeHtml(otherName)} ganhou!`);
+        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(otherName)}`) + ` (és ${myMark === 'X' ? '🔴' : (myMark === 'O' ? '⚪' : '—')})`;
+        const selectedCell = CHECKERS_SELECTED.messageId === msg.id ? CHECKERS_SELECTED.cell : null;
+        const myTurn = !game.winner && game.turn === myMark;
+        const cellsHtml = game.board.map((piece, i) => {
+            const row = Math.floor(i / 8), col = i % 8;
+            const dark = (row + col) % 2 === 1;
+            const isSelected = selectedCell === i;
+            let content = '';
+            if (piece) content = piece.owner === 0 ? (piece.king ? '🔴👑' : '🔴') : (piece.king ? '⚪👑' : '⚪');
+            const clickable = dark && myTurn;
+            return `<div data-cell="${i}" onclick="${clickable ? `clickCheckersCell('${msg.id}', ${i})` : ''}" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:13px;background:${dark ? (isSelected ? 'rgba(255,235,59,0.5)' : 'rgba(0,0,0,0.35)') : 'rgba(255,255,255,0.06)'};cursor:${clickable ? 'pointer' : 'default'};">${content}</div>`;
+        }).join('');
+        return `<div style="min-width:220px;">
+            <div style="font-size:12px;margin-bottom:6px;">${statusLine}</div>
+            <div style="display:grid;grid-template-columns:repeat(8,26px);gap:1px;">${cellsHtml}</div>
+            <div style="font-size:10px;opacity:0.7;margin-top:4px;">🔴 = quem começou · ⚪ = outra pessoa</div>
+        </div>`;
+    }
+    function clickCheckersCell(messageId, cell) {
+        if (CHECKERS_SELECTED.messageId !== messageId) { CHECKERS_SELECTED.messageId = messageId; CHECKERS_SELECTED.cell = null; }
+        const msg = APP.messages[APP.currentChatId]?.find(m => m.id === messageId);
+        if (!msg?.game) return;
+        const myMark = msg.game.players[0] === APP.user.phone ? 'X' : 'O';
+        const myOwner = myMark === 'X' ? 0 : 1;
+        const piece = msg.game.board[cell];
+        if (CHECKERS_SELECTED.cell === null) {
+            if (piece && piece.owner === myOwner) { CHECKERS_SELECTED.cell = cell; renderMessages(); }
+        } else if (CHECKERS_SELECTED.cell === cell) {
+            CHECKERS_SELECTED.cell = null;
+            renderMessages();
+        } else {
+            const from = CHECKERS_SELECTED.cell;
+            CHECKERS_SELECTED.cell = null;
+            socket.emit('move_checkers', { chatId: APP.currentChatId, messageId, from, to: cell });
+        }
+    }
 
     function openNewCallModal() {
         updateCallContactList();
