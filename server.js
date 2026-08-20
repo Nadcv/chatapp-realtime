@@ -2020,6 +2020,7 @@ io.on('connection', (socket) => {
     const opponentHasPieces = board.some((p) => p && p.owner === opponent);
     msg.game.winner = opponentHasPieces ? null : myMark;
     msg.game.turn = myMark === 'X' ? 'O' : 'X';
+    msg.game.lastMove = { from: data.from, to: data.to }; // para os dois lados verem onde foi a última jogada
     if (isDbConnected) {
       await MessageModel.updateOne({ id: data.messageId }, { game: msg.game }).catch((e) => console.error('Erro Mongo (damas):', e.message));
     } else {

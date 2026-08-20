@@ -541,7 +541,11 @@ Botão 🎮 na barra de escrever, visível só em conversas 1-para-1 (não em gr
 - Cada turno permite **um único movimento**, mesmo que uma captura pudesse encadear noutra a seguir
 - Peças normais só andam/capturam para a frente; ao chegar à última linha, tornam-se dama (👑) e passam a mover-se em qualquer direção
 - Ganha quem deixar o adversário sem peças
+- A última jogada fica destacada a **verde** no tabuleiro, para os dois lados verem logo o que o outro acabou de fazer
 
+## Correção: mensagens e fotos apareciam duplicadas depois de reconectar
+
+Bug real, obrigado por reportares: o servidor manda sempre o **histórico completo** de uma conversa sempre que se entra nela — não só ao abrir o chat, mas também sempre que o telemóvel/navegador reconecta (rede a cair, app em segundo plano, etc.), o que é frequente. O código juntava esse histórico ao que já lá estava em vez de o substituir, duplicando mensagens, fotos, enquetes e jogos a cada reconexão. Corrigido para substituir pelo histórico do servidor (que já é a verdade completa), em vez de acumular.
 ## ⋯ Menu "Mais desta conversa" (organiza o cabeçalho de cada chat)
 
 O cabeçalho de dentro de uma conversa também já ia em 13+ ícones. Fica diretamente visível só o essencial — 📞 chamada de voz, 📹 videochamada — e tudo o resto passa a viver dentro de um botão único "⋯" ao lado das chamadas: Resumir (IA), Gerir grupo, Localização, Conferência, Sala VR, Pesquisar, Silenciar, Mensagens temporárias, Exportar, Agendar mensagem, Tradução automática, Arquivar e Bloquear/denunciar (os que só fazem sentido nalguns tipos de conversa continuam a aparecer só aí, exatamente como antes).
