@@ -1372,7 +1372,7 @@
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
-                    <button class="btn-icon" id="gamesBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo ou Damas)">🎮</button>
+                    <button class="btn-icon" id="gamesBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
@@ -1630,11 +1630,37 @@
             <div class="modal">
                 <h3>🎮 Jogar</h3>
                 <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;">
-                    <button class="btn-small" onclick="startTicTacToe()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🎯<span style="font-size:12px;">Jogo do Galo</span></button>
-                    <button class="btn-small" onclick="startCheckers()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">♟️<span style="font-size:12px;">Damas</span></button>
+                    <button class="btn-small" id="gameChooserTicTacToeBtn" onclick="startTicTacToe()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🎯<span style="font-size:12px;">Jogo do Galo</span></button>
+                    <button class="btn-small" id="gameChooserCheckersBtn" onclick="startCheckers()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">♟️<span style="font-size:12px;">Damas</span></button>
+                    <button class="btn-small" onclick="startUno()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🃏<span style="font-size:12px;">UNO</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalGameChooser')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalUnoGroupPicker">
+            <div class="modal">
+                <h3>🃏 Escolher jogadores de UNO</h3>
+                <p style="font-size:12px;opacity:0.7;">Escolhe entre 1 e 5 contactos para jogar contigo (2 a 6 jogadores no total). Os restantes membros do grupo veem o jogo mas não participam.</p>
+                <div id="unoGroupMemberPicker" style="max-height:200px;overflow-y:auto;margin-top:8px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalUnoGroupPicker')">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="confirmStartUnoGroup()">Começar jogo</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalUnoColor">
+            <div class="modal">
+                <h3>🌈 Escolhe uma cor</h3>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="chooseUnoColor('red')" style="background:#e53935;color:#fff;">🔴 Vermelho</button>
+                    <button class="btn-small" onclick="chooseUnoColor('yellow')" style="background:#fdd835;color:#000;">🟡 Amarelo</button>
+                    <button class="btn-small" onclick="chooseUnoColor('green')" style="background:#43a047;color:#fff;">🟢 Verde</button>
+                    <button class="btn-small" onclick="chooseUnoColor('blue')" style="background:#1e88e5;color:#fff;">🔵 Azul</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalUnoColor')">Cancelar</button>
                 </div>
             </div>
         </div>
@@ -5318,7 +5344,7 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
-        document.getElementById('gamesBtn').style.display = (chat.type === 'user') ? 'flex' : 'none';
+        document.getElementById('gamesBtn').style.display = (chat.type === 'user' || chat.type === 'group') ? 'flex' : 'none';
         updateEncryptionBadge();
         const avatarContent = isAI ? '✨' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
         document.getElementById('chatAvatar').innerHTML = avatarContent;
@@ -6474,7 +6500,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : renderGame(msg)) : (msg.fileData ? renderAttachment(msg) : msg.text)))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.fileData ? renderAttachment(msg) : msg.text)))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 ${threadHtml}
@@ -6807,7 +6833,13 @@
             text,
             translatedText, translatedLang,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            type: 'received',
+            // Normalmente quem envia já adicionou a própria mensagem de forma
+            // otimista e nunca recebe o próprio 'receive_message' de volta (o
+            // servidor usa socket.to(), que exclui quem enviou) — mas o UNO é
+            // criado inteiramente no servidor (por causa da mão de cartas
+            // escondida) e chega também a quem começou o jogo, por isso aqui
+            // é preciso distinguir para não aparecer como se fosse da outra pessoa.
+            type: (data.senderPhone && data.senderPhone === APP.user.phone) ? 'sent' : 'received',
             replyTo: data.replyTo || null,
             fileData: data.fileData || null,
             fileName: data.fileName || null,
@@ -7035,7 +7067,12 @@
     // é preciso perguntar "queres jogar?" antes — o jogo já aparece pronto).
     function openGameChooserModal() {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        if (!chat || chat.type !== 'user') return;
+        if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
+        const isGroup = chat.type === 'group';
+        // Galo e Damas são só de 2 jogadores fixos (X = quem começou, O = a
+        // outra pessoa da DM) — não fazem sentido num grupo com N pessoas.
+        document.getElementById('gameChooserTicTacToeBtn').style.display = isGroup ? 'none' : 'flex';
+        document.getElementById('gameChooserCheckersBtn').style.display = isGroup ? 'none' : 'flex';
         document.getElementById('modalGameChooser').classList.add('active');
     }
     function startNewGameMessage(game) {
@@ -7164,6 +7201,122 @@
             socket.emit('move_checkers', { chatId: APP.currentChatId, messageId, from, to: cell });
         }
     }
+
+    // ==================== UNO ====================
+    // Único jogo desta app que funciona tanto em conversas 1-para-1 como em
+    // grupos (com um seletor de participantes), e o único em que o servidor
+    // gera o estado inicial (o baralho e a distribuição de cartas), já que a
+    // mão de cada jogador tem de ficar escondida da outra pessoa — ao
+    // contrário do galo/damas, onde o tabuleiro é sempre público aos dois.
+    let UNO_PENDING_WILD = null;
+    function startUno() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
+        closeModal('modalGameChooser');
+        if (chat.type === 'user') {
+            socket.emit('start_uno', { chatId: APP.currentChatId, players: [APP.user.phone, chat.phone] });
+        } else {
+            openUnoGroupPickerModal();
+        }
+    }
+    function openUnoGroupPickerModal() {
+        const contacts = APP.chats.filter(c => c.type === 'user');
+        const picker = document.getElementById('unoGroupMemberPicker');
+        picker.innerHTML = contacts.length ? contacts.map(c => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">
+                <input type="checkbox" value="${c.phone}">
+                <span>${escapeHtml(c.name)}</span>
+            </label>`).join('') : '<p style="color:#8696a0;text-align:center;">Nenhum contacto disponível</p>';
+        document.getElementById('modalUnoGroupPicker').classList.add('active');
+    }
+    function confirmStartUnoGroup() {
+        const selected = [...document.querySelectorAll('#unoGroupMemberPicker input:checked')].map(i => i.value);
+        if (selected.length < 1) return alert('Escolhe pelo menos mais 1 jogador!');
+        if (selected.length > 5) return alert('Máximo 6 jogadores no total!');
+        closeModal('modalUnoGroupPicker');
+        socket.emit('start_uno', { chatId: APP.currentChatId, players: [APP.user.phone, ...selected] });
+    }
+    const UNO_COLOR_HEX = { red: '#e53935', yellow: '#fdd835', green: '#43a047', blue: '#1e88e5', wild: '#3a3a3a' };
+    function unoCardText(card) {
+        if (card.value === 'skip') return '🚫';
+        if (card.value === 'reverse') return '🔄';
+        if (card.value === 'draw2') return '+2';
+        if (card.value === 'wild') return '🌈';
+        if (card.value === 'wild4') return '+4';
+        return card.value;
+    }
+    function renderUnoCard(card, onclick) {
+        const bg = UNO_COLOR_HEX[card.color] || '#555';
+        const textColor = card.color === 'yellow' ? '#000' : '#fff';
+        return `<div ${onclick ? `onclick="${onclick}"` : ''} style="width:32px;height:46px;border-radius:6px;background:${bg};color:${textColor};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;border:2px solid rgba(255,255,255,0.25);cursor:${onclick ? 'pointer' : 'default'};flex:0 0 auto;">${unoCardText(card)}</div>`;
+    }
+    function unoCardPlayableClient(card, topCard, currentColor) {
+        if (card.color === 'wild') return true;
+        return card.color === currentColor || card.value === topCard.value;
+    }
+    function unoNameFor(phone) {
+        if (phone === APP.user.phone) return 'Tu';
+        return APP.chats.find(c => c.phone === phone)?.name || phone.slice(-4);
+    }
+    function renderUno(msg) {
+        const game = msg.game;
+        const isPlayer = game.players.includes(APP.user.phone);
+        const myTurn = isPlayer && !game.winner && game.players[game.turnIndex] === APP.user.phone;
+        let statusLine;
+        if (game.winner) statusLine = (game.winner === APP.user.phone ? '🎉 Ganhaste!' : `😅 ${escapeHtml(unoNameFor(game.winner))} ganhou!`);
+        else statusLine = (isPlayer ? (myTurn ? 'A tua vez' : `Vez de ${escapeHtml(unoNameFor(game.players[game.turnIndex]))}`) : `Vez de ${escapeHtml(unoNameFor(game.players[game.turnIndex]))} (só a ver)`);
+        const others = game.players.filter(p => p !== APP.user.phone).map(p => `${escapeHtml(unoNameFor(p))}: ${game.handCounts[p]}🎴`).join(' · ');
+        const colorDot = { red: '🔴', yellow: '🟡', green: '🟢', blue: '🔵' }[game.currentColor] || '';
+        const handHtml = (isPlayer && game.myHand) ? `<div style="display:flex;gap:4px;overflow-x:auto;margin-top:8px;padding-bottom:4px;">${game.myHand.map((card, i) => {
+            const playable = myTurn && unoCardPlayableClient(card, game.discardTop, game.currentColor);
+            return renderUnoCard(card, playable ? `playUnoCard('${msg.id}', ${i})` : '');
+        }).join('')}</div>` : '';
+        const drawBtn = myTurn ? `<button class="btn-small" onclick="drawUnoCard('${msg.id}')" style="margin-top:6px;font-size:11px;padding:6px 10px;">🎴 Comprar carta</button>` : '';
+        return `<div style="min-width:210px;">
+            <div style="font-size:12px;margin-bottom:6px;">${statusLine}</div>
+            <div style="font-size:11px;opacity:0.75;margin-bottom:6px;">${others}</div>
+            <div style="display:flex;align-items:center;gap:8px;">${renderUnoCard(game.discardTop)}<span style="font-size:16px;">${colorDot}</span><span style="font-size:10px;opacity:0.7;">monte: ${game.drawCount}🎴</span></div>
+            ${handHtml}
+            ${drawBtn}
+            <div style="font-size:10px;opacity:0.6;margin-top:4px;">${escapeHtml(game.lastAction || '')}</div>
+        </div>`;
+    }
+    function playUnoCard(messageId, cardIndex) {
+        const msg = APP.messages[APP.currentChatId]?.find(m => m.id === messageId);
+        const card = msg?.game?.myHand?.[cardIndex];
+        if (!card) return;
+        if (card.color === 'wild') {
+            UNO_PENDING_WILD = { messageId, cardIndex };
+            document.getElementById('modalUnoColor').classList.add('active');
+            return;
+        }
+        socket.emit('play_uno_card', { chatId: APP.currentChatId, messageId, cardIndex });
+    }
+    function chooseUnoColor(color) {
+        closeModal('modalUnoColor');
+        if (!UNO_PENDING_WILD) return;
+        socket.emit('play_uno_card', { chatId: APP.currentChatId, messageId: UNO_PENDING_WILD.messageId, cardIndex: UNO_PENDING_WILD.cardIndex, chosenColor: color });
+        UNO_PENDING_WILD = null;
+    }
+    function drawUnoCard(messageId) {
+        socket.emit('draw_uno_card', { chatId: APP.currentChatId, messageId });
+    }
+    socket.on('uno_updated', (data) => {
+        if (!data?.chatId || !data?.messageId) return;
+        const msg = APP.messages[data.chatId]?.find(m => m.id === data.messageId);
+        if (!msg) return;
+        const myHand = msg.game?.myHand;
+        msg.game = { ...data.game, myHand };
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
+    socket.on('uno_hand_update', (data) => {
+        if (!data?.chatId || !data?.messageId) return;
+        const msg = APP.messages[data.chatId]?.find(m => m.id === data.messageId);
+        if (!msg) return;
+        if (!msg.game) return;
+        msg.game.myHand = data.hand;
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
 
     function openNewCallModal() {
         updateCallContactList();

@@ -1517,6 +1517,86 @@ function checkGameWinner(board) {
   return board.every((c) => c) ? 'draw' : null;
 }
 
+// UNO — jogável tanto em conversas 1-para-1 (2 jogadores fixos) como em
+// grupos (quem começa escolhe entre 1 e 5 contactos, total 2 a 6 jogadores).
+// Ao contrário do galo/damas, aqui não dá para confiar no cliente para o
+// estado inicial: o baralho e a distribuição das cartas têm de ser gerados no
+// servidor, senão alguém podia "escolher" as próprias cartas alterando o
+// código no navegador. Pela mesma razão a mão de cada jogador nunca é
+// incluída no que é enviado para os OUTROS jogadores — só o número de cartas
+// que cada um tem (ver sanitizeUnoGame). Simplificações assumidas: sem a
+// obrigação de "gritar UNO" com penalização, comprar carta passa sempre a vez
+// (não deixa jogar a carta comprada na hora), e o +4 não tem o desafio
+// clássico de contestar se quem jogou tinha mesmo uma carta da cor válida.
+const UNO_COLORS = ['red', 'yellow', 'green', 'blue'];
+const UNO_COLOR_LABEL = { red: '🔴', yellow: '🟡', green: '🟢', blue: '🔵', wild: '🌈' };
+const UNO_VALUE_LABEL = { skip: 'Bloqueio', reverse: 'Inverter', draw2: '+2', wild: 'Curinga', wild4: '+4' };
+function buildUnoDeck() {
+  const deck = [];
+  UNO_COLORS.forEach((color) => {
+    deck.push({ color, value: '0' });
+    for (let n = 1; n <= 9; n++) { deck.push({ color, value: String(n) }); deck.push({ color, value: String(n) }); }
+    ['skip', 'reverse', 'draw2'].forEach((value) => { deck.push({ color, value }); deck.push({ color, value }); });
+  });
+  for (let i = 0; i < 4; i++) { deck.push({ color: 'wild', value: 'wild' }); deck.push({ color: 'wild', value: 'wild4' }); }
+  return deck;
+}
+function shuffleDeck(deck) {
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+function unoCardPlayable(card, topCard, currentColor) {
+  if (card.color === 'wild') return true;
+  return card.color === currentColor || card.value === topCard.value;
+}
+function unoCardLabel(card) {
+  return `${UNO_COLOR_LABEL[card.color] || ''}${UNO_VALUE_LABEL[card.value] || card.value}`;
+}
+function refreshUnoPublicFields(game) {
+  game.discardTop = game.discardPile[game.discardPile.length - 1];
+  game.discardCount = game.discardPile.length;
+  game.drawCount = game.drawPile.length;
+  game.handCounts = {};
+  game.players.forEach((p) => { game.handCounts[p] = game.hands[p].length; });
+}
+function sanitizeUnoGame(game, forPhone) {
+  const { hands, drawPile, discardPile, ...publicFields } = game;
+  const sanitized = { ...publicFields };
+  if (forPhone && game.players.includes(forPhone)) sanitized.myHand = hands[forPhone];
+  return sanitized;
+}
+function ensureUnoDrawPile(game, needed) {
+  while (game.drawPile.length < needed && game.discardPile.length > 1) {
+    const top = game.discardPile.pop();
+    game.drawPile.push(...shuffleDeck(game.discardPile));
+    game.discardPile = [top];
+  }
+}
+function drawUnoCards(game, phone, count) {
+  ensureUnoDrawPile(game, count);
+  const drawn = game.drawPile.splice(0, count);
+  game.hands[phone].push(...drawn);
+  return drawn;
+}
+function advanceUnoTurn(game, steps) {
+  const n = game.players.length;
+  for (let i = 0; i < steps; i++) game.turnIndex = (game.turnIndex + game.direction + n) % n;
+}
+async function persistUnoGame(messageId, game) {
+  if (isDbConnected) {
+    await MessageModel.updateOne({ id: messageId }, { game }).catch((e) => console.error('Erro Mongo (UNO):', e.message));
+  } else {
+    saveMessagesLocal();
+  }
+}
+function broadcastUnoUpdate(chatId, messageId, game) {
+  io.to(chatId).emit('uno_updated', { chatId, messageId, game: sanitizeUnoGame(game, null) });
+  game.players.forEach((p) => deliverToPhone(p, 'uno_hand_update', { chatId, messageId, hand: game.hands[p] }));
+}
+
 function contactPublicInfo(u) {
   return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null };
 }
@@ -1790,7 +1870,11 @@ io.on('connection', (socket) => {
     if (!user || !roomId) return;
     socket.join(roomId);
     user.rooms.add(roomId);
-    socket.emit('room_history', { chatId: roomId, messages: messagesByRoom[roomId] || [] });
+    // Mensagens de UNO guardam a mão de cada jogador — nunca podem ir tal e
+    // qual para quem está a entrar na sala, senão qualquer pessoa via as
+    // cartas de toda a gente só de abrir a conversa/grupo.
+    const history = (messagesByRoom[roomId] || []).map((m) => (m.game?.type === 'uno' ? { ...m, game: sanitizeUnoGame(m.game, user.phone) } : m));
+    socket.emit('room_history', { chatId: roomId, messages: history });
     // Aproveita a entrada na sala para sincronizar o estado dessa conversa que
     // não vem no histórico de mensagens: mensagem fixada e mensagens temporárias.
     if (pinnedByRoom[roomId]) socket.emit('message_pinned_received', { chatId: roomId, pin: pinnedByRoom[roomId] });
@@ -2027,6 +2111,132 @@ io.on('connection', (socket) => {
       saveMessagesLocal();
     }
     io.to(data.chatId).emit('game_updated', { chatId: data.chatId, messageId: data.messageId, game: msg.game });
+  });
+
+  // Começar um jogo de UNO — dentro de uma conversa 1-para-1 os jogadores são
+  // sempre as duas pessoas da conversa; num grupo, quem começa escolheu no
+  // cliente entre 1 e 5 contactos para jogar (2 a 6 jogadores no total). O
+  // baralho, a distribuição e a primeira carta do descarte são todos gerados
+  // aqui, nunca confiando no que o cliente manda para isto.
+  socket.on('start_uno', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.chatId || !Array.isArray(data.players)) return;
+    const isGroup = !!groups[data.chatId];
+    let players = [...new Set(data.players.filter((p) => typeof p === 'string' && p))];
+    if (!players.includes(myPhone)) players.unshift(myPhone);
+    players = players.slice(0, 6);
+    if (players.length < 2) return;
+    if (!isGroup && players.length !== 2) return;
+
+    const deck = shuffleDeck(buildUnoDeck());
+    const hands = {};
+    players.forEach((p) => { hands[p] = deck.splice(0, 7); });
+    let firstIdx = deck.findIndex((c) => c.color !== 'wild' && !['skip', 'reverse', 'draw2'].includes(c.value));
+    if (firstIdx === -1) firstIdx = 0;
+    const firstCard = deck.splice(firstIdx, 1)[0];
+
+    const game = {
+      type: 'uno', players, turnIndex: 0, direction: 1, currentColor: firstCard.color, winner: null,
+      lastAction: 'Jogo criado — cartas distribuídas!', hands, drawPile: deck, discardPile: [firstCard]
+    };
+    refreshUnoPublicFields(game);
+
+    const msgId = 'uno_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const msg = {
+      id: msgId, chatId: data.chatId, sender: users[socket.id]?.name || 'Alguém', senderPhone: myPhone,
+      toPhone: isGroup ? undefined : players.find((p) => p !== myPhone), text: '', time, game
+    };
+    if (!messagesByRoom[data.chatId]) messagesByRoom[data.chatId] = [];
+    messagesByRoom[data.chatId].push(msg);
+    if (messagesByRoom[data.chatId].length > MAX_HISTORY_PER_ROOM) {
+      messagesByRoom[data.chatId] = messagesByRoom[data.chatId].slice(-MAX_HISTORY_PER_ROOM);
+    }
+    if (isDbConnected) {
+      await MessageModel.create({ ...msg }).catch((e) => console.error('Erro Mongo (criar UNO):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+
+    io.to(data.chatId).emit('receive_message', { ...msg, game: sanitizeUnoGame(game, null) });
+    players.forEach((p) => deliverToPhone(p, 'uno_hand_update', { chatId: data.chatId, messageId: msgId, hand: hands[p] }));
+
+    const senderName = users[socket.id]?.name || 'Alguém';
+    players.forEach((p) => {
+      if (p === myPhone) return;
+      const recipientMuted = (mutedByPhone[p] || []).includes(data.chatId);
+      const recipientDnd = !!dndActiveByPhone[p];
+      if (!recipientMuted && !recipientDnd) {
+        sendPushToPhone(p, { title: senderName, body: '🃏 Começou um jogo de UNO!', chatId: data.chatId }).catch(() => {});
+      }
+    });
+  });
+
+  // Jogar uma carta de UNO — toda a validação (é a tua vez, a carta está
+  // mesmo na tua mão, bate com o topo do descarte) é feita aqui, nunca
+  // confiando no cliente. Curinga/'+4' exigem 'chosenColor'.
+  socket.on('play_uno_card', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.chatId || !data?.messageId || typeof data?.cardIndex !== 'number') return;
+    const msgs = messagesByRoom[data.chatId];
+    const msg = msgs?.find((m) => m.id === data.messageId);
+    const game = msg?.game;
+    if (!game || game.type !== 'uno' || game.winner) return;
+    if (game.players[game.turnIndex] !== myPhone) return;
+    const hand = game.hands[myPhone];
+    const card = hand?.[data.cardIndex];
+    if (!card) return;
+    const topCard = game.discardPile[game.discardPile.length - 1];
+    if (!unoCardPlayable(card, topCard, game.currentColor)) return;
+    if (card.color === 'wild' && !UNO_COLORS.includes(data.chosenColor)) return;
+
+    hand.splice(data.cardIndex, 1);
+    game.discardPile.push(card);
+    game.lastAction = `${users[socket.id]?.name || 'Alguém'} jogou ${unoCardLabel(card)}`;
+
+    if (hand.length === 0) {
+      game.winner = myPhone;
+    } else {
+      game.currentColor = card.color === 'wild' ? data.chosenColor : card.color;
+      const twoPlayers = game.players.length === 2;
+      if (card.value === 'reverse') {
+        if (twoPlayers) advanceUnoTurn(game, 2);
+        else { game.direction *= -1; advanceUnoTurn(game, 1); }
+      } else if (card.value === 'skip') {
+        advanceUnoTurn(game, 2);
+      } else if (card.value === 'draw2') {
+        advanceUnoTurn(game, 1);
+        drawUnoCards(game, game.players[game.turnIndex], 2);
+        advanceUnoTurn(game, 1);
+      } else if (card.value === 'wild4') {
+        advanceUnoTurn(game, 1);
+        drawUnoCards(game, game.players[game.turnIndex], 4);
+        advanceUnoTurn(game, 1);
+      } else {
+        advanceUnoTurn(game, 1);
+      }
+    }
+    refreshUnoPublicFields(game);
+    await persistUnoGame(data.messageId, game);
+    broadcastUnoUpdate(data.chatId, data.messageId, game);
+  });
+
+  // Comprar carta — sempre passa a vez logo a seguir (simplificação: não deixa
+  // jogar de imediato a carta comprada, mesmo que fosse válida).
+  socket.on('draw_uno_card', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.chatId || !data?.messageId) return;
+    const msgs = messagesByRoom[data.chatId];
+    const msg = msgs?.find((m) => m.id === data.messageId);
+    const game = msg?.game;
+    if (!game || game.type !== 'uno' || game.winner) return;
+    if (game.players[game.turnIndex] !== myPhone) return;
+    drawUnoCards(game, myPhone, 1);
+    game.lastAction = `${users[socket.id]?.name || 'Alguém'} comprou uma carta`;
+    advanceUnoTurn(game, 1);
+    refreshUnoPublicFields(game);
+    await persistUnoGame(data.messageId, game);
+    broadcastUnoUpdate(data.chatId, data.messageId, game);
   });
 
   socket.on('message_read', (data) => {

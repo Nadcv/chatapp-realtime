@@ -530,7 +530,7 @@ Botão 📊 na barra de escrever mensagens, visível só em conversas de grupo: 
 
 ## 🎮 Jogos (numa conversa 1-para-1): Jogo do Galo e Damas
 
-Botão 🎮 na barra de escrever, visível só em conversas 1-para-1 (não em grupos, onde não faria sentido um jogo de 2 pessoas). Ao tocar, escolhes entre 🎯 Jogo do Galo ou ♟️ Damas. Em qualquer um dos dois, quem começa o jogo é sempre X (🔴 nas damas); a outra pessoa da conversa é sempre O (⚪) — não é preciso convidar ninguém, o jogo já aparece pronto a jogar dentro da própria mensagem.
+Botão 🎮 na barra de escrever, visível em conversas 1-para-1 (Jogo do Galo, Damas ou UNO) e também em grupos (só UNO — ver secção própria mais abaixo). Ao tocar numa DM, escolhes entre 🎯 Jogo do Galo, ♟️ Damas ou 🃏 UNO. No Galo/Damas, quem começa o jogo é sempre X (🔴 nas damas); a outra pessoa da conversa é sempre O (⚪) — não é preciso convidar ninguém, o jogo já aparece pronto a jogar dentro da própria mensagem.
 
 - Validação de turno e deteção de vitória feitas no servidor (não dá para fazer batota alterando o código no navegador)
 - Atualiza ao vivo dos dois lados a cada jogada
@@ -549,4 +549,20 @@ Bug real, obrigado por reportares: o servidor manda sempre o **histórico comple
 ## ⋯ Menu "Mais desta conversa" (organiza o cabeçalho de cada chat)
 
 O cabeçalho de dentro de uma conversa também já ia em 13+ ícones. Fica diretamente visível só o essencial — 📞 chamada de voz, 📹 videochamada — e tudo o resto passa a viver dentro de um botão único "⋯" ao lado das chamadas: Resumir (IA), Gerir grupo, Localização, Conferência, Sala VR, Pesquisar, Silenciar, Mensagens temporárias, Exportar, Agendar mensagem, Tradução automática, Arquivar e Bloquear/denunciar (os que só fazem sentido nalguns tipos de conversa continuam a aparecer só aí, exatamente como antes).
+
+## 🃏 UNO (no mesmo botão 🎮, agora também em grupos)
+
+O botão 🎮 passou a aparecer também em grupos (não só em conversas 1-para-1), mas Jogo do Galo e Damas continuam escondidos aí — são jogos de 2 pessoas fixas e não fazem sentido com N pessoas num grupo. O UNO é o primeiro jogo desta app pensado para várias pessoas: numa DM já começa automaticamente entre as duas pessoas da conversa; num grupo, quem toca em "Começar jogo" escolhe entre 1 e 5 contactos para jogar (2 a 6 jogadores no total) — os restantes membros do grupo continuam a ver a mensagem do jogo, mas só como espetadores.
+
+Diferença importante em relação ao Galo/Damas: ali o tabuleiro é sempre público aos dois lados, por isso o próprio cliente podia gerar o estado inicial. No UNO cada jogador tem uma **mão de cartas privada**, por isso o baralho e a distribuição são sempre gerados no servidor, e a mão de cada pessoa só é enviada ao respetivo socket — nunca aos outros jogadores nem aos espetadores do grupo, incluindo depois de reconectar (o histórico da conversa é filtrado por pessoa antes de sair do servidor).
+
+- Baralho completo (108 cartas: números 0-9, Bloqueio 🚫, Inverter 🔄, +2, Curinga 🌈 e +4)
+- Toda a validação de jogada (é a tua vez, a carta está mesmo na tua mão, a cor/valor bate com o topo do descarte) é feita no servidor
+- Ganha quem ficar sem cartas na mão
+
+**Regras simplificadas** (pelas mesmas razões de simplicidade do Galo/Damas):
+- Não há a obrigação clássica de "gritar UNO" com penalização por esquecimento
+- Comprar carta passa sempre a vez a seguir — não deixa jogar de imediato a carta comprada mesmo que fosse válida
+- O +4 não tem o desafio clássico de contestar se quem jogou tinha mesmo uma carta válida da cor anterior
+- Com 2 jogadores, "Inverter" funciona como um Bloqueio (regra oficial do UNO); com 3+ jogadores inverte mesmo a ordem da roda
 
