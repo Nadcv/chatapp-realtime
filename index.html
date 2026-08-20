@@ -1341,22 +1341,10 @@
                         <h3><span id="chatName">Selecione uma conversa</span> <span id="encryptionBadge" title="Mensagens encriptadas ponta-a-ponta neste dispositivo" style="display:none;font-size:12px;">🔒</span></h3>
                         <span id="chatSubtitle"></span>
                     </div>
-                    <div style="margin-left:auto;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:60vw;">
-                        <button class="btn-icon" onclick="summarizeChat()" title="Resumir conversa (IA)" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📝</button>
-                        <button class="btn-icon" id="manageGroupBtn" onclick="openManageGroupModal()" title="Gerir grupo" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">👑</button>
-                        <button class="btn-icon" onclick="openLocationScreen()" title="Localização em tempo real" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📍</button>
+                    <div style="margin-left:auto;display:flex;gap:6px;flex:0 0 auto;">
                         <button class="btn-icon" onclick="startCall('voice')" title="Chamada de voz" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📞</button>
                         <button class="btn-icon" onclick="startCall('video')" title="Videochamada" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📹</button>
-                        <button class="btn-icon" onclick="startConference()" title="Conferência" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🎥</button>
-                        <button class="btn-icon" id="vrRoomBtn" onclick="openVrRoom()" title="Sala de Realidade Virtual" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">🕶️</button>
-                        <button class="btn-icon" onclick="toggleChatSearch()" title="Pesquisar nesta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🔍</button>
-                        <button class="btn-icon" id="muteToggleBtn" onclick="toggleMuteChat()" title="Silenciar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🔔</button>
-                        <button class="btn-icon" onclick="openDisappearingModal()" title="Mensagens temporárias" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">⏳</button>
-                        <button class="btn-icon" onclick="exportChat()" title="Exportar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📤</button>
-                        <button class="btn-icon" onclick="openScheduleModal()" title="Agendar mensagem" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">📅</button>
-                        <button class="btn-icon" id="autoTranslateBtn" onclick="toggleAutoTranslate()" title="Tradução automática nesta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🌐🔁</button>
-                        <button class="btn-icon" id="archiveChatBtn" onclick="toggleArchiveChat()" title="Arquivar conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">🗄️</button>
-                        <button class="btn-icon" id="blockUserBtn" onclick="openBlockUserModal()" title="Bloquear ou denunciar" style="width:36px;height:36px;font-size:16px;display:none;flex:0 0 auto;">🚫</button>
+                        <button class="btn-icon" onclick="openChatMoreModal()" title="Mais opções desta conversa" style="width:36px;height:36px;font-size:16px;flex:0 0 auto;">⋯</button>
                     </div>
                 </div>
                 <div id="chatSearchBar" style="display:none;padding:8px 12px;background:var(--bg-secondary);gap:8px;align-items:center;">
@@ -1811,6 +1799,31 @@
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ MAIS OPÇÕES DESTA CONVERSA ============ -->
+        <div class="modal-overlay" id="modalChatMore">
+            <div class="modal">
+                <h3>⋯ Mais desta conversa</h3>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="closeModal('modalChatMore');summarizeChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📝<span style="font-size:11px;">Resumir (IA)</span></button>
+                    <button class="btn-small" id="manageGroupBtn" onclick="closeModal('modalChatMore');openManageGroupModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">👑<span style="font-size:11px;">Gerir grupo</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openLocationScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📍<span style="font-size:11px;">Localização</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');startConference()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎥<span style="font-size:11px;">Conferência</span></button>
+                    <button class="btn-small" id="vrRoomBtn" onclick="closeModal('modalChatMore');openVrRoom()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🕶️<span style="font-size:11px;">Sala VR</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');toggleChatSearch()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔍<span style="font-size:11px;">Pesquisar</span></button>
+                    <button class="btn-small" id="muteToggleBtn" onclick="closeModal('modalChatMore');toggleMuteChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;"><span id="muteToggleIcon">🔔</span><span style="font-size:11px;">Silenciar</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openDisappearingModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">⏳<span style="font-size:11px;">Temporárias</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');exportChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📤<span style="font-size:11px;">Exportar</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Agendar</span></button>
+                    <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
+                    <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
+                    <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalChatMore')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -3425,9 +3438,10 @@
     }
     function updateMuteButton() {
         const btn = document.getElementById('muteToggleBtn');
-        if (!btn) return;
+        const icon = document.getElementById('muteToggleIcon');
+        if (!btn || !icon) return;
         const muted = APP.currentChatId && APP.mutedChats.has(APP.currentChatId);
-        btn.textContent = muted ? '🔕' : '🔔';
+        icon.textContent = muted ? '🔕' : '🔔';
         btn.title = muted ? 'Reativar notificações' : 'Silenciar conversa';
     }
 
@@ -8405,6 +8419,7 @@
     function openMoreFeaturesModal() { document.getElementById('modalMoreFeatures').classList.add('active'); }
     function openMediaFeaturesModal() { document.getElementById('modalMediaFeatures').classList.add('active'); }
     function openContactsFeaturesModal() { document.getElementById('modalContactsFeatures').classList.add('active'); }
+    function openChatMoreModal() { document.getElementById('modalChatMore').classList.add('active'); }
     document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {

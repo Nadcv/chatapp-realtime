@@ -536,3 +536,7 @@ Botão 🎮 na barra de escrever, visível só em conversas 1-para-1 (não em gr
 - Atualiza ao vivo dos dois lados a cada jogada
 - Tal como as enquetes, o jogo é guardado como uma mensagem normal e persiste no histórico
 
+## ⋯ Menu "Mais desta conversa" (organiza o cabeçalho de cada chat)
+
+O cabeçalho de dentro de uma conversa também já ia em 13+ ícones. Fica diretamente visível só o essencial — 📞 chamada de voz, 📹 videochamada — e tudo o resto passa a viver dentro de um botão único "⋯" ao lado das chamadas: Resumir (IA), Gerir grupo, Localização, Conferência, Sala VR, Pesquisar, Silenciar, Mensagens temporárias, Exportar, Agendar mensagem, Tradução automática, Arquivar e Bloquear/denunciar (os que só fazem sentido nalguns tipos de conversa continuam a aparecer só aí, exatamente como antes).
+
