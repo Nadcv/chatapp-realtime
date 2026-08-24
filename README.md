@@ -566,3 +566,27 @@ Diferença importante em relação ao Galo/Damas: ali o tabuleiro é sempre púb
 - O +4 não tem o desafio clássico de contestar se quem jogou tinha mesmo uma carta válida da cor anterior
 - Com 2 jogadores, "Inverter" funciona como um Bloqueio (regra oficial do UNO); com 3+ jogadores inverte mesmo a ordem da roda
 
+## 🇪🇸 APIs de Espanha para programadores — o que pesquisei
+
+Pediste para ver que APIs oficiais de Espanha estão disponíveis para programadores usarem (para ligar a alguma funcionalidade desta app — tráfego, comboios, meteorologia). Pesquisei as três mais relevantes para o que já existe na app (Navegação GPS, Transportes e Meteorologia):
+
+- **☁️ AEMET OpenData (meteorologia)** — a mais fácil das três, e a única **integrada**. É uma API REST **gratuita** e oficial da Agência Estatal de Meteorologia espanhola: só pedes uma API key inserindo o teu email em `opendata.aemet.es`, recebes a chave por email na hora, sem cartão nem aprovação manual. Limite de 50 pedidos/minuto, cobre só o território espanhol. Ver secção "🇪🇸 Avisos oficiais da AEMET" abaixo.
+- **🚦 DGT (tráfego/incidências em estradas)** — ao contrário das outras APIs gratuitas já usadas nesta app (só pedem email ou nada), o acesso em tempo real da DGT 3.0 (Ponto de Acesso Nacional, `nap.dgt.es`) exige um **certificado digital X.509 próprio** emitido pela DGT e o **IP do servidor numa lista branca**, através de um pedido de acesso formal — não é uma chave simples que se obtém na hora. Por isso não integrei: exigiria um processo de aprovação fora do teu controlo (e do meu), incompatível com o resto da app funcionar "liga a variável de ambiente e pronto".
+- **🚆 Renfe (comboios)** — tal como já era verdade para a CP/Metro de Lisboa (ver secção "Transportes em tempo real" acima), a Renfe **não tem API oficial documentada** para posição de comboios em tempo real. Só publica horários **programados** em formato aberto GTFS (sem chave, mas é preciso processar ficheiros GTFS, mais trabalho). Existem APIs não-oficiais, descobertas por programadores a inspecionar o tráfego de rede da app oficial da Renfe — usadas por projetos de comunidade (ex.: RadarDeTrenes, Renfetraso) — mas são frágeis (podem mudar ou deixar de funcionar sem aviso) e sem suporte oficial, o mesmo tipo de "gambiarra" que já decidi evitar noutras partes desta app.
+
+**Fui procurar mais além destas três** — o catálogo oficial `datos.gob.es` (dados abertos do governo espanhol) tem mais fontes (ex.: turismo via Dataestur, estatísticas de mobilidade do Ministério dos Transportes), mas são todas **estatísticas/históricos**, não APIs de tempo real que encaixem nalguma funcionalidade existente desta app (chat, transportes ao vivo, meteorologia, navegação). Não encontrei nenhuma quarta API espanhola de tempo real, gratuita e simples de ligar que faça sentido integrar agora.
+
+## 🇪🇸 Avisos oficiais da AEMET (na aba 🌦️ Meteorologia)
+
+Quando pesquisas uma cidade de Espanha na Meteorologia, além da previsão da Open-Meteo (já existente), a app agora também mostra os **avisos oficiais de fenómenos meteorológicos adversos** (chuva forte, vento, neve, etc.) publicados pela AEMET — a mesma fonte usada pelos noticiários espanhóis, com o clássico código de cores amarelo/laranja/vermelho.
+
+- A AEMET publica os avisos no formato **CAP** (Common Alerting Protocol, um standard internacional de alertas públicos) — diferente de JSON direto, é um ficheiro comprimido com um XML por zona com aviso ativo. O servidor descarrega, descomprime e lê esse ficheiro sozinho (sem bibliotecas extra), fica só com os avisos em espanhol (algumas zonas repetem o mesmo aviso em catalão/euskera/galego) e mostra os que forem amarelo/laranja/vermelho — avisos "verdes" (sem risco relevante) não aparecem.
+- Só aparece a secção quando existe pelo menos um aviso ativo em Espanha nesse momento — a maior parte do tempo (sem avisos), a Meteorologia funciona exatamente como antes.
+
+**Precisa de configuração** (grátis):
+1. Vai a https://opendata.aemet.es/centrodedescargas/altaUsuario, escreve o teu email e recebe a chave (API key) na hora
+2. No Railway/Render, define a variável de ambiente `AEMET_API_KEY` com essa chave
+3. Sem essa variável, a Meteorologia continua a funcionar normalmente (Open-Meteo), só sem a secção extra de avisos de Espanha
+
+**Nota de honestidade:** não consigo testar esta chamada a partir daqui (o domínio `opendata.aemet.es` está bloqueado no ambiente onde desenvolvo, como já acontecia com o YouTube/Internet Archive para outras funcionalidades) — implementei com base na documentação oficial estável da AEMET (o mesmo formato usado há anos por vários projetos open-source), e testei à parte a lógica de leitura do ficheiro comprimido/CAP com dados fabricados equivalentes aos reais, mas não a chamada de rede em si. Se depois de configurares a chave a secção nunca aparecer mesmo havendo avisos ativos em Espanha nesse dia, dá para ver no log do Railway ("Erro avisos AEMET: ...") — diz-me o erro exato que investigo.
+
