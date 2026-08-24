@@ -594,3 +594,7 @@ Escolhido PIN em vez de WebAuthn/Face ID a sério: o objetivo real desta funcion
 
 Ao testar o bloqueio por PIN num recarregamento de página (sessão restaurada automaticamente), encontrei um bug real e já existente: várias propriedades de `APP` (`statusFeed`, usada para saber se alguém tem estados ativos; `archivedChats`, usada para filtrar a lista de conversas) só eram atribuídas mais abaixo no código, mas a sessão era restaurada de forma síncrona logo ao carregar a página — antes de o script chegar lá. Corrigido: `statusFeed` passou a nascer já dentro do objeto `APP` inicial, e a restauração da sessão passou a ser adiada (`setTimeout`) para só correr depois de todo o resto do script já ter sido processado.
 
+## 📐 Tamanho da fonte das mensagens
+
+Em "🎨 Personalizar aparência" → "Tamanho do texto das mensagens", um controlo deslizante (12px a 22px) ajusta ao vivo o tamanho do texto dentro das bolhas de mensagem — útil em ecrãs pequenos ou para quem prefere letra maior. Guardado neste aparelho (`localStorage`), aplicado via uma variável CSS (`--font-size-msg`) já na primeira renderização da página, antes mesmo do login.
+
