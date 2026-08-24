@@ -160,7 +160,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1728,6 +1728,20 @@ function saveBroadcastsLocal() {
   fs.writeFile(BROADCASTS_FILE, JSON.stringify(broadcastsByPhone), (err) => { if (err) console.error('Erro ao salvar listas de transmissão:', err.message); });
 }
 
+// ==================== PASTAS/ETIQUETAS PARA ORGANIZAR CONVERSAS ====================
+// Cada pasta pertence só a quem a criou — é só uma forma pessoal de organizar
+// a própria lista de conversas (ex.: "Trabalho", "Família"), não afeta quem
+// mais vê essas conversas nem precisa de sincronizar com mais ninguém.
+const FOLDERS_FILE = path.join(__dirname, 'folders.json');
+let foldersByPhone = {}; // phone -> [{id, name, chatIds:[chatId,...]}]
+function loadFoldersLocal() {
+  try { if (fs.existsSync(FOLDERS_FILE)) foldersByPhone = JSON.parse(fs.readFileSync(FOLDERS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar pastas de conversas:', err.message); }
+}
+function saveFoldersLocal() {
+  fs.writeFile(FOLDERS_FILE, JSON.stringify(foldersByPhone), (err) => { if (err) console.error('Erro ao salvar pastas de conversas:', err.message); });
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -1962,6 +1976,7 @@ io.on('connection', (socket) => {
       socket.emit('archived_list', archivedByPhone[myPhone] || []);
       socket.emit('blocked_list', blockedByPhone[myPhone] || []);
       socket.emit('broadcast_list', broadcastsByPhone[myPhone] || []);
+      socket.emit('folders_list', foldersByPhone[myPhone] || []);
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
     }
@@ -2833,6 +2848,46 @@ io.on('connection', (socket) => {
     broadcastsByPhone[myPhone] = broadcastsByPhone[myPhone].filter((b) => b.id !== id);
     saveBroadcastsLocal();
     socket.emit('broadcast_list', broadcastsByPhone[myPhone]);
+  });
+
+  // ==================== PASTAS/ETIQUETAS PARA ORGANIZAR CONVERSAS ====================
+  socket.on('get_folders', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('folders_list', foldersByPhone[myPhone] || []);
+  });
+  socket.on('save_folder', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { id, name } = data || {};
+    if (!myPhone || !name || !name.trim()) return;
+    if (!foldersByPhone[myPhone]) foldersByPhone[myPhone] = [];
+    const existing = id && foldersByPhone[myPhone].find((f) => f.id === id);
+    if (existing) {
+      existing.name = name.trim().substring(0, 40);
+    } else {
+      foldersByPhone[myPhone].push({ id: 'fd' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: name.trim().substring(0, 40), chatIds: [] });
+    }
+    saveFoldersLocal();
+    socket.emit('folders_list', foldersByPhone[myPhone]);
+  });
+  socket.on('delete_folder', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { id } = data || {};
+    if (!myPhone || !id || !foldersByPhone[myPhone]) return;
+    foldersByPhone[myPhone] = foldersByPhone[myPhone].filter((f) => f.id !== id);
+    saveFoldersLocal();
+    socket.emit('folders_list', foldersByPhone[myPhone]);
+  });
+  socket.on('set_chat_folder', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { folderId, chatId, inFolder } = data || {};
+    if (!myPhone || !folderId || !chatId || !foldersByPhone[myPhone]) return;
+    const folder = foldersByPhone[myPhone].find((f) => f.id === folderId);
+    if (!folder) return;
+    if (!Array.isArray(folder.chatIds)) folder.chatIds = [];
+    if (inFolder) { if (!folder.chatIds.includes(chatId)) folder.chatIds.push(chatId); }
+    else { folder.chatIds = folder.chatIds.filter((c) => c !== chatId); }
+    saveFoldersLocal();
+    socket.emit('folders_list', foldersByPhone[myPhone]);
   });
 
   // ==================== "NÃO INCOMODAR" AGENDADO ====================

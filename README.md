@@ -674,3 +674,7 @@ Corrigido: `join_room` e `send_message` (e também `schedule_message`, para mens
 
 Nota: esta correção cobre a entrada na sala e o envio de mensagens novas, que eram os dois pontos onde uma conta não autorizada conseguia ler ou escrever numa conversa privada. Outras operações sobre mensagens já existentes (apagar, editar, reagir, votar numa enquete) continuam a confiar no id da mensagem/conversa vindo do pedido sem essa mesma verificação adicional — vale a pena um reforço semelhante aí também numa próxima iteração, embora o risco seja menor (normalmente exige também adivinhar o id da mensagem, que não é previsível como o da conversa).
 
+## 🗂️ Pastas para organizar as conversas
+
+Barra de "filtros" por baixo da pesquisa (tal como no WhatsApp): começa só com "Tudo", e o botão "+" abre um ecrã para criar pastas próprias (ex.: "Trabalho", "Família") e escolher, dentro de cada conversa (menu "⋯ Mais desta conversa" → "🗂️ Pastas"), em quais pastas ela entra — uma conversa pode estar em várias pastas ao mesmo tempo, ou em nenhuma. Clicar numa pasta na barra filtra a lista de conversas só às que estão lá dentro; "Tudo" volta a mostrar todas. É só uma organização pessoal (não é visível para mais ninguém) e fica guardada no servidor por conta, tal como as listas de transmissão, por isso sincroniza entre os teus dispositivos.
+
