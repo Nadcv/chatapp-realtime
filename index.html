@@ -619,7 +619,7 @@
             max-width: 80%;
             padding: 9px 14px;
             border-radius: 10px;
-            font-size: 14px;
+            font-size: var(--font-size-msg, 14px);
             line-height: 1.5;
             position: relative;
             animation: fadeIn 0.3s ease;
@@ -1808,6 +1808,17 @@
                 <div class="modal-actions" style="margin-bottom:10px;">
                     <button class="btn-small" onclick="resetAccentColor()">↩️ Repor cor padrão</button>
                 </div>
+
+                <div style="border-top:1px solid var(--bg-tertiary);margin:14px 0;"></div>
+
+                <div style="font-weight:600;font-size:14px;margin:0 0 4px;">Tamanho do texto das mensagens</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 8px;">Ajuda a ler melhor em ecrãs pequenos ou com vista cansada.</p>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:12px;">A</span>
+                    <input type="range" id="msgFontSizeSlider" min="12" max="22" step="1" value="14" oninput="applyMsgFontSize(this.value)" onchange="saveMsgFontSize(this.value)" style="flex:1;">
+                    <span style="font-size:20px;">A</span>
+                </div>
+                <div style="text-align:center;font-size:12px;color:var(--text-secondary);margin-top:2px;" id="msgFontSizeLabel">14px</div>
 
                 <div style="border-top:1px solid var(--bg-tertiary);margin:14px 0;"></div>
 
@@ -3284,10 +3295,25 @@
         renderAccentPresets();
         renderWallpaperPresets();
         applyAccentColor(current, { save: false });
+        const savedFontSize = localStorage.getItem('msgFontSize') || '14';
+        document.getElementById('msgFontSizeSlider').value = savedFontSize;
+        document.getElementById('msgFontSizeLabel').textContent = savedFontSize + 'px';
         document.getElementById('modalCustomize').classList.add('active');
     }
     (function initAccentColor() {
         applyAccentColor(getAccentHex(), { save: false });
+    })();
+
+    // ==================== TAMANHO DO TEXTO DAS MENSAGENS ====================
+    function applyMsgFontSize(px) {
+        document.documentElement.style.setProperty('--font-size-msg', px + 'px');
+        document.getElementById('msgFontSizeLabel').textContent = px + 'px';
+    }
+    function saveMsgFontSize(px) {
+        localStorage.setItem('msgFontSize', px);
+    }
+    (function initMsgFontSize() {
+        applyMsgFontSize(localStorage.getItem('msgFontSize') || '14');
     })();
 
     // ==================== FUNDO DAS CONVERSAS PERSONALIZADO ====================
