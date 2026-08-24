@@ -52,7 +52,8 @@ const accountSchema = new mongoose.Schema({
   contacts: { type: [String], default: [] }, // telefones de quem esta pessoa já procurou/falou
   pushSubscriptions: { type: [Object], default: [] }, // inscrições de notificações push (um dispositivo pode ter mais do que uma)
   totalTimeSpentSec: { type: Number, default: 0 }, // tempo total acumulado com a app em primeiro plano, para o cronómetro "quantas horas perdeu"
-  birthday: String // 'YYYY-MM-DD', opcional — mostrado aos contactos para lembrete de aniversário
+  birthday: String, // 'YYYY-MM-DD', opcional — mostrado aos contactos para lembrete de aniversário
+  devices: { type: [Object], default: [] } // [{id, name, lastSeenAt}] — máximo 2 por conta, ver /api/login
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -229,7 +230,10 @@ app.post('/api/register', async (req, res) => {
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
   const validBirthday = typeof birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(birthday) ? birthday : null;
-  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', birthday: validBirthday, salt, passwordHash, createdAt: new Date().toISOString(), contacts: [] };
+  const deviceId = (req.body?.deviceId || '').trim();
+  const deviceName = (req.body?.deviceName || 'Dispositivo desconhecido').trim().slice(0, 60);
+  const devices = deviceId ? [{ id: deviceId, name: deviceName, lastSeenAt: new Date().toISOString() }] : [];
+  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', birthday: validBirthday, salt, passwordHash, createdAt: new Date().toISOString(), contacts: [], devices };
   accounts[phone] = user;
   usernameIndex[username] = phone;
   if (!firstRegisteredPhone) firstRegisteredPhone = phone;
@@ -250,16 +254,67 @@ app.post('/api/register', async (req, res) => {
   res.json({ success: true, user: publicUser(user), token });
 });
 
-app.post('/api/login', (req, res) => {
+// Cada conta só pode estar ligada a, no máximo, 2 dispositivos ao mesmo
+// tempo — um "dispositivo" aqui é identificado por um id aleatório que o
+// próprio cliente gera uma vez e guarda no localStorage (persiste entre
+// logins/logouts no mesmo aparelho, mas nunca sai dele). Um 3º dispositivo
+// a tentar entrar é recusado com uma mensagem clara, em vez de silenciosamente
+// deixar entrar; para libertar uma vaga, a pessoa remove um dispositivo em
+// "Dispositivos ligados" (ver /api/devices e /api/devices/remove abaixo).
+app.post('/api/login', async (req, res) => {
   const { phone, password } = req.body || {};
   const user = accounts[phone];
   if (!user || hashPassword(password || '', user.salt) !== user.passwordHash) {
     return res.status(401).json({ error: 'Telefone ou senha incorretos.' });
   }
+  const deviceId = (req.body?.deviceId || '').trim();
+  const deviceName = (req.body?.deviceName || 'Dispositivo desconhecido').trim().slice(0, 60);
+  if (!deviceId) return res.status(400).json({ error: 'Pedido inválido (falta identificador do dispositivo).' });
+  if (!user.devices) user.devices = [];
+  const existing = user.devices.find((d) => d.id === deviceId);
+  if (existing) {
+    existing.name = deviceName;
+    existing.lastSeenAt = new Date().toISOString();
+  } else if (user.devices.length >= 2) {
+    return res.status(403).json({ error: 'Esta conta já está a ser usada em 2 dispositivos (o máximo permitido). Remove um em "Dispositivos ligados" (menu ⋯ Mais funcionalidades) para poderes entrar aqui.' });
+  } else {
+    user.devices.push({ id: deviceId, name: deviceName, lastSeenAt: new Date().toISOString() });
+  }
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { devices: user.devices }).catch((e) => console.error('Erro Mongo (dispositivos):', e.message));
+  } else {
+    saveUsers();
+  }
   const token = makeToken();
   sessions[token] = phone;
   log(`✅ Login: ${user.name} (${phone})`, 'AUTH');
   res.json({ success: true, user: publicUser(user), token });
+});
+
+app.get('/api/devices', (req, res) => {
+  const token = req.headers['x-auth-token'] || req.query.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const myDeviceId = req.query.deviceId || '';
+  const devices = (user.devices || []).map((d) => ({ ...d, isThisDevice: d.id === myDeviceId }));
+  res.json({ devices });
+});
+
+app.post('/api/devices/remove', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const deviceId = (req.body?.deviceId || '').trim();
+  if (!deviceId) return res.status(400).json({ error: 'Falta o identificador do dispositivo.' });
+  user.devices = (user.devices || []).filter((d) => d.id !== deviceId);
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { devices: user.devices }).catch((e) => console.error('Erro Mongo (remover dispositivo):', e.message));
+  } else {
+    saveUsers();
+  }
+  res.json({ success: true, devices: user.devices });
 });
 
 app.get('/api/admin/users', (req, res) => {

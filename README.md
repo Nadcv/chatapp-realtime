@@ -624,3 +624,19 @@ Dois ajustes pedidos depois de veres a app com as novas funcionalidades:
 - **Ícones da barra de escrever mais pequenos**: com 😊🎞️🪄📎📊🎮🎤📨 todos juntos (alguns só aparecem em certos tipos de conversa), a barra estava a ficar demasiado larga em ecrãs de telemóvel e ficava com botões cortados fora do ecrã. Reduzidos de 42px para 34px e o espaçamento entre eles encurtado, para caberem todos sem cortar nada. Pelo caminho encontrei e corrigi também um bug de responsividade mais antigo: faltava `min-width: 0` no campo de escrever mensagens, que é o que realmente causava o corte (sem isso, o campo de texto recusava-se a encolher abaixo de um certo tamanho, mesmo com `flex: 1`, empurrando os últimos botões para fora do ecrã).
 - **Tradutor rápido com vários idiomas dos dois lados**: antes, o lado esquerdo só tinha Português/Inglês; agora tem a mesma lista completa de 11 idiomas que já existia do lado direito, e o botão 🔄 troca os dois lados por completo para qualquer combinação (antes só trocava a sério quando o lado direito também era PT ou EN). O reconhecimento de voz (🎤) passou também a seguir o idioma escolhido do lado esquerdo em vez de assumir sempre Português ou Inglês.
 
+## 📍 Partilha de localização mais segura (tempo limite + aviso sempre visível)
+
+A partilha de localização em tempo real (📍) já funcionava em qualquer parte do mundo — usa o GPS diretamente do telemóvel, sem nenhuma restrição de país. O que faltava era proteção contra o uso perigoso desta funcionalidade: alguém ser seguido sem saber, ou esquecer-se de que ainda está a partilhar.
+
+Duas mudanças:
+- **Tempo limite obrigatório**: ao tocar em "Partilhar minha localização", escolhes sempre por quanto tempo (15 min, 1 hora ou 8 horas) — já não fica ligado indefinidamente. Passado esse tempo, a partilha para sozinha.
+- **Aviso sempre visível**: enquanto a partilha está ativa, aparece uma barra bem visível na barra lateral (não só dentro do ecrã do mapa), com a hora em que termina e um botão para parar imediatamente — visível mesmo que mudes de conversa ou de ecrã, para nunca ficares a partilhar sem te aperceberes disso.
+
+Continua também a parar automaticamente ao fechar o ecrã do mapa (proteção que já existia, mantida como camada extra).
+
+## 📱 Limite de 2 dispositivos por conta
+
+Cada conta só pode estar ligada em, no máximo, 2 dispositivos ao mesmo tempo. Um "dispositivo" é identificado por um id aleatório gerado uma única vez no navegador e guardado localmente (nunca sai do aparelho); ao tentar entrar num 3º dispositivo diferente, o login é recusado com uma mensagem clara a explicar o limite, em vez de simplesmente deixar entrar.
+
+Em "⋯ Mais funcionalidades" → "📱 Dispositivos ligados" dá para ver os dispositivos atualmente ligados (com a etiqueta "(este dispositivo)" no que estás a usar) e remover um para libertar uma vaga para um novo — útil ao trocar de telemóvel. Remover um dispositivo não desliga imediatamente uma sessão já aberta nele (não há forma de "empurrar" um aviso para lá), só deixa de contar para o limite a partir do próximo login.
+

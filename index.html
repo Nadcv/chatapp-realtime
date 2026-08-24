@@ -1360,6 +1360,10 @@
         <div class="main-content">
             <div class="sidebar" id="sidebar">
                 <div id="birthdayBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:linear-gradient(135deg, #f093fb, #f5576c);color:#fff;"></div>
+                <div id="locationSharingBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:linear-gradient(135deg, #ff9966, #ff5e62);color:#fff;align-items:center;justify-content:center;gap:8px;">
+                    <span id="locationSharingText"></span>
+                    <button onclick="stopShareLocationFromBanner()" style="background:rgba(255,255,255,0.25);border:none;color:#fff;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;">Parar</button>
+                </div>
                 <div id="timeSpentBar" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);text-align:center;cursor:default;" title="Tempo total que já passaste nesta app, desde que criaste a conta">⏱️ <span id="timeSpentValue">—</span> nesta app</div>
                 <div id="quoteOfDayBar" style="display:none;padding:4px 12px 8px;font-size:11px;color:var(--text-secondary);font-style:italic;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;"></div>
                 <div class="search-bar">
@@ -1452,6 +1456,16 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalDevices">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>📱 Dispositivos ligados</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">Esta conta pode estar ligada em, no máximo, 2 dispositivos ao mesmo tempo. Remove um daqui para libertar uma vaga para um novo.</p>
+                <div id="devicesList" style="margin-top:10px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalDevices')">Fechar</button>
+                </div>
+            </div>
+        </div>
         <div class="location-screen" id="vrRoomScreen">
             <div class="location-header">
                 <strong id="vrRoomTitle">🕶️ Sala Virtual</strong>
@@ -1541,6 +1555,20 @@
             <div id="etaBox" style="display:none;background:var(--green,#00a884);color:#fff;padding:8px 14px;font-size:13px;text-align:center;"></div>
             <div class="location-footer">
                 <button class="btn btn-primary" id="shareLocationBtn" onclick="toggleShareLocation()" style="width:auto;padding:12px 24px;">📡 Partilhar minha localização</button>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalLocationShareDuration">
+            <div class="modal">
+                <h3>📡 Partilhar localização</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">Por quanto tempo? Passado esse tempo, a partilha para sozinha — para nunca ficares a partilhar sem saber. Enquanto durar, vais ver sempre um aviso na app com um botão para parar a qualquer momento.</p>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
+                    <button class="btn-small" onclick="startShareLocationWithDuration(15)">15 min</button>
+                    <button class="btn-small" onclick="startShareLocationWithDuration(60)">1 hora</button>
+                    <button class="btn-small" onclick="startShareLocationWithDuration(480)">8 horas</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalLocationShareDuration')">Cancelar</button>
+                </div>
             </div>
         </div>
         <div class="modal-overlay" id="modalIncomingCall" style="z-index:200;">
@@ -1914,6 +1942,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openActivitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏃<span style="font-size:11px;">Atividades</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRouletteScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎯<span style="font-size:11px;">Roleta/Sorteio</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openPinSetupModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔒<span style="font-size:11px;">Bloqueio por PIN</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDevicesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📱<span style="font-size:11px;">Dispositivos ligados</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures')">Fechar</button>
@@ -2758,6 +2787,38 @@
         rebuildChatsFromServer();
     });
 
+    // ==================== LIMITE DE 2 DISPOSITIVOS POR CONTA ====================
+    // "Dispositivo" aqui = este navegador/aparelho, identificado por um id
+    // aleatório gerado uma única vez e guardado no localStorage — persiste
+    // entre logins/logouts no mesmo aparelho, mas nunca sai dele nem é
+    // partilhado. O nome é só uma etiqueta legível (ex.: "Chrome · Android")
+    // para a pessoa reconhecer o dispositivo na lista, não é usado para nada
+    // de segurança.
+    function getOrCreateDeviceId() {
+        let id = localStorage.getItem('deviceId');
+        if (!id) {
+            id = (crypto.randomUUID ? crypto.randomUUID() : 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2));
+            localStorage.setItem('deviceId', id);
+        }
+        return id;
+    }
+    function getDeviceName() {
+        const ua = navigator.userAgent || '';
+        let os = 'Dispositivo';
+        if (/iPhone/.test(ua)) os = 'iPhone';
+        else if (/iPad/.test(ua)) os = 'iPad';
+        else if (/Android/.test(ua)) os = 'Android';
+        else if (/Macintosh/.test(ua)) os = 'Mac';
+        else if (/Windows/.test(ua)) os = 'Windows';
+        else if (/Linux/.test(ua)) os = 'Linux';
+        let browser = '';
+        if (/Edg\//.test(ua)) browser = 'Edge';
+        else if (/Chrome\//.test(ua)) browser = 'Chrome';
+        else if (/Firefox\//.test(ua)) browser = 'Firefox';
+        else if (/Safari\//.test(ua)) browser = 'Safari';
+        return browser ? `${browser} · ${os}` : os;
+    }
+
     function showAuthForm(which) {
         document.getElementById('loginFormBox').style.display = which === 'login' ? 'flex' : 'none';
         document.getElementById('registerFormBox').style.display = which === 'register' ? 'flex' : 'none';
@@ -2772,7 +2833,7 @@
         errEl.textContent = '';
         if (!phone || !password) { errEl.textContent = 'Preencha telemóvel e senha.'; return; }
         try {
-            const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, password }) });
+            const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, password, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao entrar.'; return; }
             enterApp(data.user, data.token);
@@ -2793,7 +2854,7 @@
         errEl.textContent = '';
         if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
         try {
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password }) });
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
             enterApp(data.user, data.token);
@@ -3236,6 +3297,43 @@
             showPinUnlockScreen();
         }
     });
+
+    // ==================== DISPOSITIVOS LIGADOS (máx. 2 por conta) ====================
+    function openDevicesModal() {
+        document.getElementById('modalDevices').classList.add('active');
+        loadDevices();
+    }
+    async function loadDevices() {
+        const list = document.getElementById('devicesList');
+        list.innerHTML = '<p style="text-align:center;color:var(--text-secondary);">A carregar...</p>';
+        try {
+            const res = await fetch(`/api/devices?deviceId=${encodeURIComponent(getOrCreateDeviceId())}`, { headers: { 'X-Auth-Token': APP.token } });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha');
+            const devices = data.devices || [];
+            list.innerHTML = devices.length ? devices.map(d => `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;font-size:13px;">${escapeHtml(d.name)}${d.isThisDevice ? ' <span style="color:var(--blue);">(este dispositivo)</span>' : ''}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);">Última vez: ${new Date(d.lastSeenAt).toLocaleString('pt-BR')}</div>
+                    </div>
+                    <button class="btn-small" onclick="removeDevice('${d.id}')" style="flex:0 0 auto;">Remover</button>
+                </div>`).join('') : '<p style="text-align:center;color:var(--text-secondary);">Nenhum dispositivo ligado.</p>';
+        } catch (e) {
+            list.innerHTML = '<p style="text-align:center;color:var(--text-secondary);">⚠️ Não foi possível carregar os dispositivos agora.</p>';
+        }
+    }
+    async function removeDevice(deviceId) {
+        if (!confirm('Remover este dispositivo? Ele deixa de contar para o limite de 2 — mas se ainda tiver sessão aberta, continua a funcionar até se desligar sozinho.')) return;
+        try {
+            const res = await fetch('/api/devices/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': APP.token }, body: JSON.stringify({ deviceId }) });
+            const data = await res.json();
+            if (!res.ok) return alert(data.error || 'Não foi possível remover.');
+            loadDevices();
+        } catch (e) {
+            alert('Não foi possível remover agora.');
+        }
+    }
 
     // ==================== TEMA CLARO/ESCURO ====================
     (function initTheme() {
@@ -6328,7 +6426,10 @@
         sharing: false,
         lastPoint: null, // { lat, lng, t } do próprio usuário, para calcular velocidade/meio de transporte
         myPoint: null, // { lat, lng, speedKmh } — usado para calcular o "a caminho" (ETA)
-        otherPoints: {} // phone -> { lat, lng, speedKmh, name } de quem partilha localização contigo
+        otherPoints: {}, // phone -> { lat, lng, speedKmh, name } de quem partilha localização contigo
+        shareExpiresAt: null, // quando a partilha atual pára sozinha (ver aviso de segurança abaixo)
+        shareExpiryTimer: null,
+        shareBannerTicker: null
     };
 
     function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -6573,18 +6674,21 @@
         }, 250);
     }
 
+    // Partilhar localização em tempo real tem um risco real de ser usado de
+    // forma perigosa (alguém a ser seguida sem saber, ou esquecer-se de que
+    // ficou ligado) — por isso, ao contrário de só "ligar/desligar": (1) exige
+    // escolher sempre um tempo limite, nunca fica indefinidamente ligado; (2)
+    // mostra um aviso bem visível em toda a app enquanto durar, com um botão
+    // para parar já, para nunca se partilhar sem se aperceber disso.
     function toggleShareLocation() {
         if (LOCATION.sharing) {
-            if (LOCATION.watchId != null) navigator.geolocation.clearWatch(LOCATION.watchId);
-            LOCATION.watchId = null;
-            LOCATION.sharing = false;
-            LOCATION.lastPoint = null;
-            LOCATION.myPoint = null;
-            updateETA();
-            socket.emit('location_stop', { roomId: APP.currentChatId });
-            updateShareLocationBtn();
+            stopShareLocation();
             return;
         }
+        document.getElementById('modalLocationShareDuration').classList.add('active');
+    }
+    function startShareLocationWithDuration(minutes) {
+        closeModal('modalLocationShareDuration');
         LOCATION.watchId = navigator.geolocation.watchPosition(
             (pos) => {
                 const { latitude: lat, longitude: lng, speed } = pos.coords;
@@ -6606,13 +6710,48 @@
             },
             (err) => {
                 alert('Não foi possível obter a localização: ' + err.message + ' (verifique se autorizou o GPS)');
-                LOCATION.sharing = false;
-                updateShareLocationBtn();
+                stopShareLocation();
             },
             { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
         );
         LOCATION.sharing = true;
+        LOCATION.shareExpiresAt = Date.now() + minutes * 60 * 1000;
+        clearTimeout(LOCATION.shareExpiryTimer);
+        LOCATION.shareExpiryTimer = setTimeout(() => {
+            stopShareLocation();
+            alert('A tua partilha de localização terminou (tempo limite atingido).');
+        }, minutes * 60 * 1000);
+        clearInterval(LOCATION.shareBannerTicker);
+        LOCATION.shareBannerTicker = setInterval(updateLocationSharingBanner, 30000);
         updateShareLocationBtn();
+        updateLocationSharingBanner();
+    }
+    function stopShareLocation() {
+        if (LOCATION.watchId != null) navigator.geolocation.clearWatch(LOCATION.watchId);
+        LOCATION.watchId = null;
+        LOCATION.sharing = false;
+        LOCATION.lastPoint = null;
+        LOCATION.myPoint = null;
+        LOCATION.shareExpiresAt = null;
+        clearTimeout(LOCATION.shareExpiryTimer);
+        clearInterval(LOCATION.shareBannerTicker);
+        updateETA();
+        socket.emit('location_stop', { roomId: APP.currentChatId });
+        updateShareLocationBtn();
+        updateLocationSharingBanner();
+    }
+    function stopShareLocationFromBanner() {
+        if (LOCATION.sharing) stopShareLocation();
+    }
+    // Aviso sempre visível (na barra lateral, não só dentro do ecrã de
+    // localização) enquanto a partilha está ativa — mesmo que a pessoa mude
+    // de conversa ou feche o ecrã do mapa sem parar explicitamente.
+    function updateLocationSharingBanner() {
+        const banner = document.getElementById('locationSharingBanner');
+        if (!LOCATION.sharing || !LOCATION.shareExpiresAt) { banner.style.display = 'none'; return; }
+        const endTime = new Date(LOCATION.shareExpiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('locationSharingText').textContent = `📍 A partilhar a tua localização · termina às ${endTime}`;
+        banner.style.display = 'flex';
     }
 
     // Desenha/atualiza o marcador e o trajeto (polyline) de uma pessoa no mapa
