@@ -1382,8 +1382,9 @@
                 </div>
                 <div id="timeSpentBar" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);text-align:center;cursor:default;" title="Tempo total que já passaste nesta app, desde que criaste a conta">⏱️ <span id="timeSpentValue">—</span> nesta app</div>
                 <div id="quoteOfDayBar" style="display:none;padding:4px 12px 8px;font-size:11px;color:var(--text-secondary);font-style:italic;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;"></div>
-                <div class="search-bar">
-                    <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)">
+                <div class="search-bar" style="display:flex;align-items:center;gap:6px;">
+                    <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)" style="flex:1;">
+                    <button class="btn-icon" onclick="openGlobalSearchModal()" title="Pesquisar em todas as mensagens" style="width:36px;height:36px;font-size:15px;flex:0 0 auto;">🔎</button>
                 </div>
                 <div class="chat-list" id="chatList"></div>
             </div>
@@ -1469,6 +1470,16 @@
                 <div id="pinSetupForm"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalPinSetup')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalGlobalSearch">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>🔎 Pesquisar em todas as conversas</h3>
+                <input type="text" id="globalSearchInput" placeholder="Pesquisar mensagens..." oninput="debounceGlobalSearch()" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);box-sizing:border-box;margin:10px 0;">
+                <div id="globalSearchResults"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalGlobalSearch')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -2739,7 +2750,7 @@
             }
             // Entra automaticamente na sala para receber mensagens mesmo com a conversa fechada
             if (chat.type !== 'ai' && !APP.joinedRooms.has(chat.id)) {
-                socket.emit('join_room', chat.id);
+                socket.emit('join_room', { chatId: chat.id, toPhone: chat.phone });
                 APP.joinedRooms.add(chat.id);
             }
         });
@@ -2777,7 +2788,7 @@
             socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
             APP.joinedRooms.clear();
             APP.chats.forEach(chat => {
-                if (chat.type !== 'ai') { socket.emit('join_room', chat.id); APP.joinedRooms.add(chat.id); }
+                if (chat.type !== 'ai') { socket.emit('join_room', { chatId: chat.id, toPhone: chat.phone }); APP.joinedRooms.add(chat.id); }
             });
         }
     });
@@ -3017,7 +3028,7 @@
         // enquanto a chave ainda não existia e apareciam como "não foi possível
         // desencriptar", mesmo sendo perfeitamente decifráveis.
         await initE2EE();
-        APP.chats.forEach(chat => socket.emit('join_room', chat.id));
+        APP.chats.forEach(chat => socket.emit('join_room', { chatId: chat.id, toPhone: chat.phone }));
         initPushNotifications(); // não bloqueia a entrada na app — corre em segundo plano
         startTimeSpentTracking();
         checkBirthdaysToday();
@@ -5904,12 +5915,74 @@
 
     function filterChats(query) { renderChatList(query); }
 
+    // ==================== PESQUISA GLOBAL (todas as conversas) ====================
+    // Já temos todo o histórico de mensagens de todos os chats carregado em
+    // APP.messages (entra-se logo em todas as salas ao iniciar sessão — ver
+    // enterApp), incluindo o texto já desencriptado das conversas 1-para-1
+    // com E2EE, por isso a pesquisa corre inteiramente no cliente, sem
+    // precisar de pedir nada ao servidor.
+    let globalSearchTimer = null;
+    function openGlobalSearchModal() {
+        document.getElementById('globalSearchInput').value = '';
+        document.getElementById('globalSearchResults').innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Escreve para pesquisar em todas as conversas.</p>';
+        document.getElementById('modalGlobalSearch').classList.add('active');
+        document.getElementById('globalSearchInput').focus();
+    }
+    function debounceGlobalSearch() {
+        clearTimeout(globalSearchTimer);
+        globalSearchTimer = setTimeout(runGlobalSearch, 250);
+    }
+    function runGlobalSearch() {
+        const query = document.getElementById('globalSearchInput').value.trim().toLowerCase();
+        const resultsEl = document.getElementById('globalSearchResults');
+        if (!query) {
+            resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Escreve para pesquisar em todas as conversas.</p>';
+            return;
+        }
+        const results = [];
+        Object.entries(APP.messages).forEach(([chatId, msgs]) => {
+            const chat = APP.chats.find(c => c.id === chatId);
+            if (!chat) return; // conversa já não existe na lista (ex.: chat da IA usa outro fluxo)
+            (msgs || []).forEach(msg => {
+                if (msg.deleted || msg.encrypted || !msg.text) return; // "encrypted" aqui só sobra se não foi possível desencriptar
+                if (msg.text.toLowerCase().includes(query)) results.push({ chat, msg });
+            });
+        });
+        results.sort((a, b) => (b.msg.time || '').localeCompare(a.msg.time || ''));
+        const top = results.slice(0, 50);
+        if (!top.length) {
+            resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Nenhuma mensagem encontrada.</p>';
+            return;
+        }
+        const queryRe = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig');
+        resultsEl.innerHTML = top.map(({ chat, msg }) => {
+            const snippetRaw = msg.text.length > 140 ? '…' + msg.text.slice(Math.max(0, msg.text.toLowerCase().indexOf(query) - 40), msg.text.toLowerCase().indexOf(query) + 100) + '…' : msg.text;
+            const snippet = escapeHtml(snippetRaw).replace(queryRe, '<mark style="background:rgba(255,193,7,0.5);color:inherit;">$1</mark>');
+            return `<div class="chat-item" style="cursor:pointer;" onclick="jumpToSearchResult('${chat.id}','${msg.id}')">
+                <div class="chat-item-avatar ${chat.type === 'group' ? 'avatar-group' : 'avatar-user'}">${chat.avatar || chat.name.charAt(0)}</div>
+                <div class="chat-item-info">
+                    <h4>${escapeHtml(chat.name)}</h4>
+                    <p>${snippet}</p>
+                </div>
+                <div class="chat-item-meta"><span>${msg.time || ''}</span></div>
+            </div>`;
+        }).join('');
+    }
+    function jumpToSearchResult(chatId, messageId) {
+        closeModal('modalGlobalSearch');
+        openChat(chatId);
+        setTimeout(() => {
+            const el = document.querySelector(`[data-msg-id="${messageId}"]`);
+            if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.background = 'rgba(0,168,132,0.25)'; setTimeout(() => el.style.background = '', 1500); }
+        }, 300);
+    }
+
     function openChat(chatId) {
         APP.currentChatId = chatId;
         const chat = APP.chats.find(c => c.id === chatId);
         if (!chat) return;
         hideMentionAutocomplete();
-        if (!APP.joinedRooms.has(chatId)) { socket.emit('join_room', chatId); APP.joinedRooms.add(chatId); }
+        if (!APP.joinedRooms.has(chatId)) { socket.emit('join_room', { chatId, toPhone: chat.phone }); APP.joinedRooms.add(chatId); }
         if (chat.type !== 'ai') socket.emit('message_read', { chatId });
         document.getElementById('chatArea').classList.add('active');
         document.getElementById('sidebar').classList.add('chat-open');

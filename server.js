@@ -1498,6 +1498,16 @@ const io = new Server(server, {
 
 const users = {};
 
+// Mesmo cálculo de id de sala 1-para-1 usado no cliente (index.html, função
+// dmRoomId) — precisamos dele aqui para validar que quem entra numa sala
+// "dm_..." ou envia mensagem para lá é mesmo um dos dois participantes. Sem
+// isto, qualquer pessoa autenticada que soubesse dois números de telefone
+// conseguia calcular o id da conversa e ler/escrever nela sem nunca ter sido
+// contacto de nenhum dos dois lados (grupos continuam públicos de propósito).
+function dmRoomId(phoneA, phoneB) {
+  return 'dm_' + [phoneA, phoneB].sort().join('_').replace(/[^a-zA-Z0-9_]/g, '');
+}
+
 // ==================== PERSISTÊNCIA DE MENSAGENS ====================
 const DATA_FILE = path.join(__dirname, 'messages.json');
 let messagesByRoom = {};
@@ -2162,9 +2172,15 @@ io.on('connection', (socket) => {
     log(`🗑️ Grupo "${group.name}" apagado por ${users[socket.id]?.name || myPhone}`, 'GROUP');
   });
 
-  socket.on('join_room', (roomId) => {
+  socket.on('join_room', (data) => {
     const user = users[socket.id];
+    const roomId = typeof data === 'string' ? data : data?.chatId;
+    const toPhone = (data && typeof data === 'object') ? data.toPhone : null;
     if (!user || !roomId) return;
+    // Conversa 1-para-1: só entra quem é de facto um dos dois participantes.
+    if (roomId.startsWith('dm_')) {
+      if (!user.phone || !toPhone || dmRoomId(user.phone, toPhone) !== roomId) return;
+    }
     socket.join(roomId);
     user.rooms.add(roomId);
     // Mensagens de UNO guardam a mão de cada jogador — nunca podem ir tal e
@@ -2182,6 +2198,13 @@ io.on('connection', (socket) => {
     if (!data?.chatId) return;
     const group = groups[data.chatId];
     const myPhone = users[socket.id]?.phone;
+    // Mesma proteção do 'join_room': numa conversa 1-para-1 (dm_...), só quem
+    // é um dos dois participantes é que pode enviar para lá — senão daria
+    // para "escrever" numa conversa privada de outras duas pessoas só por
+    // adivinhar os dois números de telefone.
+    if (!group && data.chatId.startsWith('dm_')) {
+      if (!myPhone || !data.toPhone || dmRoomId(myPhone, data.toPhone) !== data.chatId) return;
+    }
     if (group && myPhone) {
       if (group.bannedPhones?.includes(myPhone)) return;
       if (group.mutedPhones?.includes(myPhone)) {
@@ -2690,6 +2713,7 @@ io.on('connection', (socket) => {
     const myPhone = users[socket.id]?.phone;
     const { chatId, text, sendAt, toPhone, fileData, fileName, fileType, transcript } = data || {};
     if (!myPhone || !chatId || !sendAt || (!text && !fileData)) return;
+    if (!groups[chatId] && chatId.startsWith('dm_') && (!toPhone || dmRoomId(myPhone, toPhone) !== chatId)) return;
     const entry = {
       id: 'sc' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       chatId, senderPhone: myPhone, senderName: users[socket.id]?.name || 'Alguém',
