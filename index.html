@@ -647,6 +647,18 @@
             color: #e9edef;
             border-top-left-radius: 2px;
         }
+        .message.is-sticker {
+            background: transparent;
+            padding: 2px 0 16px;
+            box-shadow: none;
+        }
+        .message.is-sticker .time {
+            background: rgba(0,0,0,0.4);
+            display: inline-flex;
+            padding: 1px 6px;
+            border-radius: 8px;
+            margin-top: 2px;
+        }
         .message .sender-name {
             color: var(--blue);
             font-size: 12px;
@@ -1405,6 +1417,8 @@
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
+                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('stickerFileInput').click()" title="Criar sticker a partir de uma foto">🏷️</button>
+                    <input type="file" id="stickerFileInput" style="display:none;" accept="image/*" onchange="handleStickerFileSelected(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
                     <button class="btn-icon" id="gamesBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
@@ -1632,6 +1646,24 @@
                     <button class="btn-small" onclick="retakeSelfie()">🔄 Repetir</button>
                     <button class="btn-small" onclick="downloadSelfie()">💾 Guardar</button>
                     <button class="btn-small btn-accept" onclick="sendSelfie()">📤 Enviar na conversa</button>
+                </div>
+            </div>
+        </div>
+        <div class="selfie-overlay" id="stickerMakerOverlay">
+            <div class="selfie-header">
+                <strong>🏷️ Criar sticker</strong>
+                <button onclick="closeStickerMaker()">✖️</button>
+            </div>
+            <div class="selfie-canvas-wrap">
+                <canvas id="stickerCanvas" style="background:repeating-conic-gradient(#3a3a3a 0% 25%, #2a2a2a 0% 50%) 50% / 20px 20px;"></canvas>
+            </div>
+            <div class="selfie-chip-row" id="stickerShapeRow"></div>
+            <div class="selfie-chip-row" id="stickerOptionRow"></div>
+            <div class="selfie-footer">
+                <div class="selfie-result-actions" style="display:flex;">
+                    <button class="btn-small" onclick="closeStickerMaker()">✖️ Cancelar</button>
+                    <button class="btn-small" onclick="downloadSticker()">💾 Guardar</button>
+                    <button class="btn-small btn-accept" onclick="sendSticker()">📤 Enviar na conversa</button>
                 </div>
             </div>
         </div>
@@ -6812,7 +6844,7 @@
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
             const editedLabel = msg.edited ? '<span style="opacity:0.6;font-size:10px;"> (editada)</span>' : '';
             html += `
-            <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
+            <div class="message ${isSent ? 'sent' : 'received'} ${msg.isSticker ? 'is-sticker' : ''}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
@@ -6868,15 +6900,15 @@
         reader.readAsDataURL(file);
     }
 
-    async function sendAttachmentMessage(dataUrl, fileName, fileType, transcript) {
+    async function sendAttachmentMessage(dataUrl, fileName, fileType, transcript, isSticker) {
         const now = new Date();
         const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const isImage = (fileType || '').startsWith('image/');
         const isAudio = (fileType || '').startsWith('audio/');
-        const text = isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`);
+        const text = isSticker ? '🏷️ Sticker' : (isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`));
         // Mostra já localmente com o ficheiro original — não espera pelo upload para dar feedback instantâneo
-        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null };
+        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null, isSticker: !!isSticker };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push(payload);
         renderMessages();
@@ -6906,7 +6938,7 @@
         socket.emit('send_message', {
             id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
             toPhone: chat.type === 'user' ? chat.phone : undefined,
-            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null
+            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null, isSticker: !!isSticker
         });
     }
 
@@ -6958,6 +6990,9 @@
         if (!msg.fileData) return '';
         const type = msg.fileType || '';
         if (type.startsWith('image/')) {
+            if (msg.isSticker) {
+                return `<img src="${msg.fileData}" style="width:140px;height:140px;object-fit:contain;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">`;
+            }
             return `<img src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">`;
         }
         if (type.startsWith('video/')) {
@@ -6978,6 +7013,189 @@
         if (!msg || !msg.fileData) return;
         const win = window.open();
         if (win) win.document.write(`<title>Foto</title><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${msg.fileData}" style="max-width:100%;max-height:100%;"></body>`);
+    }
+
+    // ==================== CRIAR STICKER A PARTIR DE UMA FOTO ====================
+    // Recorta uma foto (da galeria ou câmara) num "sticker" ao estilo
+    // WhatsApp: fundo removido (aproximação por cor — parte das bordas da
+    // imagem e apaga tudo o que for parecido com a cor média delas, como um
+    // balde de tinta ao contrário; funciona bem com um fundo liso, como uma
+    // parede ou papel, mas não é segmentação por IA — um fundo com muita
+    // textura ou várias cores só remove em parte), forma e contorno branco
+    // opcionais. O resultado é enviado como uma mensagem normal, só que
+    // marcada como sticker (isSticker: true) para aparecer sem a bolha de
+    // fundo do chat, como no WhatsApp/Telegram.
+    const STICKER_SHAPES = [
+        { name: 'Sem recorte', id: 'none' },
+        { name: 'Círculo', id: 'circle' },
+        { name: 'Quadrado arredondado', id: 'rounded' }
+    ];
+    const STICKER = { img: null, shape: 'rounded', removeBg: false, outline: true };
+
+    function handleStickerFileSelected(input) {
+        const file = input.files[0];
+        input.value = ''; // permite escolher o mesmo ficheiro outra vez depois
+        if (!file) return;
+        if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
+        if (file.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
+            return alert(`Esta foto tem ${(file.size / 1024 / 1024).toFixed(1)}MB — o limite é ${MAX_ATTACHMENT_MB}MB.`);
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                STICKER.img = img;
+                STICKER.shape = 'rounded';
+                STICKER.removeBg = false;
+                STICKER.outline = true;
+                document.getElementById('stickerMakerOverlay').classList.add('active');
+                renderStickerOptions();
+                redrawSticker();
+            };
+            img.onerror = () => alert('Não foi possível abrir essa imagem.');
+            img.src = reader.result;
+        };
+        reader.onerror = () => alert('Não foi possível ler o ficheiro.');
+        reader.readAsDataURL(file);
+    }
+
+    function closeStickerMaker() {
+        STICKER.img = null;
+        document.getElementById('stickerMakerOverlay').classList.remove('active');
+    }
+
+    function renderStickerOptions() {
+        document.getElementById('stickerShapeRow').innerHTML = STICKER_SHAPES.map(s =>
+            `<button class="selfie-chip ${s.id === STICKER.shape ? 'active' : ''}" onclick="setStickerShape('${s.id}')">${s.name}</button>`
+        ).join('');
+        document.getElementById('stickerOptionRow').innerHTML = `
+            <button class="selfie-chip ${STICKER.removeBg ? 'active' : ''}" onclick="toggleStickerBg()">✂️ Remover fundo (aprox.)</button>
+            <button class="selfie-chip ${STICKER.outline ? 'active' : ''}" onclick="toggleStickerOutline()">⬜ Contorno branco</button>
+        `;
+    }
+
+    function setStickerShape(id) { STICKER.shape = id; renderStickerOptions(); redrawSticker(); }
+    function toggleStickerBg() { STICKER.removeBg = !STICKER.removeBg; renderStickerOptions(); redrawSticker(); }
+    function toggleStickerOutline() { STICKER.outline = !STICKER.outline; renderStickerOptions(); redrawSticker(); }
+
+    function removeStickerBackground(ctx, w, h, tolerance) {
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        let rs = 0, gs = 0, bs = 0, count = 0;
+        function sample(x, y) {
+            const i = (y * w + x) * 4;
+            if (data[i + 3] > 10) { rs += data[i]; gs += data[i + 1]; bs += data[i + 2]; count++; }
+        }
+        for (let x = 0; x < w; x++) { sample(x, 0); sample(x, h - 1); }
+        for (let y = 0; y < h; y++) { sample(0, y); sample(w - 1, y); }
+        if (!count) return;
+        const br = rs / count, bg = gs / count, bb = bs / count;
+        const visited = new Uint8Array(w * h);
+        const stack = [];
+        for (let x = 0; x < w; x++) { stack.push(x, 0, x, h - 1); }
+        for (let y = 0; y < h; y++) { stack.push(0, y, w - 1, y); }
+        while (stack.length) {
+            const y = stack.pop(), x = stack.pop();
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            const idx = y * w + x;
+            if (visited[idx]) continue;
+            visited[idx] = 1;
+            const i = idx * 4;
+            const dr = data[i] - br, dg = data[i + 1] - bg, db = data[i + 2] - bb;
+            if (Math.sqrt(dr * dr + dg * dg + db * db) > tolerance) continue;
+            data[i + 3] = 0;
+            stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+        }
+        ctx.putImageData(imgData, 0, 0);
+    }
+
+    function roundRectPath(ctx, x, y, w, h, r) {
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+    }
+
+    function applyStickerShapeClip(canvas, shape) {
+        if (shape === 'none') return;
+        const w = canvas.width, h = canvas.height;
+        const ctx = canvas.getContext('2d');
+        const copy = document.createElement('canvas');
+        copy.width = w; copy.height = h;
+        copy.getContext('2d').drawImage(canvas, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.save();
+        ctx.beginPath();
+        if (shape === 'circle') ctx.arc(w / 2, h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
+        else roundRectPath(ctx, 0, 0, w, h, Math.min(w, h) * 0.16);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(copy, 0, 0);
+        ctx.restore();
+    }
+
+    // Desenha um halo branco atrás do sticker, seguindo o contorno real dele
+    // (a forma escolhida e/ou o fundo removido) — o mesmo efeito visual dos
+    // stickers do WhatsApp.
+    function applyStickerOutline(canvas, radius) {
+        const w = canvas.width, h = canvas.height;
+        const mask = document.createElement('canvas');
+        mask.width = w; mask.height = h;
+        const mctx = mask.getContext('2d');
+        mctx.drawImage(canvas, 0, 0);
+        mctx.globalCompositeOperation = 'source-in';
+        mctx.fillStyle = '#ffffff';
+        mctx.fillRect(0, 0, w, h);
+        const outline = document.createElement('canvas');
+        outline.width = w; outline.height = h;
+        const octx = outline.getContext('2d');
+        const steps = 16;
+        for (let i = 0; i < steps; i++) {
+            const angle = (i / steps) * Math.PI * 2;
+            octx.drawImage(mask, Math.cos(angle) * radius, Math.sin(angle) * radius);
+        }
+        const original = document.createElement('canvas');
+        original.width = w; original.height = h;
+        original.getContext('2d').drawImage(canvas, 0, 0);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(outline, 0, 0);
+        ctx.drawImage(original, 0, 0);
+    }
+
+    function redrawSticker() {
+        if (!STICKER.img) return;
+        const canvas = document.getElementById('stickerCanvas');
+        const size = 512;
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
+        const img = STICKER.img;
+        const scale = Math.min(size / img.width, size / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+        if (STICKER.removeBg) removeStickerBackground(ctx, size, size, 42);
+        applyStickerShapeClip(canvas, STICKER.shape);
+        if (STICKER.outline) applyStickerOutline(canvas, 10);
+    }
+
+    function sendSticker() {
+        if (!STICKER.img) return;
+        if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
+        const dataUrl = document.getElementById('stickerCanvas').toDataURL('image/png');
+        sendAttachmentMessage(dataUrl, 'sticker.png', 'image/png', null, true);
+        closeStickerMaker();
+    }
+
+    function downloadSticker() {
+        if (!STICKER.img) return;
+        const a = document.createElement('a');
+        a.href = document.getElementById('stickerCanvas').toDataURL('image/png');
+        a.download = 'sticker-' + Date.now() + '.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
     }
 
     // Gravação de mensagens de voz (MediaRecorder) — funciona em qualquer navegador
@@ -7113,7 +7331,8 @@
                 fileType: m.fileType || null,
                 transcript: m.transcript || null,
                 poll: m.poll || null,
-                game: m.game || null
+                game: m.game || null,
+                isSticker: !!m.isSticker
             };
         }));
         // O servidor manda sempre o histórico COMPLETO desta sala (não só
@@ -7167,7 +7386,8 @@
             fileType: data.fileType || null,
             transcript: data.transcript || null,
             poll: data.poll || null,
-            game: data.game || null
+            game: data.game || null,
+            isSticker: !!data.isSticker
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();

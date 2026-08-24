@@ -594,3 +594,13 @@ Escolhido PIN em vez de WebAuthn/Face ID a sério: o objetivo real desta funcion
 
 Ao testar o bloqueio por PIN num recarregamento de página (sessão restaurada automaticamente), encontrei um bug real e já existente: várias propriedades de `APP` (`statusFeed`, usada para saber se alguém tem estados ativos; `archivedChats`, usada para filtrar a lista de conversas) só eram atribuídas mais abaixo no código, mas a sessão era restaurada de forma síncrona logo ao carregar a página — antes de o script chegar lá. Corrigido: `statusFeed` passou a nascer já dentro do objeto `APP` inicial, e a restauração da sessão passou a ser adiada (`setTimeout`) para só correr depois de todo o resto do script já ter sido processado.
 
+## 🏷️ Criar sticker a partir de uma foto
+
+Novo botão 🏷️ ao lado do 📎 (anexar), na caixa de mensagem. Escolhe uma foto da galeria (ou tira uma nova, se o telemóvel oferecer essa opção no seletor de ficheiros) e abre um editor simples para transformá-la num sticker, ao estilo WhatsApp/Telegram:
+
+- **✂️ Remover fundo (aprox.)** — recorte automático por cor: parte das bordas da foto e apaga (torna transparente) tudo o que for parecido com a cor média dessas bordas, alastrando para dentro enquanto continuar parecido. Funciona bem com um fundo liso (parede, papel, ecrã verde) — **não é segmentação por inteligência artificial**, por isso um fundo com muita textura ou várias cores só é removido em parte.
+- **Forma** — sem recorte, círculo ou quadrado com cantos arredondados.
+- **⬜ Contorno branco** — desenha um halo branco à volta do sticker, seguindo o contorno real dele (a forma escolhida e/ou o fundo removido).
+
+O resultado pode ser guardado no aparelho ou enviado diretamente na conversa — nesse caso é uma mensagem como qualquer outra (funciona também com o 🤖/✨ assistente de IA e fica gravada no histórico normal), só que marcada como sticker para aparecer sem a bolha de fundo do chat, maior e centrada, como um sticker a sério.
+
