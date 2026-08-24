@@ -648,3 +648,9 @@ O QR é gerado inteiramente no nosso próprio servidor (com o pacote `qrcode`, a
 
 **Nota de segurança encontrada, não relacionada com esta funcionalidade**: ao instalar a nova dependência, o `npm audit` acusou uma vulnerabilidade de severidade alta já existente no `nodemailer` (usado para o envio de emails), incluindo injeção de comandos SMTP. A correção automática (`npm audit fix --force`) instala uma versão com mudanças que quebram compatibilidade, por isso não a apliquei sem confirmar contigo — vale a pena atualizar o `nodemailer` numa tarefa à parte.
 
+## 📷 Ler o código QR pela câmara, direto no ecrã de login
+
+O botão "🔗 Associar por QR" no ecrã de **login** (só aí — não faz sentido em "Criar conta", para quem ainda não tem conta nenhuma) abre a câmara dentro da própria app e lê o código automaticamente, sem precisar de saíres para a câmara nativa do telemóvel.
+
+Usa a API nativa `BarcodeDetector` do navegador (Chrome/Edge/Android) em vez de trazer uma biblioteca própria de leitura de QR — mais simples e sem risco de uma implementação caseira falhar a ler códigos válidos. Nos navegadores sem suporte (nomeadamente Safari/iPhone, à data desta funcionalidade), mostra logo um aviso claro em vez de ficar preso num ecrã de câmara que nunca deteta nada — nesses casos continua a dar para associar abrindo a câmara nativa do telemóvel e apontando para o QR mostrado no outro dispositivo (já funcionava assim antes desta funcionalidade).
+
