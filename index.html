@@ -4651,6 +4651,7 @@
                     <div style="color:var(--text-secondary);">${cur.desc} · Sensação ${Math.round(data.current.apparent_temperature)}°C</div>
                     <div style="color:var(--text-secondary);font-size:12px;margin-top:4px;">💧 ${data.current.relative_humidity_2m}% · 💨 ${Math.round(data.current.wind_speed_10m)} km/h</div>
                 </div>
+                <div id="spainAvisosBox"></div>
                 <div style="display:flex;flex-direction:column;gap:6px;">`;
             (data.daily.time || []).forEach((date, i) => {
                 const d = weatherInfo(data.daily.weather_code[i]);
@@ -4665,9 +4666,31 @@
             });
             html += '</div>';
             el.innerHTML = html;
+            if (data.place.country === 'Spain') loadSpainAvisos();
         } catch (err) {
             el.innerHTML = '<p style="color:var(--red);text-align:center;padding:30px;">Erro ao pesquisar. Tenta outra vez.</p>';
         }
+    }
+    // Avisos oficiais da AEMET (Espanha) — só aparecem quando a localidade pesquisada é em
+    // Espanha, e só se o servidor tiver a chave configurada (ver README). É um extra por
+    // cima da meteorologia da Open-Meteo, por isso qualquer falha aqui não afeta o resto.
+    async function loadSpainAvisos() {
+        const box = document.getElementById('spainAvisosBox');
+        if (!box) return;
+        try {
+            const r = await fetch('/api/weather/spain-avisos');
+            const data = await r.json();
+            if (!data.configured || !data.avisos || !data.avisos.length) return;
+            box.innerHTML = `
+                <div style="margin:4px 0 10px;padding:10px 12px;background:var(--bg-secondary);border-radius:10px;">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">🇪🇸 Avisos oficiais da AEMET</div>
+                    ${data.avisos.map((a, i) => `
+                        <div style="padding:6px 0;${i > 0 ? 'border-top:1px solid var(--bg-tertiary);' : ''}">
+                            <div style="font-size:13px;font-weight:600;">${a.severityInfo.emoji} ${escapeHtml(a.event)} — ${escapeHtml(a.areaDesc)}</div>
+                            ${a.headline ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${escapeHtml(a.headline)}</div>` : ''}
+                        </div>`).join('')}
+                </div>`;
+        } catch (e) { /* extra opcional — se falhar, fica só sem esta secção */ }
     }
 
     function openNewsScreen() {

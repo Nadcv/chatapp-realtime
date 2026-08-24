@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
 let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (e) { console.warn('⚠️ Pacote "nodemailer" não instalado — envio de email desativado.'); }
@@ -645,6 +646,98 @@ app.get('/api/weather', async (req, res) => {
   } catch (err) {
     console.error('Erro ao obter meteorologia:', err.message);
     res.status(502).json({ error: 'Não foi possível obter a meteorologia agora.' });
+  }
+});
+
+// ==================== AVISOS METEOROLÓGICOS OFICIAIS DE ESPANHA (AEMET) ====================
+// A AEMET (Agência Estatal de Meteorologia espanhola) publica avisos oficiais de
+// fenómenos adversos (chuva forte, vento, neve, etc.) — gratuito, só pede um
+// email em opendata.aemet.es para gerar a chave, sem cartão nem aprovação manual.
+// Diferente das outras APIs desta app: a resposta não vem em JSON direto — o
+// primeiro pedido devolve só um link para os dados reais, que por sua vez é um
+// ficheiro .tar.gz com um XML (formato CAP, um standard internacional de
+// alertas públicos) por cada zona com aviso ativo. Por isso o tar é lido aqui
+// à mão (sem bibliotecas extra) e cada XML com um extrator simples, no mesmo
+// espírito do que já se fazia para o RSS das notícias (ver `decodeXmlEntities`
+// mais abaixo, reaproveitada aqui).
+let aemetAvisosCache = null;
+let aemetAvisosCacheAt = 0;
+
+function untarFiles(buffer) {
+  const files = [];
+  let offset = 0;
+  while (offset + 512 <= buffer.length) {
+    const header = buffer.subarray(offset, offset + 512);
+    if (header.every(b => b === 0)) break; // bloco final do tar (dois blocos de zeros)
+    const name = header.toString('utf8', 0, 100).replace(/\0.*$/s, '');
+    const sizeStr = header.toString('utf8', 124, 136).replace(/\0.*$/s, '').trim();
+    const size = parseInt(sizeStr, 8) || 0;
+    const typeFlag = String.fromCharCode(header[156]);
+    offset += 512;
+    if (name && (typeFlag === '0' || typeFlag === '\0')) files.push(buffer.subarray(offset, offset + size));
+    offset += Math.ceil(size / 512) * 512;
+  }
+  return files;
+}
+function decodeCapXml(buf) {
+  const head = buf.subarray(0, 200).toString('ascii');
+  const encoding = /encoding=["']([^"']+)["']/i.exec(head)?.[1] || 'utf-8';
+  return /8859/i.test(encoding) ? buf.toString('latin1') : buf.toString('utf8'); // ISO-8859-15 não existe em Node — latin1 é uma aproximação segura para acentos do espanhol
+}
+function extractCapTag(block, tag) {
+  const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return m ? decodeXmlEntities(m[1]) : '';
+}
+const AEMET_SEVERITY = {
+  Extreme: { emoji: '🔴', label: 'Vermelho' },
+  Severe: { emoji: '🟠', label: 'Laranja' },
+  Moderate: { emoji: '🟡', label: 'Amarelo' }
+};
+function parseCapWarnings(xml) {
+  const infoBlocks = xml.match(/<info[^>]*>[\s\S]*?<\/info>/gi) || [];
+  return infoBlocks
+    .filter(block => /<language>\s*es/i.test(block)) // algumas zonas (Catalunha, País Basco, Galiza) repetem o mesmo aviso em catalão/euskera/galego — fica só o espanhol
+    .map(block => {
+      const severity = extractCapTag(block, 'severity');
+      const areaBlock = (block.match(/<area[^>]*>[\s\S]*?<\/area>/i) || [''])[0];
+      return {
+        event: extractCapTag(block, 'event'),
+        headline: extractCapTag(block, 'headline'),
+        severity,
+        severityInfo: AEMET_SEVERITY[severity] || null,
+        areaDesc: extractCapTag(areaBlock, 'areaDesc')
+      };
+    })
+    .filter(w => w.event && w.severityInfo); // "Minor"/verde (sem risco relevante) não entra na lista
+}
+async function fetchAemetAvisos() {
+  const now = Date.now();
+  if (aemetAvisosCache && (now - aemetAvisosCacheAt) < 15 * 60 * 1000) return aemetAvisosCache;
+  const firstR = await fetch(`https://opendata.aemet.es/opendata/api/avisos_cap/ultimoelaborado/area/esp?api_key=${process.env.AEMET_API_KEY}`);
+  const first = await firstR.json().catch(() => null);
+  if (!firstR.ok || !first?.datos) {
+    if (firstR.status === 404 || first?.estado === 404) { aemetAvisosCache = []; aemetAvisosCacheAt = now; return []; } // sem avisos ativos neste momento
+    throw new Error(first?.descripcion || ('HTTP ' + firstR.status));
+  }
+  const dataR = await fetch(first.datos);
+  if (!dataR.ok) throw new Error('HTTP ' + dataR.status + ' ao obter o pacote de avisos.');
+  const tar = zlib.gunzipSync(Buffer.from(await dataR.arrayBuffer()));
+  const avisos = [];
+  untarFiles(tar).forEach(fileBuf => {
+    try { avisos.push(...parseCapWarnings(decodeCapXml(fileBuf))); }
+    catch (e) { /* um ficheiro CAP mal formado não deve derrubar os restantes */ }
+  });
+  aemetAvisosCache = avisos;
+  aemetAvisosCacheAt = now;
+  return avisos;
+}
+app.get('/api/weather/spain-avisos', async (req, res) => {
+  if (!process.env.AEMET_API_KEY) return res.json({ configured: false, avisos: [] });
+  try {
+    res.json({ configured: true, avisos: await fetchAemetAvisos() });
+  } catch (err) {
+    console.error('Erro avisos AEMET:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter os avisos meteorológicos de Espanha agora.' });
   }
 });
 
