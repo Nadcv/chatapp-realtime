@@ -7031,14 +7031,14 @@
         // um *asterisco* ou _underscore_ dentro de `código` não vira negrito/
         // itálico por engano.
         const codeParts = [];
-        let text = escapedText.replace(/ /g, ''); // não deixa o próprio marcador ser forjado por quem escreve
+        let text = escapedText.replace(//g, ''); // não deixa o próprio marcador ser forjado por quem escreve
         text = text.replace(/`([^`\n]+)`/g, (match, code) => {
             codeParts.push(`<code style="background:rgba(0,0,0,0.25);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:0.9em;">${code}</code>`);
-            return ` ${codeParts.length - 1} `;
+            return `${codeParts.length - 1}`;
         });
         text = text.replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
         text = text.replace(/_([^_\n]+)_/g, '<em>$1</em>');
-        text = text.replace(/ (\d+) /g, (match, idx) => codeParts[Number(idx)]);
+        text = text.replace(/(\d+)/g, (match, idx) => codeParts[Number(idx)]);
         return text;
     }
     function renderMessageBody(msg, chatId) {
