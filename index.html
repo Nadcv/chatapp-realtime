@@ -1460,9 +1460,22 @@
             <div class="modal" style="max-height:80vh;overflow-y:auto;">
                 <h3>📱 Dispositivos ligados</h3>
                 <p style="color:var(--text-secondary);font-size:13px;">Esta conta pode estar ligada em, no máximo, 2 dispositivos ao mesmo tempo. Remove um daqui para libertar uma vaga para um novo.</p>
+                <div class="modal-actions" style="margin-bottom:6px;">
+                    <button class="btn-small btn-accept" onclick="closeModal('modalDevices');openDevicePairingModal()">🔗 Associar novo dispositivo</button>
+                </div>
                 <div id="devicesList" style="margin-top:10px;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalDevices')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalDevicePairing">
+            <div class="modal" style="text-align:center;">
+                <h3>🔗 Associar novo dispositivo</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">No novo dispositivo, abre a câmara e aponta para este código — vai abrir o ChatApp já com a sessão iniciada, sem precisar de escrever a senha.</p>
+                <div id="devicePairingContent" style="margin:14px 0;min-height:260px;display:flex;align-items:center;justify-content:center;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeDevicePairingModal()">Fechar</button>
                 </div>
             </div>
         </div>
@@ -3104,8 +3117,31 @@
         const userRaw = localStorage.getItem('authUser');
         if (token && userRaw) {
             try { enterApp(JSON.parse(userRaw), token); } catch (e) { /* ignora sessão corrompida */ }
+            return;
         }
+        // Abriu o URL de um código QR de associação (ver openDevicePairingModal)
+        // — só faz sentido quando este aparelho ainda não tem sessão nenhuma.
+        const pairingToken = new URLSearchParams(location.search).get('pair');
+        if (pairingToken) redeemDevicePairing(pairingToken);
     }, 0);
+
+    // Troca o código do QR por uma sessão válida nesta conta, sem precisar de
+    // escrever a senha — usado quando este dispositivo abriu o URL de um QR
+    // gerado noutro dispositivo já ligado (ver /api/device-pairing/redeem).
+    async function redeemDevicePairing(pairingToken) {
+        history.replaceState(null, '', location.pathname); // tira o ?pair= do URL, para um refresh não tentar usar o código outra vez
+        try {
+            const res = await fetch('/api/device-pairing/redeem', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pairingToken, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() })
+            });
+            const data = await res.json();
+            if (!res.ok) { alert('⚠️ ' + (data.error || 'Não foi possível associar este dispositivo.')); return; }
+            enterApp(data.user, data.token);
+        } catch (e) {
+            alert('⚠️ Não foi possível ligar ao servidor para associar este dispositivo.');
+        }
+    }
 
     function logout() {
         if (APP.callStream) endCall();
@@ -3332,6 +3368,63 @@
             loadDevices();
         } catch (e) {
             alert('Não foi possível remover agora.');
+        }
+    }
+
+    // ---- Associar novo dispositivo por QR (tipo WhatsApp Web) ----
+    // O QR é gerado inteiramente no nosso servidor (nunca enviado a uma API
+    // de QR de terceiros, que veria o código de acesso) e expira em 60s.
+    let devicePairingTicker = null;
+    async function openDevicePairingModal() {
+        document.getElementById('modalDevicePairing').classList.add('active');
+        await createDevicePairingCode();
+    }
+    function closeDevicePairingModal() {
+        clearInterval(devicePairingTicker);
+        closeModal('modalDevicePairing');
+    }
+    async function createDevicePairingCode() {
+        clearInterval(devicePairingTicker);
+        const content = document.getElementById('devicePairingContent');
+        content.innerHTML = '<p style="color:var(--text-secondary);">A gerar código...</p>';
+        try {
+            const res = await fetch('/api/device-pairing/create', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': APP.token },
+                body: JSON.stringify({ origin: location.origin })
+            });
+            const data = await res.json();
+            if (!res.ok) { content.innerHTML = `<p style="color:var(--text-secondary);">⚠️ ${escapeHtml(data.error || 'Não foi possível gerar o código.')}</p>`; return; }
+            content.innerHTML = `<img src="${data.qrDataUrl}" style="width:220px;height:220px;border-radius:8px;background:#fff;padding:8px;" alt="Código QR"><div id="devicePairingCountdown" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>`;
+            const expiresAt = Date.now() + data.expiresInSec * 1000;
+            devicePairingTicker = setInterval(() => pollDevicePairing(data.pairingToken, expiresAt), 2000);
+            pollDevicePairing(data.pairingToken, expiresAt);
+        } catch (e) {
+            content.innerHTML = '<p style="color:var(--text-secondary);">⚠️ Não foi possível gerar o código agora.</p>';
+        }
+    }
+    async function pollDevicePairing(pairingToken, expiresAt) {
+        // Se o modal foi fechado por fora (clique no fundo escuro, que não
+        // passa pelo closeDevicePairingModal()), pára de consultar o servidor.
+        if (!document.getElementById('modalDevicePairing').classList.contains('active')) {
+            clearInterval(devicePairingTicker);
+            return;
+        }
+        const countdownEl = document.getElementById('devicePairingCountdown');
+        const remaining = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+        if (countdownEl) countdownEl.textContent = remaining > 0 ? `Expira em ${remaining}s` : 'A expirar...';
+        try {
+            const res = await fetch(`/api/device-pairing/status?pairingToken=${encodeURIComponent(pairingToken)}`, { headers: { 'X-Auth-Token': APP.token } });
+            const data = await res.json();
+            if (data.status === 'completed') {
+                clearInterval(devicePairingTicker);
+                document.getElementById('devicePairingContent').innerHTML = `<p style="font-size:15px;">✅ Associado a "${escapeHtml(data.deviceName || 'novo dispositivo')}" com sucesso!</p>`;
+                setTimeout(() => closeModal('modalDevicePairing'), 2500);
+            } else if (data.status === 'expired') {
+                clearInterval(devicePairingTicker);
+                document.getElementById('devicePairingContent').innerHTML = `<p style="color:var(--text-secondary);margin-bottom:10px;">Código expirado.</p><button class="btn-small btn-accept" onclick="createDevicePairingCode()">Gerar novo código</button>`;
+            }
+        } catch (e) {
+            // falha momentânea a consultar o estado — tenta de novo no próximo tick, sem incomodar com um alerta
         }
     }
 
