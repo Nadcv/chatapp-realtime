@@ -593,6 +593,35 @@ app.get('/api/music/search', async (req, res) => {
   }
 });
 
+// ==================== GIFS E STICKERS (Giphy) ====================
+// Precisa de uma chave gratuita da Giphy (ver README) — sem ela, devolve
+// {configured:false} e o modal mostra apenas o aviso, tal como as outras
+// integrações opcionais desta app.
+app.get('/api/gifs/search', async (req, res) => {
+  if (!process.env.GIPHY_API_KEY) return res.json({ configured: false, results: [] });
+  const query = (req.query.q || '').trim();
+  const kind = req.query.type === 'stickers' ? 'stickers' : 'gifs';
+  try {
+    const endpoint = query ? 'search' : 'trending';
+    const url = new URL(`https://api.giphy.com/v1/${kind}/${endpoint}`);
+    url.searchParams.set('api_key', process.env.GIPHY_API_KEY);
+    url.searchParams.set('limit', '24');
+    url.searchParams.set('rating', 'pg');
+    if (query) url.searchParams.set('q', query);
+    const cacheKey = `gifs_${kind}_${endpoint}_${query.toLowerCase()}`;
+    const data = await cachedFetch(cacheKey, url.toString(), 30 * 60 * 1000);
+    const results = (data.data || []).map((g) => ({
+      preview: g.images?.fixed_width_small?.url || g.images?.fixed_width?.url,
+      full: g.images?.fixed_width?.url || g.images?.original?.url,
+      title: g.title || ''
+    })).filter((g) => g.preview && g.full);
+    res.json({ configured: true, results });
+  } catch (err) {
+    console.error('Erro Giphy (pesquisa):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar agora.' });
+  }
+});
+
 // ==================== FRASE DO DIA ====================
 // API gratuita (ZenQuotes) — sem chave, mas pede atribuição de origem quando
 // usada sem chave paga, por isso mostramos "— ZenQuotes.io" no ecrã. Vem em
