@@ -1257,6 +1257,39 @@
                 display: none;
             }
         }
+        .pin-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid var(--text-secondary);
+            background: transparent;
+            transition: background 0.15s;
+        }
+        .pin-dot.filled {
+            background: var(--blue);
+            border-color: var(--blue);
+        }
+        .pin-key {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: none;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 22px;
+            cursor: pointer;
+        }
+        .pin-key:active {
+            background: var(--bg-tertiary);
+        }
+        @keyframes pinShake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+        .pin-dots-shake {
+            animation: pinShake 0.4s;
+        }
     </style>
 </head>
 <body>
@@ -1378,6 +1411,41 @@
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
+                </div>
+            </div>
+        </div>
+        <!-- ============ BLOQUEIO POR PIN ============ -->
+        <div id="pinLockScreen" style="position:fixed;inset:0;background:var(--bg-primary);z-index:99999;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;">
+            <div style="font-size:48px;">🔒</div>
+            <div style="font-size:15px;color:var(--text-secondary);">Introduz o teu PIN</div>
+            <div id="pinDots" style="display:flex;gap:14px;">
+                <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+            </div>
+            <div id="pinError" style="color:#ef4444;font-size:13px;height:16px;"></div>
+            <div style="display:grid;grid-template-columns:repeat(3,64px);gap:14px;">
+                <button class="pin-key" onclick="pinKeyPress('1')">1</button>
+                <button class="pin-key" onclick="pinKeyPress('2')">2</button>
+                <button class="pin-key" onclick="pinKeyPress('3')">3</button>
+                <button class="pin-key" onclick="pinKeyPress('4')">4</button>
+                <button class="pin-key" onclick="pinKeyPress('5')">5</button>
+                <button class="pin-key" onclick="pinKeyPress('6')">6</button>
+                <button class="pin-key" onclick="pinKeyPress('7')">7</button>
+                <button class="pin-key" onclick="pinKeyPress('8')">8</button>
+                <button class="pin-key" onclick="pinKeyPress('9')">9</button>
+                <div></div>
+                <button class="pin-key" onclick="pinKeyPress('0')">0</button>
+                <button class="pin-key" onclick="pinBackspace()">⌫</button>
+            </div>
+            <button class="btn-small" onclick="forgotPin()" style="margin-top:10px;background:none;color:var(--text-secondary);">Esqueci o PIN</button>
+        </div>
+        <div class="modal-overlay" id="modalPinSetup">
+            <div class="modal">
+                <h3>🔒 Bloqueio por PIN</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">Pede um PIN de 4 dígitos sempre que abrires a app ou voltares a ela depois de a teres deixado em segundo plano. Guardado só neste aparelho — não é uma senha da conta.</p>
+                <div id="pinSetupStatus" style="font-size:13px;margin:10px 0;"></div>
+                <div id="pinSetupForm"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalPinSetup')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -1806,6 +1874,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openWeatherScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌦️<span style="font-size:11px;">Meteorologia</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openActivitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏃<span style="font-size:11px;">Atividades</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRouletteScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎯<span style="font-size:11px;">Roleta/Sorteio</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openPinSetupModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔒<span style="font-size:11px;">Bloqueio por PIN</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures')">Fechar</button>
@@ -2500,8 +2569,21 @@
             ctx: document.getElementById('whiteboardCanvas').getContext('2d'),
             drawing: false,
             remote: false // true enquanto desenha um traço recebido do outro lado (evita reenviar)
-        }
+        },
+        // Estava a ser atribuído mais abaixo (fora deste objeto) — mas
+        // restoreSession() pode chamar enterApp() -> renderHeaderAvatar() ->
+        // hasActiveStatus() de forma síncrona logo ao carregar a página, antes
+        // de o script chegar lá, e isso rebentava com "Cannot read properties
+        // of undefined (reading 'find')" em todo reload/sessão restaurada.
+        statusFeed: [],
+        pendingStatusPhotoUrl: null
     };
+
+    // Declarado aqui (bem cedo no script) e não junto do resto do código do
+    // bloqueio por PIN mais abaixo, porque restoreSession() já pode chamar
+    // enterApp() -> showPinUnlockScreen() de forma síncrona logo ao carregar a
+    // página, antes de o script chegar à zona onde o bloqueio por PIN vive.
+    const PIN_STATE = { entered: '', mode: null, firstEntry: null, cancelable: false };
 
     const COMMON_EMOJIS = ['😀','😂','😍','😊','😉','😘','😎','🤔','😢','😭','😡','👍','👎','👏','🙏','❤️','🔥','🎉','😴','🤗','😱','🥳','👋','💯','✅','❌','🎵','📞','📹','😅'];
 
@@ -2791,6 +2873,10 @@
         applyChatWallpaper(APP.user.chatWallpaper || null, { save: true });
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').style.display = 'flex';
+        // Se houver PIN definido neste aparelho, bloqueia já a vista por cima de
+        // tudo — o resto da entrada na app (socket, e2ee, histórico) continua a
+        // decorrer por baixo, sem esperar pelo desbloqueio.
+        if (hasPinSet()) showPinUnlockScreen();
         renderHeaderAvatar();
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
@@ -2906,14 +2992,20 @@
         }
     }
 
-    // Restaura a sessão se já havia login guardado neste dispositivo
-    (function restoreSession() {
+    // Restaura a sessão se já havia login guardado neste dispositivo. Adiado
+    // com setTimeout (em vez de correr já, aqui mesmo) para só disparar depois
+    // de todo o resto do script correr — várias propriedades de APP (ex.:
+    // APP.statusFeed, APP.archivedChats) só são atribuídas mais abaixo no
+    // ficheiro, e enterApp() já lê algumas delas logo ao renderizar o
+    // cabeçalho/lista de conversas; sem este adiamento, uma sessão restaurada
+    // rebentava com "Cannot read properties of undefined" nelas.
+    setTimeout(function restoreSession() {
         const token = localStorage.getItem('authToken');
         const userRaw = localStorage.getItem('authUser');
         if (token && userRaw) {
             try { enterApp(JSON.parse(userRaw), token); } catch (e) { /* ignora sessão corrompida */ }
         }
-    })();
+    }, 0);
 
     function logout() {
         if (APP.callStream) endCall();
@@ -2938,6 +3030,173 @@
         document.getElementById('chatArea').classList.remove('active');
         document.getElementById('musicPlayer').classList.remove('active');
     }
+
+    // ==================== BLOQUEIO POR PIN (só neste aparelho) ====================
+    // Pensado como barreira simples contra alguém pegar no telemóvel destrancado,
+    // não como segurança a sério: o PIN (com hash SHA-256) fica só no
+    // localStorage deste aparelho, nunca no servidor — quem tivesse acesso à
+    // consola do navegador conseguiria contornar isto. É por isto que se
+    // escolheu um PIN simples em vez de WebAuthn/Face ID a sério: para o
+    // objetivo real (impedir um olhar rápido de alguém que pega no telemóvel)
+    // dá o mesmo resultado prático com uma fração da complexidade.
+    // (PIN_STATE está declarado bem mais acima, junto de APP — ver o comentário lá.)
+    async function sha256Hex(text) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+        return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    function hasPinSet() { return !!localStorage.getItem('pinHash'); }
+    function updatePinDots() {
+        document.querySelectorAll('#pinDots .pin-dot').forEach((dot, i) => dot.classList.toggle('filled', i < PIN_STATE.entered.length));
+    }
+    function setPinLockLabel(text) {
+        document.querySelector('#pinLockScreen > div:nth-child(2)').textContent = text;
+    }
+    function setPinBottomButton(cancelable) {
+        PIN_STATE.cancelable = cancelable;
+        const btn = document.querySelector('#pinLockScreen button.btn-small');
+        btn.textContent = cancelable ? 'Cancelar' : 'Esqueci o PIN';
+        btn.onclick = cancelable ? cancelPinFlow : forgotPin;
+    }
+    // Ecrã cheio mostrado ao abrir a app (se já houver PIN definido) ou ao
+    // voltar do segundo plano — bloqueia visualmente o conteúdo por cima de
+    // tudo o resto, mas não impede a app de continuar a ligar-se ao servidor
+    // por baixo (não há razão para atrasar isso).
+    function showPinUnlockScreen() {
+        PIN_STATE.entered = '';
+        PIN_STATE.mode = 'unlock';
+        setPinLockLabel('Introduz o teu PIN');
+        setPinBottomButton(false);
+        updatePinDots();
+        document.getElementById('pinError').textContent = '';
+        document.getElementById('pinLockScreen').style.display = 'flex';
+    }
+    function hidePinLockScreen() {
+        document.getElementById('pinLockScreen').style.display = 'none';
+    }
+    function cancelPinFlow() {
+        hidePinLockScreen();
+        openPinSetupModal();
+    }
+    async function pinKeyPress(digit) {
+        if (PIN_STATE.entered.length >= 4) return;
+        PIN_STATE.entered += digit;
+        updatePinDots();
+        if (PIN_STATE.entered.length < 4) return;
+        const hash = await sha256Hex(PIN_STATE.entered);
+        const errorEl = document.getElementById('pinError');
+
+        if (PIN_STATE.mode === 'unlock') {
+            if (hash === localStorage.getItem('pinHash')) { hidePinLockScreen(); return; }
+            return pinRejectEntry('PIN incorreto');
+        }
+        if (PIN_STATE.mode === 'verify-old') {
+            if (hash !== localStorage.getItem('pinHash')) return pinRejectEntry('PIN incorreto');
+            PIN_STATE.mode = 'create-first';
+            PIN_STATE.entered = '';
+            setPinLockLabel('Cria o novo PIN');
+            errorEl.textContent = '';
+            updatePinDots();
+            return;
+        }
+        if (PIN_STATE.mode === 'verify-remove') {
+            if (hash !== localStorage.getItem('pinHash')) return pinRejectEntry('PIN incorreto');
+            localStorage.removeItem('pinHash');
+            hidePinLockScreen();
+            openPinSetupModal();
+            return;
+        }
+        if (PIN_STATE.mode === 'create-first') {
+            PIN_STATE.firstEntry = PIN_STATE.entered;
+            PIN_STATE.mode = 'create-confirm';
+            PIN_STATE.entered = '';
+            setPinLockLabel('Confirma o PIN');
+            errorEl.textContent = '';
+            updatePinDots();
+            return;
+        }
+        if (PIN_STATE.mode === 'create-confirm') {
+            if (PIN_STATE.entered !== PIN_STATE.firstEntry) {
+                PIN_STATE.mode = 'create-first';
+                PIN_STATE.firstEntry = null;
+                setPinLockLabel('Cria o novo PIN');
+                return pinRejectEntry('Os PINs não coincidem, tenta outra vez');
+            }
+            localStorage.setItem('pinHash', hash);
+            hidePinLockScreen();
+            openPinSetupModal();
+        }
+    }
+    function pinRejectEntry(message) {
+        document.getElementById('pinError').textContent = message;
+        const dotsEl = document.getElementById('pinDots');
+        dotsEl.classList.add('pin-dots-shake');
+        setTimeout(() => dotsEl.classList.remove('pin-dots-shake'), 400);
+        PIN_STATE.entered = '';
+        setTimeout(updatePinDots, 150);
+    }
+    function pinBackspace() {
+        PIN_STATE.entered = PIN_STATE.entered.slice(0, -1);
+        updatePinDots();
+    }
+    function forgotPin() {
+        if (!confirm('Esqueceste o PIN? Isto vai terminar a sessão neste aparelho — ao entrares de novo podes definir um PIN novo.')) return;
+        localStorage.removeItem('pinHash');
+        hidePinLockScreen();
+        logout();
+    }
+
+    // Configuração do PIN (criar/alterar/remover), a partir do menu "Mais funcionalidades"
+    function openPinSetupModal() {
+        renderPinSetupForm();
+        document.getElementById('modalPinSetup').classList.add('active');
+    }
+    function renderPinSetupForm() {
+        const status = document.getElementById('pinSetupStatus');
+        const form = document.getElementById('pinSetupForm');
+        status.textContent = hasPinSet() ? '✅ Bloqueio por PIN ativo neste aparelho.' : 'Bloqueio por PIN desativado.';
+        form.innerHTML = hasPinSet()
+            ? `<button class="btn-small" onclick="startPinChangeFlow()">Alterar PIN</button>
+               <button class="btn-small" onclick="startPinRemoveFlow()" style="margin-top:6px;">Remover PIN</button>`
+            : `<button class="btn-small btn-accept" onclick="startPinCreateFlow()">Criar PIN</button>`;
+    }
+    function startPinCreateFlow() {
+        closeModal('modalPinSetup');
+        PIN_STATE.entered = '';
+        PIN_STATE.mode = 'create-first';
+        setPinLockLabel('Cria o novo PIN');
+        setPinBottomButton(true);
+        updatePinDots();
+        document.getElementById('pinError').textContent = '';
+        document.getElementById('pinLockScreen').style.display = 'flex';
+    }
+    function startPinChangeFlow() {
+        closeModal('modalPinSetup');
+        PIN_STATE.entered = '';
+        PIN_STATE.mode = 'verify-old';
+        setPinLockLabel('Confirma o PIN atual');
+        setPinBottomButton(true);
+        updatePinDots();
+        document.getElementById('pinError').textContent = '';
+        document.getElementById('pinLockScreen').style.display = 'flex';
+    }
+    function startPinRemoveFlow() {
+        closeModal('modalPinSetup');
+        PIN_STATE.entered = '';
+        PIN_STATE.mode = 'verify-remove';
+        setPinLockLabel('Confirma o PIN para remover');
+        setPinBottomButton(true);
+        updatePinDots();
+        document.getElementById('pinError').textContent = '';
+        document.getElementById('pinLockScreen').style.display = 'flex';
+    }
+    // Bloqueia de novo sempre que a aba volta a ficar visível depois de ter
+    // estado em segundo plano (troca de app, ecrã bloqueado, etc.) — não só
+    // ao abrir a app pela primeira vez.
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && APP.user && hasPinSet() && PIN_STATE.mode !== 'create-first' && PIN_STATE.mode !== 'create-confirm' && PIN_STATE.mode !== 'verify-old' && PIN_STATE.mode !== 'verify-remove') {
+            showPinUnlockScreen();
+        }
+    });
 
     // ==================== TEMA CLARO/ESCURO ====================
     (function initTheme() {
@@ -3223,8 +3482,6 @@
     }
 
     // ==================== ESTADOS (stories, 24h) ====================
-    APP.statusFeed = [];
-    APP.pendingStatusPhotoUrl = null;
     function openStatusScreen() {
         document.getElementById('statusScreen').classList.add('active');
         socket.emit('get_statuses');
