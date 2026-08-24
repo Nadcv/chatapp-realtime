@@ -688,3 +688,7 @@ Ao enviar uma foto, aparece uma pré-visualização com a opção "👁️ Ver u
 
 **Aplicado a sério, não só na aparência**: assim que é aberta, o servidor apaga mesmo o ficheiro da mensagem guardada (tal como já fazia para mensagens apagadas) — não é só escondido no ecrã. Isso significa que mesmo entrando por um dispositivo novo ou recarregando a página depois, a foto já não está lá para ser recuperada. Só conta como "aberta" quando é mesmo quem recebeu a tocar (nunca a própria pessoa que enviou), e só a primeira vez.
 
+## 📊 As minhas estatísticas
+
+Em "👤 O meu perfil" → "📊 As minhas estatísticas": um resumo pessoal ao estilo "Wrapped" com mensagens enviadas/recebidas, fotos/vídeos/áudios/GIFs enviados, quantas fotos "ver uma vez" já mandaste, tempo total passado na app, número de contactos e grupos, o teu emoji mais usado, a hora do dia em que mais escreves, e qual é a tua conversa mais ativa. Tudo calculado no próprio dispositivo a partir do histórico que já estava carregado (o mesmo aproveitado pela pesquisa global) — sem pedir nada novo ao servidor.
+

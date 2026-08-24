@@ -2129,8 +2129,22 @@
                     </div>
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">Nesse horário não recebes notificações — as mensagens continuam a chegar normalmente, só ficam silenciosas.</p>
                 </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <button class="btn-small" style="width:100%;" onclick="closeModal('modalProfile');openMyStatsModal()">📊 As minhas estatísticas</button>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ AS MINHAS ESTATÍSTICAS (estilo "Wrapped") ============ -->
+        <div class="modal-overlay" id="modalMyStats">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>📊 As minhas estatísticas</h3>
+                <div id="myStatsContent" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalMyStats')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -6123,6 +6137,85 @@
             </div>`;
         }).join('');
     }
+    // ==================== AS MINHAS ESTATÍSTICAS (estilo "Wrapped") ====================
+    // Tal como a pesquisa global, aproveita o histórico já carregado em
+    // APP.messages para todas as conversas — sem pedir nada novo ao servidor.
+    const EMOJI_REGEX = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu;
+    function computeMyStats() {
+        let sentCount = 0, receivedCount = 0, photos = 0, videos = 0, audios = 0, gifs = 0, viewOnceSent = 0;
+        let longestMessage = '';
+        const emojiTally = {};
+        const hourTally = {};
+        const chatTotals = {};
+        Object.entries(APP.messages).forEach(([chatId, msgs]) => {
+            const chat = APP.chats.find(c => c.id === chatId);
+            if (!chat) return;
+            (msgs || []).forEach(msg => {
+                if (msg.deleted) return;
+                const isSent = msg.type === 'sent';
+                if (isSent) sentCount++; else receivedCount++;
+                chatTotals[chatId] = (chatTotals[chatId] || 0) + 1;
+                if (isSent) {
+                    if (msg.fileData || msg.viewOnce) {
+                        const t = msg.fileType || '';
+                        if (msg.viewOnce) viewOnceSent++;
+                        if (t === 'image/gif') gifs++;
+                        else if (t.startsWith('image/')) photos++;
+                        else if (t.startsWith('video/')) videos++;
+                        else if (t.startsWith('audio/')) audios++;
+                    } else if (msg.text && !msg.encrypted) {
+                        if (msg.text.length > longestMessage.length) longestMessage = msg.text;
+                        const emojis = msg.text.match(EMOJI_REGEX) || [];
+                        emojis.forEach(e => { emojiTally[e] = (emojiTally[e] || 0) + 1; });
+                    }
+                    const hour = (msg.time || '').split(':')[0];
+                    if (hour) hourTally[hour] = (hourTally[hour] || 0) + 1;
+                }
+            });
+        });
+        const topEmojiEntry = Object.entries(emojiTally).sort((a, b) => b[1] - a[1])[0];
+        const topHourEntry = Object.entries(hourTally).sort((a, b) => b[1] - a[1])[0];
+        const topChatEntry = Object.entries(chatTotals).sort((a, b) => b[1] - a[1])[0];
+        const topChat = topChatEntry ? APP.chats.find(c => c.id === topChatEntry[0]) : null;
+        const contactCount = APP.chats.filter(c => c.type === 'user').length;
+        const groupCount = APP.chats.filter(c => c.type === 'group').length;
+        return {
+            sentCount, receivedCount, photos, videos, audios, gifs, viewOnceSent,
+            longestMessage, contactCount, groupCount,
+            topEmoji: topEmojiEntry ? topEmojiEntry[0] : null,
+            topHour: topHourEntry ? topHourEntry[0] : null,
+            topChatName: topChat ? topChat.name : null,
+            timeSpentSec: APP.user?.totalTimeSpentSec || 0
+        };
+    }
+    function statCard(emoji, value, label) {
+        return `<div style="background:var(--bg-secondary);border-radius:10px;padding:14px 10px;text-align:center;">
+            <div style="font-size:22px;">${emoji}</div>
+            <div style="font-size:20px;font-weight:700;margin:4px 0;">${value}</div>
+            <div style="font-size:11px;color:var(--text-secondary);">${label}</div>
+        </div>`;
+    }
+    function openMyStatsModal() {
+        const s = computeMyStats();
+        const cards = [
+            statCard('💬', s.sentCount, 'Mensagens enviadas'),
+            statCard('📥', s.receivedCount, 'Mensagens recebidas'),
+            statCard('👥', s.contactCount, 'Contactos'),
+            statCard('🧑‍🤝‍🧑', s.groupCount, 'Grupos'),
+            statCard('📷', s.photos, 'Fotos enviadas'),
+            statCard('🎥', s.videos, 'Vídeos enviados'),
+            statCard('🎤', s.audios, 'Áudios enviados'),
+            statCard('🎬', s.gifs, 'GIFs/Stickers'),
+            statCard('👁️', s.viewOnceSent, 'Fotos "ver uma vez"'),
+            statCard('⏱️', formatTimeSpent(s.timeSpentSec), 'Tempo total na app'),
+        ];
+        if (s.topEmoji) cards.push(statCard('⭐', s.topEmoji, 'O teu emoji favorito'));
+        if (s.topHour) cards.push(statCard('🕐', `${s.topHour}h`, 'Hora em que mais falas'));
+        if (s.topChatName) cards.push(statCard('🏆', escapeHtml(s.topChatName), 'Conversa mais ativa'));
+        document.getElementById('myStatsContent').innerHTML = cards.join('');
+        document.getElementById('modalMyStats').classList.add('active');
+    }
+
     function jumpToSearchResult(chatId, messageId) {
         closeModal('modalGlobalSearch');
         openChat(chatId);
