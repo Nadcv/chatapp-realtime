@@ -687,10 +687,11 @@
             padding: 10px 14px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 4px;
         }
         .chat-input-area input {
             flex: 1;
+            min-width: 0;
             padding: 11px 16px;
             border-radius: 25px;
             border: none;
@@ -1402,16 +1403,16 @@
                 </div>
                 <div class="chat-input-area" style="position:relative;">
                     <div id="mentionAutocomplete" style="display:none;position:absolute;bottom:52px;left:56px;right:56px;max-height:160px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:20;"></div>
-                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
-                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
-                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="openImageGenModal()" title="Gerar imagem com IA">🪄</button>
-                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
+                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="toggleEmojiPicker('messageInput')">😊</button>
+                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
+                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="openImageGenModal()" title="Gerar imagem com IA">🪄</button>
+                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
-                    <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
-                    <button class="btn-icon" id="gamesBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
+                    <button class="btn-icon" id="pollBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
+                    <button class="btn-icon" id="gamesBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
-                    <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
-                    <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
+                    <button class="btn-icon" id="voiceRecordBtn" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
+                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="sendMessage()">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
                 </div>
             </div>
@@ -1876,12 +1877,9 @@
                 <div style="border-top:1px solid var(--bg-tertiary);margin:16px 0;"></div>
 
                 <div style="font-weight:600;font-size:14px;margin-bottom:4px;">🔤 Tradutor rápido (extra)</div>
-                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 10px;">Escreve um texto em português ou inglês de um lado, e escolhe para que idioma traduzir do outro lado.</p>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0 0 10px;">Escreve um texto de um lado, e escolhe para que idioma traduzir do outro lado — qualquer um dos dois lados aceita qualquer idioma da lista.</p>
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                    <select id="quickTransFrom" onchange="quickTranslate()" style="flex:1;min-width:0;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:8px;color:var(--text-primary);">
-                        <option value="pt">🇧🇷 Português</option>
-                        <option value="en">🇺🇸 Inglês</option>
-                    </select>
+                    <select id="quickTransFrom" onchange="quickTranslate()" style="flex:1;min-width:0;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:8px;color:var(--text-primary);"></select>
                     <button class="btn-small" onclick="swapQuickTranslate()" title="Trocar os dois lados" style="padding:8px 10px;flex:0 0 auto;">🔄</button>
                     <select id="quickTransTo" onchange="quickTranslate()" style="flex:1;min-width:0;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:8px;color:var(--text-primary);"></select>
                 </div>
@@ -6709,13 +6707,19 @@
         openTranslatorModal(); // re-renderiza para marcar o selecionado
     }
 
-    // ---- Tradutor rápido (extra dentro do mesmo modal): PT/EN de um lado,
-    // qualquer idioma do outro — não depende da língua escolhida para as mensagens.
+    // ---- Tradutor rápido (extra dentro do mesmo modal): qualquer idioma dos
+    // dois lados da lista — não depende da língua escolhida para as mensagens.
     function populateQuickTranslateSelect() {
+        const from = document.getElementById('quickTransFrom');
         const to = document.getElementById('quickTransTo');
-        if (to.children.length) return; // já preenchido, não perde a seleção do utilizador ao reabrir
-        to.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
-        to.value = (APP.translatorLang && APP.translatorLang !== 'pt') ? APP.translatorLang : 'en';
+        if (!from.children.length) {
+            from.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
+            from.value = 'pt';
+        }
+        if (!to.children.length) {
+            to.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
+            to.value = (APP.translatorLang && APP.translatorLang !== 'pt') ? APP.translatorLang : 'en';
+        }
     }
     let quickTransTimer = null;
     function debounceQuickTranslate() {
@@ -6742,13 +6746,11 @@
         const toSel = document.getElementById('quickTransTo');
         const input = document.getElementById('quickTransInput');
         const output = document.getElementById('quickTransOutput');
-        // o lado esquerdo só tem PT/EN — só troca de verdade quando o idioma
-        // do lado direito também é um desses dois; nos outros casos só troca o texto.
-        if (toSel.value === 'pt' || toSel.value === 'en') {
-            const fromVal = fromSel.value;
-            fromSel.value = toSel.value;
-            toSel.value = fromVal;
-        }
+        // Ambos os lados têm a mesma lista de idiomas agora, por isso troca-se
+        // sempre os dois por completo (já não há um lado limitado a PT/EN).
+        const fromVal = fromSel.value;
+        fromSel.value = toSel.value;
+        toSel.value = fromVal;
         const currentOutput = output.textContent;
         input.value = (currentOutput === 'A traduzir...' || currentOutput.startsWith('⚠️')) ? '' : currentOutput;
         quickTranslate();
@@ -6758,6 +6760,10 @@
     // transcrição em tempo real (Web Speech API) já usada nas mensagens de
     // voz do chat, só que aqui o texto reconhecido vai direto para o campo de
     // origem do tradutor rápido em vez de virar uma mensagem de áudio.
+    const SPEECH_RECOGNITION_LOCALES = {
+        pt: 'pt-PT', en: 'en-US', es: 'es-ES', 'zh-CN': 'zh-CN', hi: 'hi-IN',
+        ar: 'ar-SA', fr: 'fr-FR', ru: 'ru-RU', de: 'de-DE', ja: 'ja-JP', it: 'it-IT'
+    };
     let quickTransRecognition = null;
     function toggleQuickTransVoice() {
         if (quickTransRecognition) { quickTransRecognition.stop(); return; }
@@ -6772,7 +6778,7 @@
             quickTransRecognition = new SpeechRecognitionAPI();
             quickTransRecognition.continuous = true;
             quickTransRecognition.interimResults = false;
-            quickTransRecognition.lang = document.getElementById('quickTransFrom').value === 'en' ? 'en-US' : 'pt-PT';
+            quickTransRecognition.lang = SPEECH_RECOGNITION_LOCALES[document.getElementById('quickTransFrom').value] || 'pt-PT';
             let transcript = '';
             quickTransRecognition.onresult = (e) => {
                 for (let i = e.resultIndex; i < e.results.length; i++) {
