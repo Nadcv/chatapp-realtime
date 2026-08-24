@@ -580,3 +580,7 @@ Não é preciso escrever exatamente pela lista de sugestões — escrever `@Nome
 
 Ao construir o destaque de menções, reparei que o texto das mensagens era inserido diretamente na página sem qualquer tratamento — ou seja, uma mensagem contendo HTML/JavaScript (ex.: `<img src=x onerror="...">`) executava esse código no ecrã de quem a lesse, em vez de aparecer como texto. Confirmado como uma falha real e a sério (não só teórica) em três sítios: as mensagens em si, a pré-visualização da última mensagem na lista de conversas à esquerda, e o espelho do chat mostrado ao lado durante uma videochamada. Corrigido nos três — o texto das mensagens é sempre escapado antes de entrar na página, e o destaque de menções agora é aplicado por cima do texto já escapado, nunca do texto em bruto.
 
+## ✨ Formatação de texto (`*negrito*`, `_itálico_`, `` `código` ``)
+
+Nas mensagens de texto, `*texto*` vira **negrito**, `_texto_` vira _itálico_ e `` `texto` `` vira `código` (fonte monoespaçada com fundo). Aplica-se em qualquer conversa (1-para-1, grupo ou IA), sempre por cima do texto já escapado (ver correção acima) — nunca há risco de a própria formatação reabrir espaço para HTML injetado. Símbolos dentro de um trecho de código (` `a*b*c` `) não são interpretados como negrito/itálico, e um símbolo sozinho sem par (ex.: um "*" a meio de uma conta tipo "3 * 4") fica como texto normal em vez de tentar formatar. Não há suporte a formatação encadeada (ex.: negrito dentro de itálico).
+
