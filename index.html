@@ -7022,9 +7022,29 @@
             return `<span style="${style}">${match}</span>`;
         });
     }
+    // ==================== FORMATAÇÃO DE TEXTO (*negrito*, _itálico_, `código`) ====================
+    // Parser leve, sem suporte a formatação encadeada/aninhada — opera sempre
+    // sobre texto já escapado (escapeHtml), nunca sobre o texto em bruto, para
+    // não abrir de novo o espaço para HTML injetado numa mensagem.
+    function formatMessageText(escapedText) {
+        // Trechos de código primeiro, e guardados à parte num marcador — assim
+        // um *asterisco* ou _underscore_ dentro de `código` não vira negrito/
+        // itálico por engano.
+        const codeParts = [];
+        let text = escapedText.replace(/ /g, ''); // não deixa o próprio marcador ser forjado por quem escreve
+        text = text.replace(/`([^`\n]+)`/g, (match, code) => {
+            codeParts.push(`<code style="background:rgba(0,0,0,0.25);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:0.9em;">${code}</code>`);
+            return ` ${codeParts.length - 1} `;
+        });
+        text = text.replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
+        text = text.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+        text = text.replace(/ (\d+) /g, (match, idx) => codeParts[Number(idx)]);
+        return text;
+    }
     function renderMessageBody(msg, chatId) {
         const escaped = escapeHtml(msg.text || '');
-        return highlightMentions(escaped, chatId);
+        const formatted = formatMessageText(escaped);
+        return highlightMentions(formatted, chatId);
     }
 
     socket.on('message_deleted_received', (data) => {
