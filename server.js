@@ -88,6 +88,8 @@ const messageSchema = new mongoose.Schema({
   reactions: Object,
   deleted: Boolean,
   edited: Boolean,
+  viewOnce: Boolean,
+  viewOnceOpened: Boolean,
   encrypted: Boolean, // mensagens 1-para-1 cifradas ponta-a-ponta guardam o texto aqui em vez de "text"
   iv: String,
   data: String,
@@ -2317,6 +2319,27 @@ io.on('connection', (socket) => {
       }
     }
     socket.to(data.chatId).emit('message_deleted_received', data);
+  });
+
+  // Foto "ver uma vez" — só quem RECEBEU pode marcar como aberta (quem enviou
+  // já tem o seu próprio ficheiro, não precisa de o "abrir" para o ter), e só
+  // a primeira vez conta: o ficheiro é apagado do servidor logo a seguir, para
+  // não haver forma de o voltar a ver (novo dispositivo, reload, etc.).
+  socket.on('view_once_opened', async (data) => {
+    if (!data?.chatId || !data?.messageId) return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find(m => m.id === data.messageId);
+    if (!msg || !msg.viewOnce || msg.viewOnceOpened || msg.senderPhone === myPhone) return;
+    msg.viewOnceOpened = true;
+    msg.fileData = null;
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { viewOnceOpened: true, fileData: null }).catch(e => console.error('Erro Mongo (ver uma vez):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    socket.to(data.chatId).emit('view_once_opened_received', { chatId: data.chatId, messageId: data.messageId });
   });
 
   // Editar uma mensagem já enviada — só quem a enviou pode editar, e só

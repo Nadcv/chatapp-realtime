@@ -2081,6 +2081,21 @@
             </div>
         </div>
 
+        <!-- ============ PRÉ-VISUALIZAÇÃO DE FOTO (com opção "ver uma vez") ============ -->
+        <div class="modal-overlay" id="modalAttachmentPreview">
+            <div class="modal">
+                <h3>📷 Enviar foto</h3>
+                <img id="viewOncePreviewImg" style="max-width:100%;max-height:50vh;border-radius:8px;margin:10px 0;display:block;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                    <input type="checkbox" id="viewOnceCheckbox"> 👁️ Ver uma vez (desaparece depois de aberta pela outra pessoa)
+                </label>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="cancelAttachmentPreview()">Cancelar</button>
+                    <button class="btn-small" onclick="confirmSendAttachment()">Enviar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ============ O MEU PERFIL (foto) ============ -->
         <div class="modal-overlay" id="modalProfile">
             <div class="modal" style="text-align:center;">
@@ -7391,7 +7406,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.fileData ? renderAttachment(msg) : renderMessageBody(msg, APP.currentChatId))))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${linkPreviewUrl ? `<div id="linkpreview_${msg.id}">${renderLinkPreviewCard(msg.linkPreview)}</div>` : ''}
                 ${reactionsHtml}
@@ -7422,7 +7437,7 @@
         panel.innerHTML = msgs.map(msg => `
             <div class="message ${msg.type === 'sent' ? 'sent' : 'received'}">
                 ${msg.type !== 'sent' ? `<div class="sender-name">${escapeHtml(msg.sender || '')}</div>` : ''}
-                ${msg.fileData ? renderAttachment(msg) : escapeHtml(msg.text || '')}
+                ${(msg.fileData || msg.viewOnce) ? renderAttachment(msg, msg.type === 'sent') : escapeHtml(msg.text || '')}
                 <div class="time">${msg.time?.split(' ')[1] || msg.time || ''}</div>
             </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem ainda</p>';
         panel.scrollTop = panel.scrollHeight;
@@ -7439,20 +7454,64 @@
             return alert(`Este ficheiro tem ${(file.size / 1024 / 1024).toFixed(1)}MB — o limite é ${MAX_ATTACHMENT_MB}MB.`);
         }
         const reader = new FileReader();
-        reader.onload = () => sendAttachmentMessage(reader.result, file.name, file.type);
+        reader.onload = () => {
+            // Fotos passam por uma pré-visualização com a opção "ver uma vez"; os
+            // outros tipos de ficheiro seguem direto, como já era antes.
+            if (file.type.startsWith('image/')) openAttachmentPreview(reader.result, file.name, file.type);
+            else sendAttachmentMessage(reader.result, file.name, file.type);
+        };
         reader.onerror = () => alert('Não foi possível ler o ficheiro.');
         reader.readAsDataURL(file);
     }
 
-    async function sendAttachmentMessage(dataUrl, fileName, fileType, transcript) {
+    // ==================== FOTOS "VER UMA VEZ" ====================
+    function openAttachmentPreview(dataUrl, fileName, fileType) {
+        APP.pendingAttachment = { dataUrl, fileName, fileType };
+        document.getElementById('viewOncePreviewImg').src = dataUrl;
+        document.getElementById('viewOnceCheckbox').checked = false;
+        document.getElementById('modalAttachmentPreview').classList.add('active');
+    }
+    function cancelAttachmentPreview() {
+        APP.pendingAttachment = null;
+        closeModal('modalAttachmentPreview');
+    }
+    function confirmSendAttachment() {
+        const pending = APP.pendingAttachment;
+        if (!pending) return;
+        const viewOnce = document.getElementById('viewOnceCheckbox').checked;
+        APP.pendingAttachment = null;
+        closeModal('modalAttachmentPreview');
+        sendAttachmentMessage(pending.dataUrl, pending.fileName, pending.fileType, null, viewOnce);
+    }
+    // Só quem recebe é que perde o acesso à foto depois de a abrir uma vez — quem
+    // envia mantém sempre o seu próprio ficheiro (é a foto que a própria pessoa
+    // tirou/escolheu, não faz sentido escondê-la de quem a enviou).
+    function openViewOnceImage(msgId) {
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        if (!msg || !msg.fileData || msg.viewOnceOpened) return;
+        openImageFullscreen(msgId);
+        msg.viewOnceOpened = true;
+        msg.fileData = null;
+        renderMessages();
+        socket.emit('view_once_opened', { chatId: APP.currentChatId, messageId: msgId });
+    }
+    socket.on('view_once_opened_received', (data) => {
+        const msgs = APP.messages[data.chatId];
+        if (!msgs) return;
+        const msg = msgs.find(m => m.id === data.messageId);
+        if (msg) { msg.viewOnceOpened = true; msg.fileData = null; }
+        if (APP.currentChatId === data.chatId) renderMessages();
+    });
+
+    async function sendAttachmentMessage(dataUrl, fileName, fileType, transcript, viewOnce) {
         const now = new Date();
         const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const isImage = (fileType || '').startsWith('image/');
         const isAudio = (fileType || '').startsWith('audio/');
-        const text = isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`);
+        const text = viewOnce ? '👁️ Foto (ver uma vez)' : (isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`));
         // Mostra já localmente com o ficheiro original — não espera pelo upload para dar feedback instantâneo
-        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null };
+        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null, viewOnce: !!viewOnce };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push(payload);
         renderMessages();
@@ -7482,7 +7541,7 @@
         socket.emit('send_message', {
             id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
             toPhone: chat.type === 'user' ? chat.phone : undefined,
-            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null
+            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null, viewOnce: !!viewOnce
         });
     }
 
@@ -7530,11 +7589,20 @@
         btn.textContent = speeds[idx] + 'x';
     }
 
-    function renderAttachment(msg) {
-        if (!msg.fileData) return '';
+    function renderAttachment(msg, isSent) {
         const type = msg.fileType || '';
+        if (msg.viewOnce && !isSent) {
+            // Quem recebe só vê a foto quando toca, e só uma vez — depois disso o
+            // próprio servidor já apagou o ficheiro (ver 'view_once_opened').
+            if (msg.viewOnceOpened || !msg.fileData) {
+                return `<div style="opacity:0.6;font-style:italic;padding:8px 0;">👁️ Foto vista</div>`;
+            }
+            return `<div onclick="openViewOnceImage('${msg.id}')" style="cursor:pointer;background:rgba(0,0,0,0.15);border-radius:8px;padding:16px;margin-top:4px;text-align:center;">👁️ Toca para ver<br><span style="font-size:11px;opacity:0.75;">Desaparece depois de aberta</span></div>`;
+        }
+        if (!msg.fileData) return '';
         if (type.startsWith('image/')) {
-            return `<img src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">`;
+            const viewOnceBadge = msg.viewOnce ? `<div style="font-size:11px;opacity:0.75;margin-top:2px;">👁️ Ver uma vez${msg.viewOnceOpened ? ' · vista' : ''}</div>` : '';
+            return `<img src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;cursor:pointer;" onclick="openImageFullscreen('${msg.id}')">${viewOnceBadge}`;
         }
         if (type.startsWith('video/')) {
             return `<video controls src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;"></video>`;
@@ -7845,7 +7913,9 @@
                 fileType: m.fileType || null,
                 transcript: m.transcript || null,
                 poll: m.poll || null,
-                game: m.game || null
+                game: m.game || null,
+                viewOnce: !!m.viewOnce,
+                viewOnceOpened: !!m.viewOnceOpened
             };
         }));
         // O servidor manda sempre o histórico COMPLETO desta sala (não só
@@ -7899,7 +7969,9 @@
             fileType: data.fileType || null,
             transcript: data.transcript || null,
             poll: data.poll || null,
-            game: data.game || null
+            game: data.game || null,
+            viewOnce: !!data.viewOnce,
+            viewOnceOpened: !!data.viewOnceOpened
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();

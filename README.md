@@ -682,3 +682,9 @@ Barra de "filtros" por baixo da pesquisa (tal como no WhatsApp): começa só com
 
 Tal como o "número de segurança" do WhatsApp/Signal: tocando no 🔒 ao lado do nome da conversa (ou em "⋯ Mais desta conversa" → "🔐 Código de segurança"), aparece um código de 60 dígitos calculado a partir das duas chaves públicas ECDH da conversa (a tua e a do contacto) — sempre o mesmo código dos dois lados, não importa quem o vê. Comparando esse código com o que a outra pessoa vê no aparelho dela (por chamada, mensagem noutro sítio, ou pessoalmente), confirma-se que a encriptação desta conversa é mesmo direta entre os dois, sem mais ninguém a intercetar as chaves pelo meio. Só aparece em conversas 1-para-1 onde as duas partes já têm a chave pública trocada (o mesmo critério do cadeado 🔒 que já existia). Cálculo inteiramente no cliente (SHA-256 sobre as duas chaves, ordenadas para dar sempre o mesmo resultado nos dois lados) — o servidor nunca vê nem participa nesta verificação.
 
+## 👁️ Fotos "ver uma vez"
+
+Ao enviar uma foto, aparece uma pré-visualização com a opção "👁️ Ver uma vez" — se marcada, quem recebe só vê um aviso "Toca para ver" em vez da foto; ao tocar, a foto abre (numa janela nova, tal como já acontecia ao abrir qualquer foto) e imediatamente desaparece, ficando só "👁️ Foto vista" no lugar. A pessoa que enviou continua a ver a sua própria foto normalmente (é o ficheiro dela, não faz sentido escondê-lo de quem o enviou), mas passa a ver que já "foi vista" assim que a outra pessoa a abrir.
+
+**Aplicado a sério, não só na aparência**: assim que é aberta, o servidor apaga mesmo o ficheiro da mensagem guardada (tal como já fazia para mensagens apagadas) — não é só escondido no ecrã. Isso significa que mesmo entrando por um dispositivo novo ou recarregando a página depois, a foto já não está lá para ser recuperada. Só conta como "aberta" quando é mesmo quem recebeu a tocar (nunca a própria pessoa que enviou), e só a primeira vez.
+
