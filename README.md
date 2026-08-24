@@ -654,3 +654,9 @@ O botão "🔗 Associar por QR" no ecrã de **login** (só aí — não faz sent
 
 Usa a API nativa `BarcodeDetector` do navegador (Chrome/Edge/Android) em vez de trazer uma biblioteca própria de leitura de QR — mais simples e sem risco de uma implementação caseira falhar a ler códigos válidos. Nos navegadores sem suporte (nomeadamente Safari/iPhone, à data desta funcionalidade), mostra logo um aviso claro em vez de ficar preso num ecrã de câmara que nunca deteta nada — nesses casos continua a dar para associar abrindo a câmara nativa do telemóvel e apontando para o QR mostrado no outro dispositivo (já funcionava assim antes desta funcionalidade).
 
+## 🔗 Pré-visualização de links
+
+Quando uma mensagem tem um URL, aparece por baixo um cartão com título, descrição e imagem — tal como WhatsApp/Telegram — lido dos meta tags Open Graph da própria página.
+
+**Nota de segurança**: este tipo de funcionalidade (o servidor ir buscar um URL escolhido por quem escreve a mensagem) é um local clássico para uma vulnerabilidade de SSRF (*Server-Side Request Forgery*) — sem cuidado, alguém podia mandar, por exemplo, `http://localhost:27017` ou um IP da rede interna, e usar o teu próprio servidor como sonda para essa rede. Implementado com proteção: antes de qualquer pedido, o nome do URL é resolvido para IP, e recusa-se a continuar se esse IP for privado ou reservado (localhost, redes locais 10.x/172.16-31.x/192.168.x, e o endereço de metadados de nuvem 169.254.169.254) — nesses casos a mensagem continua a funcionar normalmente, só sem cartão de pré-visualização, sem revelar que foi bloqueado por segurança. Também só lê os primeiros ~100KB de cada página (o suficiente para o `<head>`) e tem um limite de 6 segundos por pedido, para não ficar preso em páginas lentas ou enormes.
+

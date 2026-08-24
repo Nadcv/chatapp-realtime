@@ -5,6 +5,8 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const net = require('net');
+const dns = require('dns');
 const QRCode = require('qrcode'); // gera o QR code de associação de dispositivo inteiramente no nosso servidor (nunca manda o código de pareamento para um terceiro)
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
 let nodemailer = null;
@@ -775,6 +777,117 @@ app.get('/api/generate-image', (req, res) => {
   const seed = Math.floor(Math.random() * 1000000);
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=768&nologo=true&seed=${seed}`;
   res.json({ url });
+});
+
+// ==================== PRÉ-VISUALIZAÇÃO DE LINKS (Open Graph) ====================
+// Quando uma mensagem tem um URL, mostra um cartão com título/imagem/descrição
+// (tal como WhatsApp/Telegram), lido dos meta tags Open Graph da própria
+// página. Isto obriga o SERVIDOR a ir buscar um URL escolhido por quem
+// escreve a mensagem — sem cuidado, isso é um risco clássico de SSRF
+// (alguém mandava, por exemplo, "http://localhost:27017" ou um IP interno da
+// rede, usando o nosso servidor como sonda para a rede interna). Por isso,
+// antes de qualquer pedido: só protocolo http(s), resolve o nome para IP e
+// recusa se o IP resolvido for privado/reservado (localhost, redes locais,
+// link-local — que inclui o endereço de metadados de nuvem 169.254.169.254).
+function isPrivateOrReservedIp(ip) {
+  const kind = net.isIP(ip);
+  if (kind === 4) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 0 || p[0] === 10 || p[0] === 127) return true;
+    if (p[0] === 169 && p[1] === 254) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true; // CGNAT
+    return false;
+  }
+  if (kind === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === '::1' || lower === '::') return true;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA (fc00::/7)
+    if (lower.startsWith('fe80')) return true; // link-local
+    if (lower.startsWith('::ffff:')) return isPrivateOrReservedIp(lower.split(':').pop());
+    return false;
+  }
+  return true; // não reconhecido como IP válido — recusa por precaução
+}
+function extractMetaContent(html, property) {
+  const patterns = [
+    new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'),
+    new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']${property}["']`, 'i'),
+    new RegExp(`<meta[^>]+name=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'),
+    new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+name=["']${property}["']`, 'i')
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+const linkPreviewCache = {};
+app.get('/api/link-preview', async (req, res) => {
+  const rawUrl = (req.query.url || '').trim();
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch (e) { return res.status(400).json({ error: 'URL inválido.' }); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return res.status(400).json({ error: 'URL inválido.' });
+
+  const cacheKey = parsed.toString();
+  const now = Date.now();
+  if (linkPreviewCache[cacheKey] && (now - linkPreviewCache[cacheKey].t) < 3600000) {
+    return res.json(linkPreviewCache[cacheKey].data);
+  }
+
+  try {
+    const { address } = await dns.promises.lookup(parsed.hostname);
+    if (isPrivateOrReservedIp(address)) {
+      return res.json({ url: rawUrl }); // sem preview, mas não revela que foi bloqueado por segurança
+    }
+  } catch (e) {
+    return res.json({ url: rawUrl }); // não resolveu o nome — sem preview, sem erro
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const r = await fetch(parsed.toString(), {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatAppLinkPreview/1.0)' }
+    });
+    clearTimeout(timeoutId);
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      const data = { url: rawUrl };
+      linkPreviewCache[cacheKey] = { t: now, data };
+      return res.json(data);
+    }
+    // Só lê os primeiros ~100KB — chega de sobra para o <head>, sem descarregar páginas gigantes.
+    const reader = r.body.getReader();
+    let html = '', received = 0;
+    while (received < 100000) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += Buffer.from(value).toString('utf-8');
+      received += value.length;
+    }
+    reader.cancel().catch(() => {});
+    const title = extractMetaContent(html, 'og:title') || (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] || null);
+    const description = extractMetaContent(html, 'og:description') || extractMetaContent(html, 'description');
+    let image = extractMetaContent(html, 'og:image');
+    if (image) {
+      try { image = new URL(image, parsed).toString(); } catch (e) { image = null; }
+      if (image && !/^https:\/\//i.test(image)) image = null; // não mistura conteúdo http:// numa app servida em https
+    }
+    const data = {
+      url: rawUrl,
+      title: title ? title.trim().slice(0, 200) : null,
+      description: description ? description.trim().slice(0, 300) : null,
+      image: image || null
+    };
+    linkPreviewCache[cacheKey] = { t: now, data };
+    res.json(data);
+  } catch (err) {
+    res.json({ url: rawUrl }); // falha graciosamente: sem pré-visualização, mas o link continua a funcionar normalmente na mensagem
+  }
 });
 
 // ==================== FRASE DO DIA ====================
