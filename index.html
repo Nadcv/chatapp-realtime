@@ -1394,7 +1394,7 @@
                     <button class="btn-back" onclick="closeChat()">←</button>
                     <div class="header-avatar" id="chatAvatar" style="width:38px;height:38px;font-size:16px;">G</div>
                     <div class="header-info">
-                        <h3><span id="chatName">Selecione uma conversa</span> <span id="encryptionBadge" title="Mensagens encriptadas ponta-a-ponta neste dispositivo" style="display:none;font-size:12px;">🔒</span></h3>
+                        <h3><span id="chatName">Selecione uma conversa</span> <span id="encryptionBadge" title="Mensagens encriptadas ponta-a-ponta — toca para ver o código de segurança" style="display:none;font-size:12px;cursor:pointer;" onclick="openSecurityCodeModal()">🔒</span></h3>
                         <span id="chatSubtitle"></span>
                     </div>
                     <div style="margin-left:auto;display:flex;gap:6px;flex:0 0 auto;">
@@ -2044,6 +2044,7 @@
                     <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
+                    <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
                 </div>
                 <div class="modal-actions">
@@ -2063,6 +2064,19 @@
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalChatFolders')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ CÓDIGO DE SEGURANÇA (verificação E2EE) ============ -->
+        <div class="modal-overlay" id="modalSecurityCode">
+            <div class="modal">
+                <h3>🔐 Código de segurança</h3>
+                <p style="font-size:13px;color:var(--text-secondary);margin:8px 0;">Compara este código com o que aparece no aparelho de <b id="securityCodeContactName"></b> (lendo em voz alta, por chamada, ou por outro meio). Se forem exatamente iguais, tens a garantia de que a encriptação ponta-a-ponta desta conversa não está a passar por mais ninguém pelo meio.</p>
+                <div id="securityCodeDigits" style="font-family:monospace;font-size:15px;line-height:1.8;text-align:center;background:var(--bg-secondary);border-radius:8px;padding:12px;letter-spacing:1px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="copySecurityCode()">📋 Copiar código</button>
+                    <button class="btn-small" onclick="closeModal('modalSecurityCode')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -3016,7 +3030,54 @@
         const badge = document.getElementById('encryptionBadge');
         if (!badge) return;
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        badge.style.display = (chat?.type === 'user' && chat.publicKey && E2EE.publicJwk) ? 'inline' : 'none';
+        const isE2ee = !!(chat?.type === 'user' && chat.publicKey && E2EE.publicJwk);
+        badge.style.display = isE2ee ? 'inline' : 'none';
+        const securityBtn = document.getElementById('securityCodeBtn');
+        if (securityBtn) securityBtn.style.display = isE2ee ? 'flex' : 'none';
+    }
+
+    // ==================== CÓDIGO DE SEGURANÇA (verificação de "safety number" E2EE) ====================
+    // Mesma ideia do "número de segurança" do WhatsApp/Signal: um código
+    // calculado a partir das duas chaves públicas ECDH da conversa. Se um
+    // atacante conseguisse substituir a chave pública de alguém a meio (para
+    // decifrar as mensagens sem ninguém notar), o código deixaria de bater
+    // certo entre os dois lados — é por isso que só serve se for comparado
+    // por um canal diferente da própria app (voz, mensagem noutro sítio).
+    function bytesToDigitGroups(bytes, groupCount) {
+        const groups = [];
+        for (let i = 0; i < groupCount; i++) {
+            const b0 = bytes[(i * 2) % bytes.length];
+            const b1 = bytes[(i * 2 + 1) % bytes.length];
+            const num = ((b0 << 8) | b1) % 100000;
+            groups.push(String(num).padStart(5, '0'));
+        }
+        return groups;
+    }
+    async function computeSecurityCode(myJwk, peerJwk) {
+        const a = (myJwk.x || '') + (myJwk.y || '');
+        const b = (peerJwk.x || '') + (peerJwk.y || '');
+        // Ordenado para que os dois lados da conversa cheguem exatamente ao
+        // mesmo código, independentemente de quem é "eu" e quem é o contacto.
+        const combined = [a, b].sort().join('|');
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(combined));
+        return bytesToDigitGroups(new Uint8Array(digest), 12);
+    }
+    async function openSecurityCodeModal() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'user' || !chat.publicKey || !E2EE.publicJwk) return;
+        document.getElementById('securityCodeContactName').textContent = chat.name;
+        document.getElementById('securityCodeDigits').innerHTML = 'A calcular…';
+        document.getElementById('modalSecurityCode').classList.add('active');
+        const groups = await computeSecurityCode(E2EE.publicJwk, chat.publicKey);
+        const rows = [];
+        for (let i = 0; i < groups.length; i += 4) rows.push(groups.slice(i, i + 4).join(' '));
+        document.getElementById('securityCodeDigits').innerHTML = rows.map(r => escapeHtml(r)).join('<br>');
+        document.getElementById('securityCodeDigits').dataset.rawCode = groups.join(' ');
+    }
+    function copySecurityCode() {
+        const code = document.getElementById('securityCodeDigits').dataset.rawCode || '';
+        if (!code) return;
+        navigator.clipboard?.writeText(code).then(() => alert('Código copiado!')).catch(() => {});
     }
 
     async function enterApp(user, token) {
