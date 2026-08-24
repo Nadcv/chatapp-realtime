@@ -617,3 +617,10 @@ Ao contrário do DALL-E (OpenAI) ou do Stable Diffusion (Stability AI) — suges
 
 Com esta, ficam implementadas todas as 6 ideias trazidas numa única mensagem: @ Menções, Formatação de texto, Bloqueio por PIN, Gerador de imagens por IA, Tamanho da fonte e GIFs/Stickers — cada uma testada e enviada para produção antes de avançar para a seguinte.
 
+## Ajustes: ícones da barra de escrever mais pequenos, e tradutor com vários idiomas dos dois lados
+
+Dois ajustes pedidos depois de veres a app com as novas funcionalidades:
+
+- **Ícones da barra de escrever mais pequenos**: com 😊🎞️🪄📎📊🎮🎤📨 todos juntos (alguns só aparecem em certos tipos de conversa), a barra estava a ficar demasiado larga em ecrãs de telemóvel e ficava com botões cortados fora do ecrã. Reduzidos de 42px para 34px e o espaçamento entre eles encurtado, para caberem todos sem cortar nada. Pelo caminho encontrei e corrigi também um bug de responsividade mais antigo: faltava `min-width: 0` no campo de escrever mensagens, que é o que realmente causava o corte (sem isso, o campo de texto recusava-se a encolher abaixo de um certo tamanho, mesmo com `flex: 1`, empurrando os últimos botões para fora do ecrã).
+- **Tradutor rápido com vários idiomas dos dois lados**: antes, o lado esquerdo só tinha Português/Inglês; agora tem a mesma lista completa de 11 idiomas que já existia do lado direito, e o botão 🔄 troca os dois lados por completo para qualquer combinação (antes só trocava a sério quando o lado direito também era PT ou EN). O reconhecimento de voz (🎤) passou também a seguir o idioma escolhido do lado esquerdo em vez de assumir sempre Português ou Inglês.
+
