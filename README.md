@@ -609,3 +609,11 @@ Diferença em relação a fotos/vídeos enviados do telemóvel: um GIF/sticker j
 2. No Railway/Render, define a variável de ambiente `GIPHY_API_KEY` com esse valor
 3. Sem essa variável, o botão continua visível mas o modal mostra um aviso claro a pedir a configuração, em vez de travar
 
+## 🪄 Gerador de imagens por IA (Pollinations.ai)
+
+Botão 🪄 na barra de escrever: descreves o que queres ver, a imagem é gerada e aparece numa pré-visualização com opção de "🔄 Gerar outra" (nova tentativa, mesma descrição) antes de decidir enviar para a conversa.
+
+Ao contrário do DALL-E (OpenAI) ou do Stable Diffusion (Stability AI) — sugestões originais que exigiam uma chave paga — a **Pollinations.ai** gera a imagem de graça e sem chave nenhuma: o próprio URL da imagem já é o pedido de geração (como um CDN que "revela" a imagem ao ser aberta), por isso não precisa de nenhuma variável de ambiente nova nem configuração no Railway.
+
+Com esta, ficam implementadas todas as 6 ideias trazidas numa única mensagem: @ Menções, Formatação de texto, Bloqueio por PIN, Gerador de imagens por IA, Tamanho da fonte e GIFs/Stickers — cada uma testada e enviada para produção antes de avançar para a seguinte.
+
