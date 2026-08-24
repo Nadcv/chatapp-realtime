@@ -1383,9 +1383,10 @@
                 <div id="timeSpentBar" style="padding:6px 12px;font-size:11px;color:var(--text-secondary);text-align:center;cursor:default;" title="Tempo total que já passaste nesta app, desde que criaste a conta">⏱️ <span id="timeSpentValue">—</span> nesta app</div>
                 <div id="quoteOfDayBar" style="display:none;padding:4px 12px 8px;font-size:11px;color:var(--text-secondary);font-style:italic;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;"></div>
                 <div class="search-bar" style="display:flex;align-items:center;gap:6px;">
-                    <input type="text" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)" style="flex:1;">
+                    <input type="text" id="chatSearchInput" placeholder="🔍 Pesquisar conversas..." oninput="filterChats(this.value)" style="flex:1;">
                     <button class="btn-icon" onclick="openGlobalSearchModal()" title="Pesquisar em todas as mensagens" style="width:36px;height:36px;font-size:15px;flex:0 0 auto;">🔎</button>
                 </div>
+                <div id="folderTabs" style="display:flex;gap:6px;padding:6px 12px;overflow-x:auto;white-space:nowrap;"></div>
                 <div class="chat-list" id="chatList"></div>
             </div>
             <div class="chat-area" id="chatArea">
@@ -2042,10 +2043,26 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Agendar</span></button>
                     <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalChatMore')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ PASTAS/ETIQUETAS DA CONVERSA ============ -->
+        <div class="modal-overlay" id="modalChatFolders">
+            <div class="modal">
+                <h3>🗂️ Organizar em pastas</h3>
+                <div id="chatFoldersList" style="margin:12px 0;max-height:220px;overflow-y:auto;"></div>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="newFolderNameInput" placeholder="Nova pasta (ex: Trabalho)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);">
+                    <button class="btn-small" onclick="createFolderFromModal()">Criar</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalChatFolders')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -5658,6 +5675,67 @@
             </div>`).join('');
     }
 
+    // ==================== PASTAS/ETIQUETAS PARA ORGANIZAR CONVERSAS ====================
+    APP.folders = [];
+    APP.activeFolderId = null;
+    renderFolderTabs();
+    socket.on('folders_list', (list) => {
+        APP.folders = list || [];
+        renderFolderTabs();
+        renderChatList(document.getElementById('chatSearchInput')?.value || '');
+        if (document.getElementById('modalChatFolders').classList.contains('active')) renderChatFoldersModalList();
+    });
+    function renderFolderTabs() {
+        const el = document.getElementById('folderTabs');
+        if (!el) return;
+        const chipStyle = (active) => `padding:5px 12px;border-radius:16px;font-size:12px;white-space:nowrap;flex:0 0 auto;${active ? 'background:var(--accent);color:#fff;' : ''}`;
+        const chips = [`<button class="btn-small" onclick="setActiveFolder(null)" style="${chipStyle(APP.activeFolderId === null)}">Tudo</button>`];
+        APP.folders.forEach(f => {
+            chips.push(`<button class="btn-small" onclick="setActiveFolder('${f.id}')" style="${chipStyle(APP.activeFolderId === f.id)}">${escapeHtml(f.name)}</button>`);
+        });
+        chips.push(`<button class="btn-small" onclick="openChatFoldersModal()" title="Gerir pastas" style="${chipStyle(false)}">+</button>`);
+        el.innerHTML = chips.join('');
+    }
+    function setActiveFolder(folderId) {
+        APP.activeFolderId = folderId;
+        renderFolderTabs();
+        renderChatList(document.getElementById('chatSearchInput')?.value || '');
+    }
+    function openChatFoldersModal() {
+        document.getElementById('newFolderNameInput').value = '';
+        renderChatFoldersModalList();
+        document.getElementById('modalChatFolders').classList.add('active');
+    }
+    function renderChatFoldersModalList() {
+        const el = document.getElementById('chatFoldersList');
+        const chatId = APP.currentChatId;
+        if (!APP.folders.length) { el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:10px;">Ainda não tens pastas — cria uma abaixo.</p>'; return; }
+        el.innerHTML = APP.folders.map(f => {
+            const inFolder = chatId && (f.chatIds || []).includes(chatId);
+            const checkbox = chatId ? `<input type="checkbox" ${inFolder ? 'checked' : ''} onchange="toggleChatInFolder('${f.id}', this.checked)" style="margin-right:8px;">` : '';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;border-bottom:1px solid var(--bg-tertiary);">
+                <label style="display:flex;align-items:center;flex:1;cursor:pointer;">${checkbox}${escapeHtml(f.name)}</label>
+                <button class="btn-icon" style="width:28px;height:28px;font-size:12px;" onclick="deleteFolder('${f.id}')" title="Apagar pasta">🗑️</button>
+            </div>`;
+        }).join('');
+    }
+    function toggleChatInFolder(folderId, inFolder) {
+        if (!APP.currentChatId) return;
+        socket.emit('set_chat_folder', { folderId, chatId: APP.currentChatId, inFolder });
+    }
+    function createFolderFromModal() {
+        const input = document.getElementById('newFolderNameInput');
+        const name = input.value.trim();
+        if (!name) return;
+        socket.emit('save_folder', { name });
+        input.value = '';
+    }
+    function deleteFolder(folderId) {
+        if (!confirm('Apagar esta pasta? As conversas não são apagadas, só deixam de estar organizadas nela.')) return;
+        if (APP.activeFolderId === folderId) APP.activeFolderId = null;
+        socket.emit('delete_folder', { id: folderId });
+    }
+
     // ==================== LISTAS DE TRANSMISSÃO ====================
     socket.on('broadcast_list', (list) => {
         APP.broadcasts = list || [];
@@ -5886,7 +5964,8 @@
 
     function renderChatList(filter = '') {
         const list = document.getElementById('chatList');
-        const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id));
+        const activeFolder = APP.activeFolderId ? (APP.folders || []).find(f => f.id === APP.activeFolderId) : null;
+        const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id) && (!activeFolder || (activeFolder.chatIds || []).includes(c.id)));
         list.innerHTML = filtered.map(chat => {
             const lastMsg = APP.messages[chat.id]?.slice(-1)[0];
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + escapeHtml(lastMsg.text || '') : 'Nenhuma mensagem';
