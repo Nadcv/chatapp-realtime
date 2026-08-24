@@ -389,6 +389,10 @@ O quadro branco (🎨 na barra da chamada) já era sincronizado ao vivo entre qu
 
 O modal 🌐 (Idioma do Tradutor) ganhou uma segunda secção, separada da escolha da língua das mensagens: um tradutor de texto livre, tipo Google Tradutor. De um lado escolhes Português ou Inglês, do outro qualquer um dos idiomas já suportados (Espanhol, Chinês, Hindi, Árabe, Francês, Russo, Alemão, Japonês, Italiano...). Escreves e a tradução aparece sozinha (com uma pequena pausa depois de parares de escrever), e o botão 🔄 troca os dois lados de uma vez (incluindo o texto já traduzido). Usa o mesmo `/api/translate` que já existia para traduzir mensagens — não precisa de configuração nem chave nova.
 
+Duas adições a este tradutor rápido:
+- **🎤 Gravar áudio**: em vez de escrever, dá para gravar a voz — a mesma transcrição em tempo real (Web Speech API) já usada nas mensagens de voz do chat é reaproveitada aqui, só que o texto reconhecido cai direto no campo de origem e traduz automaticamente assim que a gravação termina. Funciona bem no Chrome/Android; no Safari/iPhone o suporte é limitado (avisa se o navegador não tiver a API disponível, em vez de falhar silenciosamente).
+- **📋 Copiar tradução**: copia o texto traduzido para a área de transferência com um toque, para colar noutro sítio (WhatsApp, e-mail, etc.).
+
 ## 🧭 Navegação GPS agora é para o mundo inteiro
 
 A "Navegação GPS" (🧭 no cabeçalho) já existia — rota com voz, alternativas de rota, e um sistema completo de alertas em tempo real reportados por quem usa a app (🚓 Polícia, 💥 Acidente, 🚧 Obras, 🐌 Trânsito, ⚠️ Perigo, 📷 Radar — tudo já sincronizado ao vivo entre todos os utilizadores via socket, com confirmação/remoção comunitária, como no Waze). Só a pesquisa de endereços estava travada a Portugal e Espanha — removida essa restrição, a pesquisa e a rota (OSRM, que já cobria o mundo todo) funcionam agora em qualquer país.
