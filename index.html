@@ -7171,6 +7171,8 @@
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
             const editedLabel = msg.edited ? '<span style="opacity:0.6;font-size:10px;"> (editada)</span>' : '';
+            const linkPreviewUrl = (!msg.deleted && !msg.poll && !msg.game && !msg.fileData) ? extractFirstUrl(msg.text) : null;
+            if (linkPreviewUrl) maybeFetchLinkPreview(msg, linkPreviewUrl);
             html += `
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
@@ -7178,6 +7180,7 @@
                 ${replyHtml}
                 ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.fileData ? renderAttachment(msg) : renderMessageBody(msg, APP.currentChatId))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
+                ${linkPreviewUrl ? `<div id="linkpreview_${msg.id}">${renderLinkPreviewCard(msg.linkPreview)}</div>` : ''}
                 ${reactionsHtml}
                 ${threadHtml}
                 <div class="time">
@@ -7331,6 +7334,40 @@
             </div>${transcriptHtml}`;
         }
         return `<a href="${msg.fileData}" download="${msg.fileName || 'ficheiro'}" style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.15);padding:8px;border-radius:8px;margin-top:4px;color:inherit;text-decoration:none;">📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${msg.fileName || 'ficheiro'}</span></a>`;
+    }
+
+    // ==================== PRÉ-VISUALIZAÇÃO DE LINKS ====================
+    // Mostra um cartão com título/imagem/descrição para o primeiro URL de uma
+    // mensagem, tal como WhatsApp/Telegram — pedido ao /api/link-preview (o
+    // servidor é que vai buscar a página, nunca o navegador de quem lê a
+    // mensagem, para não revelar quem viu o link nem passar por CORS).
+    const URL_REGEX = /(https?:\/\/[^\s<]+)/i;
+    function extractFirstUrl(text) {
+        const m = (text || '').match(URL_REGEX);
+        return m ? m[1].replace(/[),.;!?]+$/, '') : null; // tira pontuação a seguir ao link, comum numa frase
+    }
+    function renderLinkPreviewCard(preview) {
+        if (!preview || preview === 'pending' || preview === 'none' || (!preview.title && !preview.image && !preview.description)) return '';
+        return `<a href="${preview.url}" target="_blank" rel="noopener noreferrer" style="display:flex;gap:8px;margin-top:6px;background:rgba(0,0,0,0.15);border-radius:8px;overflow:hidden;text-decoration:none;color:inherit;max-width:280px;">
+            ${preview.image ? `<img src="${preview.image}" style="width:70px;height:70px;object-fit:cover;flex:0 0 auto;">` : ''}
+            <div style="padding:6px 8px;overflow:hidden;min-width:0;">
+                <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(preview.title || preview.url)}</div>
+                ${preview.description ? `<div style="font-size:11px;opacity:0.75;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(preview.description)}</div>` : ''}
+            </div>
+        </a>`;
+    }
+    async function maybeFetchLinkPreview(msg, url) {
+        if (msg.linkPreview) return; // já pedido (mesmo sem resultado — 'none' evita tentar de novo a cada render)
+        msg.linkPreview = 'pending';
+        try {
+            const res = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+            const data = await res.json();
+            msg.linkPreview = (res.ok && (data.title || data.image || data.description)) ? data : 'none';
+        } catch (e) {
+            msg.linkPreview = 'none';
+        }
+        const container = document.getElementById(`linkpreview_${msg.id}`);
+        if (container) container.innerHTML = renderLinkPreviewCard(msg.linkPreview);
     }
 
     // ==================== GIFS E STICKERS (Giphy) ====================
