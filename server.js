@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const QRCode = require('qrcode'); // gera o QR code de associação de dispositivo inteiramente no nosso servidor (nunca manda o código de pareamento para um terceiro)
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
 let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (e) { console.warn('⚠️ Pacote "nodemailer" não instalado — envio de email desativado.'); }
@@ -315,6 +316,90 @@ app.post('/api/devices/remove', async (req, res) => {
     saveUsers();
   }
   res.json({ success: true, devices: user.devices });
+});
+
+// ==================== ASSOCIAR NOVO DISPOSITIVO POR CÓDIGO QR ====================
+// Tal como o WhatsApp Web: o dispositivo já ligado gera um código de uso
+// único que expira em 60 segundos, mostrado como QR (gerado aqui mesmo no
+// nosso servidor com a biblioteca "qrcode" — nunca é enviado a nenhum
+// terceiro, ao contrário de usar uma API externa de geração de QR, que
+// revelaria o código de acesso a esse terceiro). O outro dispositivo lê o QR
+// com a câmara normal do telemóvel, que abre o URL do próprio ChatApp com
+// ?pair=<código> — a app troca isso por uma sessão válida automaticamente,
+// sem precisar de escrever a senha. Conta sempre para o limite de 2
+// dispositivos, tal como um login normal.
+const devicePairings = {}; // token -> { phone, expiresAt, completed, completedDeviceName }
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(devicePairings).forEach((t) => {
+    if (now > devicePairings[t].expiresAt + 30000) delete devicePairings[t]; // margem extra para o dispositivo de origem confirmar via /status
+  });
+}, 30000);
+
+app.post('/api/device-pairing/create', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  if ((user.devices || []).length >= 2) {
+    return res.status(403).json({ error: 'Já tens 2 dispositivos ligados (o máximo). Remove um primeiro em "Dispositivos ligados".' });
+  }
+  const origin = (req.body?.origin || '').replace(/\/$/, '');
+  if (!origin) return res.status(400).json({ error: 'Pedido inválido.' });
+  const pairingToken = crypto.randomBytes(20).toString('hex');
+  const expiresAt = Date.now() + 60000;
+  devicePairings[pairingToken] = { phone, expiresAt, completed: false };
+  try {
+    const qrDataUrl = await QRCode.toDataURL(`${origin}/?pair=${pairingToken}`, { width: 260, margin: 1 });
+    res.json({ success: true, qrDataUrl, pairingToken, expiresInSec: 60 });
+  } catch (err) {
+    console.error('Erro ao gerar QR de pareamento:', err.message);
+    res.status(500).json({ error: 'Não foi possível gerar o código.' });
+  }
+});
+
+app.get('/api/device-pairing/status', (req, res) => {
+  const token = req.headers['x-auth-token'] || req.query.token;
+  const phone = sessions[token];
+  if (!phone) return res.status(403).json({ error: 'Sessão inválida.' });
+  const pairing = devicePairings[req.query.pairingToken];
+  if (!pairing || pairing.phone !== phone) return res.json({ status: 'expired' });
+  if (Date.now() > pairing.expiresAt && !pairing.completed) { delete devicePairings[req.query.pairingToken]; return res.json({ status: 'expired' }); }
+  if (pairing.completed) { delete devicePairings[req.query.pairingToken]; return res.json({ status: 'completed', deviceName: pairing.completedDeviceName }); }
+  res.json({ status: 'pending' });
+});
+
+app.post('/api/device-pairing/redeem', async (req, res) => {
+  const { pairingToken, deviceId, deviceName } = req.body || {};
+  const pairing = devicePairings[pairingToken];
+  if (!pairing || pairing.completed || Date.now() > pairing.expiresAt) {
+    return res.status(400).json({ error: 'Este código expirou ou já foi usado. Pede um novo no outro dispositivo.' });
+  }
+  const user = accounts[pairing.phone];
+  if (!user) return res.status(404).json({ error: 'Conta não encontrada.' });
+  if (!deviceId) return res.status(400).json({ error: 'Pedido inválido (falta identificador do dispositivo).' });
+  if (!user.devices) user.devices = [];
+  const cleanDeviceName = (deviceName || 'Dispositivo desconhecido').trim().slice(0, 60);
+  const existing = user.devices.find((d) => d.id === deviceId);
+  if (existing) {
+    existing.name = cleanDeviceName;
+    existing.lastSeenAt = new Date().toISOString();
+  } else if (user.devices.length >= 2) {
+    return res.status(403).json({ error: 'Esta conta já está a ser usada em 2 dispositivos (o máximo permitido).' });
+  } else {
+    user.devices.push({ id: deviceId, name: cleanDeviceName, lastSeenAt: new Date().toISOString() });
+  }
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone: pairing.phone }, { devices: user.devices }).catch((e) => console.error('Erro Mongo (pareamento):', e.message));
+  } else {
+    saveUsers();
+  }
+  pairing.completed = true;
+  pairing.completedDeviceName = cleanDeviceName;
+  const token = makeToken();
+  sessions[token] = pairing.phone;
+  log(`🔗 Novo dispositivo associado por QR: ${cleanDeviceName} (${user.name})`, 'AUTH');
+  res.json({ success: true, user: publicUser(user), token });
 });
 
 app.get('/api/admin/users', (req, res) => {

@@ -640,3 +640,11 @@ Cada conta só pode estar ligada em, no máximo, 2 dispositivos ao mesmo tempo. 
 
 Em "⋯ Mais funcionalidades" → "📱 Dispositivos ligados" dá para ver os dispositivos atualmente ligados (com a etiqueta "(este dispositivo)" no que estás a usar) e remover um para libertar uma vaga para um novo — útil ao trocar de telemóvel. Remover um dispositivo não desliga imediatamente uma sessão já aberta nele (não há forma de "empurrar" um aviso para lá), só deixa de contar para o limite a partir do próximo login.
 
+## 🔗 Associar novo dispositivo por código QR
+
+Dentro de "Dispositivos ligados", o botão "🔗 Associar novo dispositivo" mostra um QR — tal como o WhatsApp Web. No dispositivo novo (ainda sem sessão), basta abrir a câmara normal do telemóvel e apontar: abre o ChatApp já com a sessão iniciada, sem escrever a senha nenhuma. O código expira em 60 segundos e só pode ser usado uma vez; conta sempre para o limite de 2 dispositivos, tal como um login normal, e recusa gerar um código novo se já estiveres no limite.
+
+O QR é gerado inteiramente no nosso próprio servidor (com o pacote `qrcode`, adicionado a esta lista de dependências), nunca através de uma API externa de geração de QR — se fosse assim, o código de acesso de uso único ficaria visível a esse terceiro, que poderia usá-lo para entrar na conta antes de expirar.
+
+**Nota de segurança encontrada, não relacionada com esta funcionalidade**: ao instalar a nova dependência, o `npm audit` acusou uma vulnerabilidade de severidade alta já existente no `nodemailer` (usado para o envio de emails), incluindo injeção de comandos SMTP. A correção automática (`npm audit fix --force`) instala uma versão com mudanças que quebram compatibilidade, por isso não a apliquei sem confirmar contigo — vale a pena atualizar o `nodemailer` numa tarefa à parte.
+
