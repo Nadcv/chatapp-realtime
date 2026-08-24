@@ -1942,13 +1942,20 @@ io.on('connection', (socket) => {
       // cadastrados (funcionam como canais públicos — ver README), por isso a
       // notificação alcança a mesma "audiência" que já recebe a mensagem ao
       // vivo, respeitando quem silenciou este grupo ou está em "não incomodar".
+      // Quem foi @mencionado (ver README) é a exceção: essa notificação passa
+      // por cima do silenciar do grupo, tal como no WhatsApp — mas continua a
+      // respeitar "não incomodar".
+      const mentionedPhones = new Set(Array.isArray(data.mentions) ? data.mentions.filter((p) => typeof p === 'string') : []);
       Object.values(accounts).forEach((acc) => {
         if (acc.phone === myPhone) return; // não notifica quem enviou
         if (group.bannedPhones?.includes(acc.phone)) return;
-        const recipientMuted = (mutedByPhone[acc.phone] || []).includes(data.chatId);
         const recipientDnd = !!dndActiveByPhone[acc.phone];
-        if (recipientMuted || recipientDnd) return;
-        sendPushToPhone(acc.phone, { title: `${senderName} (${group.name})`, body: preview, chatId: data.chatId }).catch(() => {});
+        if (recipientDnd) return;
+        const isMentioned = mentionedPhones.has(acc.phone);
+        const recipientMuted = (mutedByPhone[acc.phone] || []).includes(data.chatId);
+        if (recipientMuted && !isMentioned) return;
+        const title = isMentioned ? `${senderName} mencionou-te em ${group.name}` : `${senderName} (${group.name})`;
+        sendPushToPhone(acc.phone, { title, body: preview, chatId: data.chatId }).catch(() => {});
       });
     }
   });

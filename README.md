@@ -570,3 +570,13 @@ Diferença importante em relação ao Galo/Damas: ali o tabuleiro é sempre púb
 - O +4 não tem o desafio clássico de contestar se quem jogou tinha mesmo uma carta válida da cor anterior
 - Com 2 jogadores, "Inverter" funciona como um Bloqueio (regra oficial do UNO); com 3+ jogadores inverte mesmo a ordem da roda
 
+## @ Menções em grupos
+
+Escrever `@` numa conversa de grupo abre uma lista de sugestões com os contactos conhecidos (filtra por qualquer palavra do nome, não só a primeira — útil para nomes compostos tipo "João Silva", já que dá para procurar por "Silva" também). Ao escolher um nome, ele entra no texto como `@Nome Completo`; ao enviar, quem foi mencionado recebe uma notificação push distinta ("Fulano mencionou-te em Grupo X"), mesmo que tenha silenciado esse grupo — tal como no WhatsApp, embora "não incomodar" continue sempre a ter prioridade. A mensagem mostra o `@Nome` destacado a azul para toda a gente, e com um fundo amarelo só para quem foi mencionado.
+
+Não é preciso escrever exatamente pela lista de sugestões — escrever `@Nome` à mão (sem usar o autocompletar) funciona da mesma forma, desde que o nome bata certo com o de um contacto.
+
+## Correção: escapes de HTML em falta (mensagens, pré-visualização da lista de conversas e chat da videochamada)
+
+Ao construir o destaque de menções, reparei que o texto das mensagens era inserido diretamente na página sem qualquer tratamento — ou seja, uma mensagem contendo HTML/JavaScript (ex.: `<img src=x onerror="...">`) executava esse código no ecrã de quem a lesse, em vez de aparecer como texto. Confirmado como uma falha real e a sério (não só teórica) em três sítios: as mensagens em si, a pré-visualização da última mensagem na lista de conversas à esquerda, e o espelho do chat mostrado ao lado durante uma videochamada. Corrigido nos três — o texto das mensagens é sempre escapado antes de entrar na página, e o destaque de menções agora é aplicado por cima do texto já escapado, nunca do texto em bruto.
+
