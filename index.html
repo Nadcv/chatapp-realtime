@@ -1775,8 +1775,14 @@
                     <button class="btn-small" onclick="swapQuickTranslate()" title="Trocar os dois lados" style="padding:8px 10px;flex:0 0 auto;">🔄</button>
                     <select id="quickTransTo" onchange="quickTranslate()" style="flex:1;min-width:0;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:8px;color:var(--text-primary);"></select>
                 </div>
-                <textarea id="quickTransInput" oninput="debounceQuickTranslate()" placeholder="Escreve aqui..." style="width:100%;min-height:70px;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:10px;color:var(--text-primary);resize:vertical;margin-bottom:8px;font-family:inherit;font-size:14px;"></textarea>
+                <textarea id="quickTransInput" oninput="debounceQuickTranslate()" placeholder="Escreve aqui, ou grava um áudio..." style="width:100%;min-height:70px;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;padding:10px;color:var(--text-primary);resize:vertical;margin-bottom:8px;font-family:inherit;font-size:14px;"></textarea>
+                <div style="margin-bottom:8px;">
+                    <button class="btn-small" id="quickTransVoiceBtn" onclick="toggleQuickTransVoice()" title="Gravar áudio e traduzir o que foi dito" style="padding:6px 12px;">🎤 Gravar áudio</button>
+                </div>
                 <div id="quickTransOutput" style="width:100%;min-height:70px;background:var(--bg-secondary);border-radius:8px;padding:10px;color:var(--text-primary);white-space:pre-wrap;font-size:14px;"></div>
+                <div style="margin-top:8px;">
+                    <button class="btn-small" onclick="copyQuickTransOutput(this)" title="Copiar texto traduzido" style="padding:6px 12px;">📋 Copiar tradução</button>
+                </div>
 
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalTranslator')">Fechar</button>
@@ -6431,6 +6437,57 @@
         const currentOutput = output.textContent;
         input.value = (currentOutput === 'A traduzir...' || currentOutput.startsWith('⚠️')) ? '' : currentOutput;
         quickTranslate();
+    }
+
+    // Gravar um áudio e traduzir o que foi dito — reutiliza a mesma
+    // transcrição em tempo real (Web Speech API) já usada nas mensagens de
+    // voz do chat, só que aqui o texto reconhecido vai direto para o campo de
+    // origem do tradutor rápido em vez de virar uma mensagem de áudio.
+    let quickTransRecognition = null;
+    function toggleQuickTransVoice() {
+        if (quickTransRecognition) { quickTransRecognition.stop(); return; }
+        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognitionAPI) {
+            alert('O teu navegador não suporta reconhecimento de voz (funciona no Chrome/Android; limitado no Safari/iPhone).');
+            return;
+        }
+        const btn = document.getElementById('quickTransVoiceBtn');
+        const input = document.getElementById('quickTransInput');
+        try {
+            quickTransRecognition = new SpeechRecognitionAPI();
+            quickTransRecognition.continuous = true;
+            quickTransRecognition.interimResults = false;
+            quickTransRecognition.lang = document.getElementById('quickTransFrom').value === 'en' ? 'en-US' : 'pt-PT';
+            let transcript = '';
+            quickTransRecognition.onresult = (e) => {
+                for (let i = e.resultIndex; i < e.results.length; i++) {
+                    if (e.results[i].isFinal) transcript += e.results[i][0].transcript + ' ';
+                }
+                input.value = transcript.trim();
+            };
+            quickTransRecognition.onerror = () => {};
+            quickTransRecognition.onend = () => {
+                quickTransRecognition = null;
+                btn.textContent = '🎤 Gravar áudio';
+                btn.style.color = '';
+                if (input.value.trim()) quickTranslate();
+            };
+            quickTransRecognition.start();
+            btn.textContent = '🔴 A ouvir... (toca para parar)';
+            btn.style.color = '#ef4444';
+        } catch (e) {
+            quickTransRecognition = null;
+            alert('Não foi possível iniciar o reconhecimento de voz.');
+        }
+    }
+    function copyQuickTransOutput(btnEl) {
+        const text = document.getElementById('quickTransOutput').textContent;
+        if (!text || text === 'A traduzir...') return;
+        navigator.clipboard.writeText(text).then(() => {
+            const original = btnEl.textContent;
+            btnEl.textContent = '✅ Copiado!';
+            setTimeout(() => { btnEl.textContent = original; }, 1500);
+        }).catch(() => alert('Não foi possível copiar. Seleciona o texto manualmente.'));
     }
 
     async function translateMsg(msgId, btnEl) {
