@@ -598,3 +598,14 @@ Ao testar o bloqueio por PIN num recarregamento de página (sessão restaurada a
 
 Em "🎨 Personalizar aparência" → "Tamanho do texto das mensagens", um controlo deslizante (12px a 22px) ajusta ao vivo o tamanho do texto dentro das bolhas de mensagem — útil em ecrãs pequenos ou para quem prefere letra maior. Guardado neste aparelho (`localStorage`), aplicado via uma variável CSS (`--font-size-msg`) já na primeira renderização da página, antes mesmo do login.
 
+## 🎞️ GIFs e Stickers (Giphy)
+
+Botão 🎞️ na barra de escrever (ao lado do 😊), com duas abas — 🎬 GIFs e ✨ Stickers — e uma pesquisa que também mostra os resultados em alta (trending) quando está vazia. Ao escolher um, envia-se como uma mensagem normal com o GIF/sticker animado, igual a uma foto.
+
+Diferença em relação a fotos/vídeos enviados do telemóvel: um GIF/sticker já está hospedado para sempre no CDN da própria Giphy, por isso a mensagem guarda logo esse URL — não passa pelo Cloudinary/base64 usado para ficheiros enviados por ti.
+
+**Precisa de configuração** (grátis):
+1. Cria uma conta gratuita em https://developers.giphy.com/ e regista uma aplicação para obteres uma `API Key`
+2. No Railway/Render, define a variável de ambiente `GIPHY_API_KEY` com esse valor
+3. Sem essa variável, o botão continua visível mas o modal mostra um aviso claro a pedir a configuração, em vez de travar
+

@@ -1403,6 +1403,7 @@
                 <div class="chat-input-area" style="position:relative;">
                     <div id="mentionAutocomplete" style="display:none;position:absolute;bottom:52px;left:56px;right:56px;max-height:160px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:20;"></div>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
+                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
@@ -1705,6 +1706,20 @@
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalGameChooser')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalGifPicker">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>🎞️ GIFs e Stickers</h3>
+                <div style="display:flex;gap:8px;margin:10px 0;">
+                    <button class="btn-small" id="gifTabGifs" onclick="switchGifTab('gifs')" style="flex:1;">🎬 GIFs</button>
+                    <button class="btn-small" id="gifTabStickers" onclick="switchGifTab('stickers')" style="flex:1;">✨ Stickers</button>
+                </div>
+                <input type="text" id="gifSearchInput" placeholder="Pesquisar..." oninput="debounceGifSearch()" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);margin-bottom:10px;box-sizing:border-box;">
+                <div id="gifResultsGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-height:150px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalGifPicker')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -6997,6 +7012,73 @@
             </div>${transcriptHtml}`;
         }
         return `<a href="${msg.fileData}" download="${msg.fileName || 'ficheiro'}" style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.15);padding:8px;border-radius:8px;margin-top:4px;color:inherit;text-decoration:none;">📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${msg.fileName || 'ficheiro'}</span></a>`;
+    }
+
+    // ==================== GIFS E STICKERS (Giphy) ====================
+    // Ao contrário de fotos/vídeos enviados do telemóvel, um GIF/sticker já
+    // está hospedado para sempre no CDN da Giphy — por isso a mensagem só
+    // guarda esse URL diretamente (fileData), sem passar pelo /api/upload
+    // (que é só para converter os ficheiros que a própria pessoa envia).
+    let GIF_MODE = 'gifs';
+    let GIF_RESULTS = [];
+    let gifSearchTimer = null;
+    function openGifPickerModal() {
+        document.getElementById('modalGifPicker').classList.add('active');
+        document.getElementById('gifSearchInput').value = '';
+        switchGifTab('gifs');
+    }
+    function switchGifTab(mode) {
+        GIF_MODE = mode;
+        document.getElementById('gifTabGifs').classList.toggle('btn-accept', mode === 'gifs');
+        document.getElementById('gifTabStickers').classList.toggle('btn-accept', mode === 'stickers');
+        loadGifs(document.getElementById('gifSearchInput').value.trim());
+    }
+    function debounceGifSearch() {
+        clearTimeout(gifSearchTimer);
+        gifSearchTimer = setTimeout(() => loadGifs(document.getElementById('gifSearchInput').value.trim()), 400);
+    }
+    async function loadGifs(query) {
+        const grid = document.getElementById('gifResultsGrid');
+        grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);">A carregar...</p>';
+        try {
+            const res = await fetch(`/api/gifs/search?q=${encodeURIComponent(query)}&type=${GIF_MODE}`);
+            const data = await res.json();
+            if (!data.configured) {
+                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:20px;">GIFs/Stickers não configurados neste servidor (falta a chave da Giphy — ver README).</p>';
+                return;
+            }
+            GIF_RESULTS = data.results || [];
+            if (!GIF_RESULTS.length) {
+                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:20px;">Nada encontrado.</p>';
+                return;
+            }
+            grid.innerHTML = GIF_RESULTS.map((g, i) => `<img src="${g.preview}" loading="lazy" style="width:100%;border-radius:6px;cursor:pointer;aspect-ratio:1;object-fit:cover;background:var(--bg-tertiary);" onclick="sendGifMessage(${i})" title="${escapeHtml(g.title)}">`).join('');
+        } catch (e) {
+            grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:20px;">⚠️ Não foi possível pesquisar agora.</p>';
+        }
+    }
+    function sendGifMessage(index) {
+        const gif = GIF_RESULTS[index];
+        if (!gif || !APP.currentChatId) return;
+        closeModal('modalGifPicker');
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const label = GIF_MODE === 'stickers' ? '✨ Sticker' : '🎬 GIF';
+        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: label, time, type: 'sent', read: false, fileData: gif.full, fileName: 'gif.gif', fileType: 'image/gif' });
+        renderMessages();
+        renderChatList();
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat) return;
+        if (chat.type === 'ai') {
+            askGeminiAssistant(APP.currentChatId);
+            return;
+        }
+        socket.emit('send_message', {
+            id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
+            toPhone: chat.type === 'user' ? chat.phone : undefined,
+            text: label, time, fileData: gif.full, fileName: 'gif.gif', fileType: 'image/gif'
+        });
     }
 
     function openImageFullscreen(msgId) {
