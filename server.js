@@ -622,6 +622,21 @@ app.get('/api/gifs/search', async (req, res) => {
   }
 });
 
+// ==================== GERADOR DE IMAGENS POR IA (Pollinations.ai) ====================
+// Serviço gratuito e sem chave nenhuma — ao contrário do DALL-E/Stability AI
+// (que exigem uma chave paga), a Pollinations gera a imagem na hora só a
+// partir do próprio URL, como um CDN que "revela" a imagem ao ser pedida.
+// Por isso este endpoint não faz upload nem processamento nenhum: só
+// constrói o URL com o prompt escolhido, e o cliente usa-o diretamente
+// como fonte de uma <img> — igual ao que já se faz com os GIFs da Giphy.
+app.get('/api/generate-image', (req, res) => {
+  const prompt = (req.query.prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'Escreve uma descrição para a imagem.' });
+  const seed = Math.floor(Math.random() * 1000000);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=768&nologo=true&seed=${seed}`;
+  res.json({ url });
+});
+
 // ==================== FRASE DO DIA ====================
 // API gratuita (ZenQuotes) — sem chave, mas pede atribuição de origem quando
 // usada sem chave paga, por isso mostramos "— ZenQuotes.io" no ecrã. Vem em

@@ -1404,6 +1404,7 @@
                     <div id="mentionAutocomplete" style="display:none;position:absolute;bottom:52px;left:56px;right:56px;max-height:160px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:20;"></div>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
+                    <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="openImageGenModal()" title="Gerar imagem com IA">🪄</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
@@ -1720,6 +1721,20 @@
                 <div id="gifResultsGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-height:150px;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalGifPicker')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalImageGen">
+            <div class="modal" style="max-height:85vh;overflow-y:auto;">
+                <h3>🪄 Gerar imagem com IA</h3>
+                <p style="color:var(--text-secondary);font-size:13px;">Descreve o que queres ver, em qualquer idioma.</p>
+                <textarea id="imageGenPrompt" placeholder="Ex.: um gato a andar de skate ao pôr do sol, estilo cartoon" style="width:100%;min-height:70px;padding:10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-secondary);color:var(--text-primary);box-sizing:border-box;resize:vertical;font-family:inherit;font-size:14px;"></textarea>
+                <div class="modal-actions">
+                    <button class="btn-small btn-accept" onclick="generateImage()">Gerar</button>
+                </div>
+                <div id="imageGenResult" style="margin-top:12px;"></div>
+                <div class="modal-actions" style="margin-top:10px;">
+                    <button class="btn-small" onclick="closeModal('modalImageGen')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -7078,6 +7093,61 @@
             id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
             toPhone: chat.type === 'user' ? chat.phone : undefined,
             text: label, time, fileData: gif.full, fileName: 'gif.gif', fileType: 'image/gif'
+        });
+    }
+
+    // ==================== GERADOR DE IMAGENS POR IA (Pollinations.ai) ====================
+    // Tal como os GIFs, a imagem gerada já fica hospedada num URL (da
+    // Pollinations) — a mensagem guarda-o diretamente, sem passar pelo
+    // Cloudinary/base64 usado para ficheiros enviados do telemóvel.
+    let IMAGE_GEN_URL = null;
+    function openImageGenModal() {
+        document.getElementById('imageGenPrompt').value = '';
+        document.getElementById('imageGenResult').innerHTML = '';
+        IMAGE_GEN_URL = null;
+        document.getElementById('modalImageGen').classList.add('active');
+    }
+    async function generateImage() {
+        const prompt = document.getElementById('imageGenPrompt').value.trim();
+        const result = document.getElementById('imageGenResult');
+        if (!prompt) return alert('Escreve uma descrição primeiro!');
+        result.innerHTML = '<p style="text-align:center;color:var(--text-secondary);">🪄 A gerar... (pode demorar uns segundos)</p>';
+        try {
+            const res = await fetch(`/api/generate-image?prompt=${encodeURIComponent(prompt)}`);
+            const data = await res.json();
+            if (!res.ok || !data.url) throw new Error(data.error || 'Falha ao gerar imagem.');
+            IMAGE_GEN_URL = data.url;
+            result.innerHTML = `
+                <img src="${data.url}" style="width:100%;border-radius:8px;">
+                <div class="modal-actions" style="margin-top:8px;">
+                    <button class="btn-small" onclick="generateImage()">🔄 Gerar outra</button>
+                    <button class="btn-small btn-accept" onclick="sendGeneratedImage()">📨 Enviar</button>
+                </div>`;
+        } catch (e) {
+            result.innerHTML = '<p style="text-align:center;color:var(--text-secondary);">⚠️ Não foi possível gerar a imagem agora.</p>';
+        }
+    }
+    function sendGeneratedImage() {
+        if (!IMAGE_GEN_URL || !APP.currentChatId) return;
+        closeModal('modalImageGen');
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const label = '🪄 Imagem gerada por IA';
+        const url = IMAGE_GEN_URL;
+        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: label, time, type: 'sent', read: false, fileData: url, fileName: 'ia.png', fileType: 'image/png' });
+        renderMessages();
+        renderChatList();
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat) return;
+        if (chat.type === 'ai') {
+            askGeminiAssistant(APP.currentChatId);
+            return;
+        }
+        socket.emit('send_message', {
+            id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
+            toPhone: chat.type === 'user' ? chat.phone : undefined,
+            text: label, time, fileData: url, fileName: 'ia.png', fileType: 'image/png'
         });
     }
 
