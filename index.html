@@ -1368,12 +1368,13 @@
                     <button onclick="cancelReply()" style="background:none;border:none;color:var(--text-secondary);font-size:16px;cursor:pointer;">✖️</button>
                 </div>
                 <div class="chat-input-area" style="position:relative;">
+                    <div id="mentionAutocomplete" style="display:none;position:absolute;bottom:52px;left:56px;right:56px;max-height:160px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:20;"></div>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <button class="btn-icon" style="width:42px;height:42px;font-size:18px;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
                     <button class="btn-icon" id="gamesBtn" style="width:42px;height:42px;font-size:18px;display:none;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
-                    <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping()" onkeypress="if(event.key==='Enter')sendMessage()">
+                    <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:42px;height:42px;font-size:18px;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" onclick="sendMessage()" style="width:42px;height:42px;">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
@@ -5309,7 +5310,7 @@
         const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id));
         list.innerHTML = filtered.map(chat => {
             const lastMsg = APP.messages[chat.id]?.slice(-1)[0];
-            const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + lastMsg.text : 'Nenhuma mensagem';
+            const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + escapeHtml(lastMsg.text || '') : 'Nenhuma mensagem';
             const isGroup = chat.type === 'group';
             const isAI = chat.type === 'ai';
             const avatarContent = isAI ? '✨' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
@@ -5339,6 +5340,7 @@
         APP.currentChatId = chatId;
         const chat = APP.chats.find(c => c.id === chatId);
         if (!chat) return;
+        hideMentionAutocomplete();
         if (!APP.joinedRooms.has(chatId)) { socket.emit('join_room', chatId); APP.joinedRooms.add(chatId); }
         if (chat.type !== 'ai') socket.emit('message_read', { chatId });
         document.getElementById('chatArea').classList.add('active');
@@ -6557,7 +6559,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.fileData ? renderAttachment(msg) : msg.text)))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.fileData ? renderAttachment(msg) : renderMessageBody(msg, APP.currentChatId))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${reactionsHtml}
                 ${threadHtml}
@@ -6586,8 +6588,8 @@
         const msgs = APP.messages[APP.currentChatId] || [];
         panel.innerHTML = msgs.map(msg => `
             <div class="message ${msg.type === 'sent' ? 'sent' : 'received'}">
-                ${msg.type !== 'sent' ? `<div class="sender-name">${msg.sender}</div>` : ''}
-                ${msg.text}
+                ${msg.type !== 'sent' ? `<div class="sender-name">${escapeHtml(msg.sender || '')}</div>` : ''}
+                ${msg.fileData ? renderAttachment(msg) : escapeHtml(msg.text || '')}
                 <div class="time">${msg.time?.split(' ')[1] || msg.time || ''}</div>
             </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:20px;">Nenhuma mensagem ainda</p>';
         panel.scrollTop = panel.scrollHeight;
@@ -6803,6 +6805,7 @@
         APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', replyTo, read: false });
         input.value = '';
         cancelReply();
+        hideMentionAutocomplete();
         renderMessages();
         renderChatList();
 
@@ -6813,6 +6816,10 @@
             askGeminiAssistant(APP.currentChatId);
         } else {
             let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo };
+            if (chat.type === 'group') {
+                const mentions = extractMentionedPhones(text, APP.currentChatId);
+                if (mentions.length) outgoing.mentions = mentions;
+            }
             if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {
                 await e2eeReadyPromise;
                 const enc = await encryptFor(chat.phone, chat.publicKey, text);
@@ -6929,6 +6936,95 @@
         if (chat?.type === 'ai') return;
         clearTimeout(ownTypingTimeout);
         ownTypingTimeout = setTimeout(() => socket.emit('typing', { roomId: APP.currentChatId }), 200);
+    }
+
+    // ==================== MENÇÕES (@nome) EM GRUPOS ====================
+    // A lista de quem pode ser mencionado vem dos contactos já sincronizados
+    // (APP.chats do tipo 'user', que reflete todos os utilizadores cadastrados
+    // — os grupos aqui são abertos a todos, ver README), não de quem já
+    // escreveu no grupo, para funcionar mesmo num grupo ainda sem mensagens.
+    const MENTION_STATE = { startIndex: -1 };
+    function escapeRegex(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    function hideMentionAutocomplete() {
+        const box = document.getElementById('mentionAutocomplete');
+        box.style.display = 'none';
+        box.innerHTML = ''; // evita clicar num item invisível deixado de uma sugestão anterior
+    }
+    function updateMentionAutocomplete() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') { hideMentionAutocomplete(); return; }
+        const input = document.getElementById('messageInput');
+        const cursor = input.selectionStart;
+        const textBeforeCursor = input.value.slice(0, cursor);
+        const match = textBeforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
+        if (!match) { hideMentionAutocomplete(); return; }
+        const fragment = match[1].toLowerCase();
+        // Compara com cada palavra do nome (não só o início do nome completo),
+        // já que nomes portugueses costumam ter 2+ palavras (ex.: "João Silva")
+        // e é comum querer mencionar pelo último nome também.
+        const candidates = APP.chats.filter(c => c.type === 'user' && c.phone !== APP.user.phone && c.name.toLowerCase().split(/\s+/).some(word => word.startsWith(fragment))).slice(0, 6);
+        if (!candidates.length) { hideMentionAutocomplete(); return; }
+        const box = document.getElementById('mentionAutocomplete');
+        MENTION_STATE.startIndex = textBeforeCursor.lastIndexOf('@');
+        box.innerHTML = candidates.map(c => `<div onclick="applyMention('${c.phone}')" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background=''" style="padding:8px 10px;cursor:pointer;font-size:13px;">${escapeHtml(c.name)}</div>`).join('');
+        box.style.display = 'block';
+    }
+    function applyMention(phone) {
+        const contact = APP.chats.find(c => c.type === 'user' && c.phone === phone);
+        if (!contact) return;
+        const input = document.getElementById('messageInput');
+        const before = input.value.slice(0, MENTION_STATE.startIndex);
+        const after = input.value.slice(input.selectionStart);
+        const insert = `@${contact.name} `;
+        input.value = before + insert + after;
+        hideMentionAutocomplete();
+        input.focus();
+        const newPos = (before + insert).length;
+        input.setSelectionRange(newPos, newPos);
+    }
+    // Chamado ao enviar: extrai quem foi @mencionado a partir do texto (nomes
+    // mais compridos primeiro, para "@Ana Maria" não ficar só "@Ana"), para o
+    // servidor poder notificar especificamente essas pessoas.
+    function extractMentionedPhones(text, chatId) {
+        const chat = APP.chats.find(c => c.id === chatId);
+        if (!chat || chat.type !== 'group') return [];
+        const candidates = APP.chats.filter(c => c.type === 'user' && c.name && c.phone !== APP.user.phone).sort((a, b) => b.name.length - a.name.length);
+        const phones = new Set();
+        candidates.forEach(c => {
+            const re = new RegExp('@' + escapeRegex(c.name) + '(?![A-Za-zÀ-ÿ0-9_])');
+            if (re.test(text)) phones.add(c.phone);
+        });
+        return [...phones];
+    }
+    // Realça "@Nome" nas mensagens de grupo já mostradas (com destaque próprio
+    // quando és tu o mencionado). Opera sempre sobre texto já escapado (ver
+    // renderMessageBody) para não abrir espaço a HTML injetado numa mensagem.
+    function highlightMentions(escapedText, chatId) {
+        const chat = APP.chats.find(c => c.id === chatId);
+        if (!chat || chat.type !== 'group') return escapedText;
+        // APP.chats (contactos) exclui sempre a própria conta (não faz sentido
+        // "conversar contigo próprio"), mas para RECONHECER menções precisamos
+        // de incluir o próprio utilizador também — senão nunca reconhecerias
+        // que foste tu quem foi mencionado ao veres a mensagem.
+        const candidates = APP.chats.filter(c => c.type === 'user' && c.name)
+            .concat(APP.user ? [{ name: APP.user.name, phone: APP.user.phone }] : [])
+            .sort((a, b) => b.name.length - a.name.length);
+        if (!candidates.length) return escapedText;
+        const byEscapedName = {};
+        candidates.forEach(c => { byEscapedName[escapeHtml(c.name)] = c; });
+        const pattern = new RegExp('@(' + Object.keys(byEscapedName).map(escapeRegex).join('|') + ')(?![A-Za-zÀ-ÿ0-9_])', 'g');
+        return escapedText.replace(pattern, (match, nameMatched) => {
+            const contact = byEscapedName[nameMatched];
+            const isMe = contact && contact.phone === APP.user.phone;
+            const style = isMe
+                ? 'background:rgba(255,193,7,0.35);font-weight:700;border-radius:4px;padding:0 3px;'
+                : 'color:var(--blue);font-weight:600;';
+            return `<span style="${style}">${match}</span>`;
+        });
+    }
+    function renderMessageBody(msg, chatId) {
+        const escaped = escapeHtml(msg.text || '');
+        return highlightMentions(escaped, chatId);
     }
 
     socket.on('message_deleted_received', (data) => {
@@ -8739,6 +8835,10 @@
     function openContactsFeaturesModal() { document.getElementById('modalContactsFeatures').classList.add('active'); }
     function openChatMoreModal() { document.getElementById('modalChatMore').classList.add('active'); }
     document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
+    document.addEventListener('click', function(e) {
+        const box = document.getElementById('mentionAutocomplete');
+        if (box && box.style.display !== 'none' && e.target.id !== 'messageInput' && !box.contains(e.target)) hideMentionAutocomplete();
+    });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             if (document.getElementById('callScreen').classList.contains('active')) endCall();
