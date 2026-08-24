@@ -1306,6 +1306,7 @@
             <input type="password" id="loginPassword" placeholder="Senha">
             <div class="login-error" id="loginError"></div>
             <button class="btn btn-primary" onclick="doLogin()">🚀 Entrar</button>
+            <button class="btn" onclick="openQrScanModal()" style="background:var(--bg-tertiary);">🔗 Associar por QR (já tenho conta noutro aparelho)</button>
             <div class="login-switch" onclick="showAuthForm('register')">Não tem conta? Criar conta</div>
         </div>
 
@@ -1332,6 +1333,21 @@
             <div class="login-error" id="registerError"></div>
             <button class="btn btn-primary" onclick="doRegister()">✅ Criar conta</button>
             <div class="login-switch" onclick="showAuthForm('login')">Já tem conta? Entrar</div>
+        </div>
+    </div>
+
+    <!-- Fora de #mainApp de propósito: usada a partir do ecrã de login, antes de
+         entrar na app, por isso não pode ficar escondida junto com #mainApp. -->
+    <div class="modal-overlay" id="modalQrScan">
+        <div class="modal" style="text-align:center;">
+            <h3>🔗 Associar por QR</h3>
+            <p style="color:var(--text-secondary);font-size:13px;">Aponta a câmara para o código mostrado no outro dispositivo (em "Dispositivos ligados").</p>
+            <div id="qrScanContent" style="margin:14px 0;min-height:260px;display:flex;align-items:center;justify-content:center;">
+                <video id="qrScanVideo" playsinline muted style="width:100%;max-width:280px;border-radius:8px;display:none;"></video>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-small" onclick="closeQrScanModal()">Cancelar</button>
+            </div>
         </div>
     </div>
 
@@ -3141,6 +3157,56 @@
         } catch (e) {
             alert('⚠️ Não foi possível ligar ao servidor para associar este dispositivo.');
         }
+    }
+
+    // ---- Ler o QR com a câmara, direto no ecrã de login (sem precisar da
+    // câmara nativa do telemóvel) ----
+    // Usa a API nativa BarcodeDetector do navegador (Chrome/Edge/Android) em
+    // vez de trazer uma biblioteca de leitura de QR só para isto — mais
+    // simples e sem risco de uma implementação própria mal-feita a falhar a
+    // ler códigos válidos. Onde não há suporte (ex.: Safari/iPhone), mostra
+    // logo um aviso claro em vez de ficar preso num ecrã de câmara que nunca
+    // deteta nada — nesses casos continua a dar para associar abrindo o URL
+    // do código com a câmara normal do telemóvel (já funciona sem isto).
+    const QR_SCAN = { stream: null, rafId: null };
+    async function openQrScanModal() {
+        document.getElementById('modalQrScan').classList.add('active');
+        const content = document.getElementById('qrScanContent');
+        const video = document.getElementById('qrScanVideo');
+        video.style.display = 'none';
+        if (!('BarcodeDetector' in window)) {
+            content.innerHTML = '<p style="color:var(--text-secondary);">O teu navegador não suporta leitura de QR pela câmara. Em alternativa, abre a câmara normal do telemóvel e aponta para o código mostrado no outro dispositivo — funciona na mesma.</p>';
+            return;
+        }
+        try {
+            QR_SCAN.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video.srcObject = QR_SCAN.stream;
+            video.style.display = 'block';
+            await video.play();
+            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+            const tick = async () => {
+                if (!QR_SCAN.stream) return; // já cancelado
+                if (!document.getElementById('modalQrScan').classList.contains('active')) { closeQrScanModal(); return; } // fechado pelo fundo escuro, sem passar por closeQrScanModal()
+                try {
+                    const codes = await detector.detect(video);
+                    if (codes.length) {
+                        const pairingToken = new URL(codes[0].rawValue, location.origin).searchParams.get('pair');
+                        if (pairingToken) { closeQrScanModal(); redeemDevicePairing(pairingToken); return; }
+                    }
+                } catch (e) { /* frame sem código legível — tenta outra vez no próximo */ }
+                QR_SCAN.rafId = requestAnimationFrame(tick);
+            };
+            tick();
+        } catch (e) {
+            content.innerHTML = `<p style="color:var(--text-secondary);">⚠️ Não foi possível aceder à câmara: ${escapeHtml(e.message)}</p>`;
+        }
+    }
+    function closeQrScanModal() {
+        if (QR_SCAN.rafId) cancelAnimationFrame(QR_SCAN.rafId);
+        QR_SCAN.rafId = null;
+        if (QR_SCAN.stream) QR_SCAN.stream.getTracks().forEach((t) => t.stop());
+        QR_SCAN.stream = null;
+        closeModal('modalQrScan');
     }
 
     function logout() {
