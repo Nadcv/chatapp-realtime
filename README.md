@@ -694,3 +694,9 @@ Ao enviar uma foto, aparece uma pré-visualização com a opção "👁️ Ver u
 
 Em "👤 O meu perfil" → "📊 As minhas estatísticas": um resumo pessoal ao estilo "Wrapped" com mensagens enviadas/recebidas, fotos/vídeos/áudios/GIFs enviados, quantas fotos "ver uma vez" já mandaste, tempo total passado na app, número de contactos e grupos, o teu emoji mais usado, a hora do dia em que mais escreves, e qual é a tua conversa mais ativa. Tudo calculado no próprio dispositivo a partir do histórico que já estava carregado (o mesmo aproveitado pela pesquisa global) — sem pedir nada novo ao servidor.
 
+## 🔒 Senhas mais fortes no cadastro
+
+Reparámos que era possível criar uma conta com uma senha de apenas 4 caracteres, e sem nenhum aviso se essa senha fosse óbvia (`12345678`, `password`, `aaaaaaaa`, etc.). Corrigido: agora exige-se pelo menos 8 caracteres, e uma lista das senhas mais comuns/previsíveis do mundo é recusada logo no cadastro, com uma mensagem clara para escolher outra.
+
+**Nota sobre o que NÃO foi feito, e porquê**: impedir que duas contas diferentes tenham a mesma senha entre si (algo que foi pedido) não é possível de fazer com segurança — para o servidor confirmar "esta senha já está a ser usada por outra pessoa" teria de comparar a tua senha com a de todas as outras contas, o que ou exige guardar as senhas de forma reversível (o oposto do que este projeto já faz bem, com `scrypt` + sal único por conta) ou cria um "oráculo" que um atacante podia usar para ir testando senhas até descobrir a de uma pessoa específica. A proteção real contra senhas fracas/previsíveis é a lista de bloqueio acima, que é a mesma abordagem recomendada pelo NIST (a autoridade norte-americana de normas de segurança) para este tipo de situação.
+
