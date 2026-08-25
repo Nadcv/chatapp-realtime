@@ -1978,6 +1978,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openFiresScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔥<span style="font-size:11px;">Incêndios</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSpaceScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛰️<span style="font-size:11px;">Espaço</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTourismScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗺️<span style="font-size:11px;">Turismo</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDriveListenScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚗<span style="font-size:11px;">Conduzir e Ouvir</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openWeatherScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌦️<span style="font-size:11px;">Meteorologia</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openActivitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏃<span style="font-size:11px;">Atividades</span></button>
@@ -2389,6 +2390,40 @@
                 </div>
                 <div id="fireEmailStatus" style="font-size:12px;text-align:center;min-height:16px;"></div>
                 <p style="font-size:11px;color:var(--text-secondary);margin:0;text-align:center;">O botão 112 liga já para a emergência. O SMS é preparado com a tua localização e enviado por ti. O email é enviado de verdade pelo servidor (precisa de estar configurado — ver README) para o endereço que escreveres — nenhum destes é um despacho automático aos bombeiros.</p>
+            </div>
+        </div>
+
+        <!-- ============ TURISMO (pontos de interesse pelo mundo) ============ -->
+        <div class="location-screen" id="tourismScreen">
+            <div class="location-header">
+                <strong>🗺️ Turismo</strong>
+                <button onclick="closeTourismScreen()">✖️</button>
+            </div>
+            <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);overflow-x:auto;">
+                <button class="btn-small" onclick="flyTourismTo('madrid')" style="flex-shrink:0;">🇪🇸 Madrid</button>
+                <button class="btn-small" onclick="flyTourismTo('paris')" style="flex-shrink:0;">🇫🇷 Paris</button>
+                <button class="btn-small" onclick="flyTourismTo('portugal')" style="flex-shrink:0;">🇵🇹 Portugal</button>
+                <button class="btn-small" onclick="flyTourismTo('world')" style="flex-shrink:0;">🌍 Mundo</button>
+            </div>
+            <div style="position:relative;flex:1;overflow:hidden;">
+                <div id="tourismMap" style="position:absolute;inset:0;"></div>
+                <button onclick="searchTourismHere()" style="position:absolute;top:10px;right:10px;z-index:500;padding:8px 14px;border-radius:20px;background:var(--bg-secondary);border:none;font-size:13px;cursor:pointer;box-shadow:var(--shadow);">🔍 Procurar aqui</button>
+            </div>
+            <div id="tourismStatus" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);text-align:center;background:var(--bg-secondary);">Escolhe uma cidade acima, navega no mapa, ou toca num ponto qualquer para explorar essa área.</div>
+        </div>
+
+        <!-- ============ FICHA DE UM PONTO TURÍSTICO ============ -->
+        <div class="modal-overlay" id="modalTourismPoi">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <div id="tourismPoiImage" style="display:none;width:100%;max-height:180px;overflow:hidden;border-radius:10px;margin-bottom:10px;"><img id="tourismPoiImg" style="width:100%;object-fit:cover;"></div>
+                <h3 id="tourismPoiTitle"></h3>
+                <p id="tourismPoiExtract" style="font-size:13px;color:var(--text-secondary);"></p>
+                <div class="modal-actions" style="flex-wrap:wrap;">
+                    <a id="tourismPoiWikiLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">📖 Ler mais</button></a>
+                    <a id="tourismPoiDirectionsLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small btn-accept">🧭 Como chegar</button></a>
+                    <button class="btn-small" id="tourismPoiTransportBtn" style="display:none;" onclick="openTransportFromTourism()">🚌 Transportes (PT)</button>
+                    <button class="btn-small" onclick="closeModal('modalTourismPoi')">Fechar</button>
+                </div>
             </div>
         </div>
 
@@ -4870,6 +4905,94 @@
             () => send('(não foi possível obter a localização exata)'),
             { enableHighAccuracy: true, timeout: 8000 }
         );
+    }
+
+    // ==================== TURISMO (pontos de interesse pelo mundo) ====================
+    // Sem API de comboios/autocarros próprios — "como chegar" abre direções de
+    // transporte público no Google Maps (funciona em qualquer lugar do mundo,
+    // sem precisarmos de manter dados de transportes nós próprios). Dentro de
+    // Portugal, oferece também um atalho para a aba "Transportes" já existente
+    // (que tem estações reais de metro/comboio).
+    const TOURISM = {
+        map: null, layer: null,
+        cities: {
+            madrid: { lat: 40.4168, lon: -3.7038, zoom: 12 },
+            paris: { lat: 48.8566, lon: 2.3522, zoom: 12 },
+            portugal: { lat: 39.5, lon: -8.0, zoom: 7 },
+            world: { lat: 20, lon: 0, zoom: 2 }
+        }
+    };
+    function openTourismScreen() {
+        document.getElementById('tourismScreen').classList.add('active');
+        if (!TOURISM.map) {
+            TOURISM.map = L.map('tourismMap').setView([39.5, -8], 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(TOURISM.map);
+            TOURISM.layer = L.layerGroup().addTo(TOURISM.map);
+            TOURISM.map.on('click', (e) => {
+                TOURISM.map.setView(e.latlng, Math.max(TOURISM.map.getZoom(), 12));
+                searchTourismHere();
+            });
+        }
+        setTimeout(() => TOURISM.map.invalidateSize(), 200);
+    }
+    function closeTourismScreen() { document.getElementById('tourismScreen').classList.remove('active'); }
+    function flyTourismTo(place) {
+        const c = TOURISM.cities[place];
+        if (!c || !TOURISM.map) return;
+        TOURISM.map.setView([c.lat, c.lon], c.zoom);
+        searchTourismHere();
+    }
+    function isInPortugal(lat, lon) {
+        return lat >= 36.8 && lat <= 42.2 && lon >= -9.6 && lon <= -6.0;
+    }
+    async function searchTourismHere() {
+        const status = document.getElementById('tourismStatus');
+        const center = TOURISM.map.getCenter();
+        const zoom = TOURISM.map.getZoom();
+        if (zoom < 8) {
+            status.textContent = 'Aproxima-te mais (zoom) para veres pontos turísticos nesta área.';
+            return;
+        }
+        status.textContent = 'A procurar pontos turísticos...';
+        try {
+            const res = await fetch(`/api/tourism/poi?lat=${center.lat}&lon=${center.lng}&radius=10000`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha ao procurar.');
+            TOURISM.layer.clearLayers();
+            (data.points || []).forEach(p => {
+                L.marker([p.lat, p.lon]).bindTooltip(p.title).on('click', () => openTourismPoi(p)).addTo(TOURISM.layer);
+            });
+            status.textContent = data.points?.length ? `${data.points.length} ponto(s) encontrados nesta área — toca num marcador para saber mais.` : 'Nenhum ponto turístico encontrado aqui — tenta noutra área do mapa.';
+        } catch (err) {
+            status.textContent = '⚠️ ' + err.message;
+        }
+    }
+    async function openTourismPoi(point) {
+        document.getElementById('tourismPoiTitle').textContent = point.title;
+        document.getElementById('tourismPoiExtract').textContent = 'A carregar informação...';
+        document.getElementById('tourismPoiImage').style.display = 'none';
+        document.getElementById('tourismPoiDirectionsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=transit`;
+        document.getElementById('tourismPoiWikiLink').href = `https://pt.wikipedia.org/wiki/${encodeURIComponent(point.title)}`;
+        document.getElementById('tourismPoiTransportBtn').style.display = isInPortugal(point.lat, point.lon) ? 'flex' : 'none';
+        document.getElementById('modalTourismPoi').classList.add('active');
+        try {
+            const res = await fetch(`/api/tourism/details?title=${encodeURIComponent(point.title)}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha.');
+            document.getElementById('tourismPoiExtract').textContent = data.extract || 'Sem descrição disponível para este ponto.';
+            if (data.thumbnail) {
+                document.getElementById('tourismPoiImg').src = data.thumbnail;
+                document.getElementById('tourismPoiImage').style.display = 'block';
+            }
+            if (data.wikiUrl) document.getElementById('tourismPoiWikiLink').href = data.wikiUrl;
+        } catch (err) {
+            document.getElementById('tourismPoiExtract').textContent = '⚠️ Não foi possível carregar mais informação agora.';
+        }
+    }
+    function openTransportFromTourism() {
+        closeModal('modalTourismPoi');
+        closeTourismScreen();
+        openTransportScreen();
     }
 
     // ==================== NOTÍCIAS ====================

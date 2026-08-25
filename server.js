@@ -632,6 +632,47 @@ app.post('/api/fires/send-email', async (req, res) => {
   }
 });
 
+// ==================== TURISMO (pontos de interesse pelo mundo) ====================
+// Usa a pesquisa geográfica da Wikipédia em português (gratuita, sem chave)
+// para encontrar pontos de interesse perto de um sítio, e o resumo da página
+// (extract + imagem) para dar uma breve "história" de cada um. Sem API de
+// transportes própria — "como chegar" é feito pelo cliente com um link direto
+// para direções de transporte público no Google Maps, sem precisarmos de
+// manter dados de autocarros/comboios/metros nós próprios.
+app.get('/api/tourism/poi', async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ error: 'Coordenadas em falta.' });
+  const radius = Math.min(Math.max(parseInt(req.query.radius) || 10000, 1000), 10000); // limite da própria API da Wikipédia
+  try {
+    const url = `https://pt.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord=${lat}|${lon}&gsradius=${radius}&gslimit=30&format=json`;
+    const cacheKey = `tourism_poi_${lat.toFixed(3)}_${lon.toFixed(3)}_${radius}`;
+    const data = await cachedFetch(cacheKey, url, 3600000, { headers: { 'User-Agent': 'ChatAppTurismo/1.0 (funcionalidade de turismo dentro de uma app de mensagens; sem contacto público)' } });
+    const points = (data.query?.geosearch || []).map((p) => ({ title: p.title, lat: p.lat, lon: p.lon, distanceM: Math.round(p.dist) }));
+    res.json({ points });
+  } catch (err) {
+    console.error('Erro pontos turísticos:', err.message);
+    res.status(502).json({ error: 'Não foi possível procurar pontos turísticos agora.' });
+  }
+});
+app.get('/api/tourism/details', async (req, res) => {
+  const title = (req.query.title || '').trim();
+  if (!title) return res.status(400).json({ error: 'Falta o título do ponto.' });
+  try {
+    const url = `https://pt.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const cacheKey = `tourism_details_${title.toLowerCase()}`;
+    const data = await cachedFetch(cacheKey, url, 24 * 3600000, { headers: { 'User-Agent': 'ChatAppTurismo/1.0 (funcionalidade de turismo dentro de uma app de mensagens; sem contacto público)' } });
+    res.json({
+      extract: data.extract || null,
+      thumbnail: data.thumbnail?.source || null,
+      wikiUrl: data.content_urls?.desktop?.page || null
+    });
+  } catch (err) {
+    console.error('Erro detalhes de ponto turístico:', err.message);
+    res.status(502).json({ error: 'Não foi possível carregar mais informação agora.' });
+  }
+});
+
 // ==================== ONDE ASSISTIR (filmes e séries) ====================
 // Pesquisa um título e mostra em que serviços de streaming está disponível
 // (Netflix, Prime Video, Disney+, etc.) — usa a API gratuita do TMDB (The
