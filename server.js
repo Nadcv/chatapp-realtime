@@ -209,6 +209,34 @@ function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
 
+// Bloqueia as senhas mais óbvias/mais usadas do mundo (equivalentes às listas
+// que o NIST recomenda verificar) — impedir que DUAS contas diferentes usem a
+// mesma senha entre si não é possível de fazer com segurança (obrigaria o
+// servidor a comparar a senha de uma pessoa com a de outra, o que é o oposto
+// de seguro); o que protege de verdade é impedir senhas fracas e previsíveis.
+const COMMON_WEAK_PASSWORDS = new Set([
+  '12345678', '123456789', '1234567890', 'password', 'password1', 'password123',
+  'qwerty123', 'qwertyuiop', '11111111', '00000000', '123123123', 'abc123456',
+  'iloveyou', 'iloveyou1', 'admin123', 'admin1234', 'welcome1', 'welcome123',
+  'senha1234', 'senha123456', 'senha12345', '1234567891', '87654321', '123454321',
+  'asdfghjk', 'asdfghjkl', 'letmein1', 'letmein123', 'football1', 'baseball1',
+  'princess1', 'sunshine1', 'master123', 'dragon123', 'trustno1', 'monkey123',
+  'passw0rd', 'p@ssw0rd', 'qazwsx123', '1q2w3e4r', '1q2w3e4r5t', 'zxcvbnm123',
+  '000000000', 'q1w2e3r4', 'changeme1', 'test1234', 'test12345', 'user1234',
+  'abcd1234', '1234abcd', 'senhasenha', 'minhasenha', 'contrasena',
+]);
+function isWeakPassword(password) {
+  const p = String(password).toLowerCase();
+  if (COMMON_WEAK_PASSWORDS.has(p)) return true;
+  if (/^(.)\1+$/.test(p)) return true; // todos os caracteres iguais (ex: "aaaaaaaa")
+  // sequência simples e crescente de caracteres (ex: "12345678", "abcdefgh")
+  let sequential = true;
+  for (let i = 1; i < p.length; i++) {
+    if (p.charCodeAt(i) !== p.charCodeAt(i - 1) + 1) { sequential = false; break; }
+  }
+  return sequential;
+}
+
 function isAdminPhone(phone) {
   if (process.env.ADMIN_PHONE) return phone === process.env.ADMIN_PHONE;
   return phone === firstRegisteredPhone;
@@ -231,7 +259,8 @@ app.post('/api/register', async (req, res) => {
   if (username.length < 3) return res.status(400).json({ error: 'O nome de utilizador deve ter pelo menos 3 caracteres (letras, números ou _).' });
   if (accounts[phone]) return res.status(409).json({ error: 'Já existe uma conta com esse número de telefone.' });
   if (usernameIndex[username]) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
-  if (String(password).length < 4) return res.status(400).json({ error: 'A senha deve ter pelo menos 4 caracteres.' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
+  if (isWeakPassword(password)) return res.status(400).json({ error: 'Essa senha é demasiado comum/fácil de adivinhar (ex.: sequências ou senhas muito usadas). Escolhe uma diferente.' });
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
   const validBirthday = typeof birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(birthday) ? birthday : null;
