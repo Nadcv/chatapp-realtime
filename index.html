@@ -2400,9 +2400,12 @@
                 <button onclick="closeTourismScreen()">✖️</button>
             </div>
             <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);overflow-x:auto;">
+                <button class="btn-small" onclick="flyTourismTo('valencia')" style="flex-shrink:0;">🇪🇸 Valência</button>
                 <button class="btn-small" onclick="flyTourismTo('madrid')" style="flex-shrink:0;">🇪🇸 Madrid</button>
                 <button class="btn-small" onclick="flyTourismTo('paris')" style="flex-shrink:0;">🇫🇷 Paris</button>
                 <button class="btn-small" onclick="flyTourismTo('portugal')" style="flex-shrink:0;">🇵🇹 Portugal</button>
+                <button class="btn-small" onclick="flyTourismTo('alemanha')" style="flex-shrink:0;">🇩🇪 Alemanha</button>
+                <button class="btn-small" onclick="flyTourismTo('holanda')" style="flex-shrink:0;">🇳🇱 Holanda</button>
                 <button class="btn-small" onclick="flyTourismTo('world')" style="flex-shrink:0;">🌍 Mundo</button>
             </div>
             <div style="position:relative;flex:1;overflow:hidden;">
@@ -2413,14 +2416,15 @@
         </div>
 
         <!-- ============ FICHA DE UM PONTO TURÍSTICO ============ -->
-        <div class="modal-overlay" id="modalTourismPoi">
+        <div class="modal-overlay" id="modalTourismPoi" style="z-index:200;">
             <div class="modal" style="max-height:80vh;overflow-y:auto;">
                 <div id="tourismPoiImage" style="display:none;width:100%;max-height:180px;overflow:hidden;border-radius:10px;margin-bottom:10px;"><img id="tourismPoiImg" style="width:100%;object-fit:cover;"></div>
                 <h3 id="tourismPoiTitle"></h3>
                 <p id="tourismPoiExtract" style="font-size:13px;color:var(--text-secondary);"></p>
                 <div class="modal-actions" style="flex-wrap:wrap;">
                     <a id="tourismPoiWikiLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">📖 Ler mais</button></a>
-                    <button class="btn-small btn-accept" onclick="showTourismDirections()">🧭 Como chegar</button>
+                    <button class="btn-small btn-accept" onclick="showTourismDirections()">🧭 Como chegar (na app)</button>
+                    <a id="tourismPoiGoogleMapsLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">🗺️ Abrir no Google Maps</button></a>
                     <button class="btn-small" id="tourismPoiTransportBtn" style="display:none;" onclick="openTransportFromTourism()">🚌 Transportes (PT)</button>
                     <button class="btn-small" onclick="closeModal('modalTourismPoi')">Fechar</button>
                 </div>
@@ -4917,9 +4921,12 @@
     const TOURISM = {
         map: null, layer: null, lastPoi: null, routeLine: null, routeMarkers: [],
         cities: {
+            valencia: { lat: 39.4699, lon: -0.3763, zoom: 12 },
             madrid: { lat: 40.4168, lon: -3.7038, zoom: 12 },
             paris: { lat: 48.8566, lon: 2.3522, zoom: 12 },
             portugal: { lat: 39.5, lon: -8.0, zoom: 7 },
+            alemanha: { lat: 51.1657, lon: 10.4515, zoom: 6 },
+            holanda: { lat: 52.1326, lon: 5.2913, zoom: 7 },
             world: { lat: 20, lon: 0, zoom: 2 }
         }
     };
@@ -4975,6 +4982,7 @@
         document.getElementById('tourismPoiExtract').textContent = 'A carregar informação...';
         document.getElementById('tourismPoiImage').style.display = 'none';
         document.getElementById('tourismPoiWikiLink').href = `https://pt.wikipedia.org/wiki/${encodeURIComponent(point.title)}`;
+        document.getElementById('tourismPoiGoogleMapsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=transit`;
         document.getElementById('tourismPoiTransportBtn').style.display = isInPortugal(point.lat, point.lon) ? 'flex' : 'none';
         document.getElementById('modalTourismPoi').classList.add('active');
         try {
