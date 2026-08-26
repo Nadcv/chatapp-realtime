@@ -10111,6 +10111,11 @@
     // nesse caso NÃO reenviamos 'end_call', senão os dois lados ficam ecoando o evento um
     // para o outro para sempre e a sala fica "presa", impedindo novas chamadas depois.
     function endCall(remoteInitiated) {
+        // Para sempre o toque primeiro, mesmo que a chamada nunca tenha chegado a
+        // ficar "ativa" — uma chamada só a tocar (ainda não aceite) não marca
+        // APP.callActive, e sem isto, se quem ligou desistisse antes de a pessoa
+        // atender, o modal fechava mas o toque ficava a repetir para sempre.
+        stopRingtone();
         if (!APP.callActive) return; // já foi encerrada — ignora chamadas duplicadas do evento
         APP.callActive = false;
         if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
