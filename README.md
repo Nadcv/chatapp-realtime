@@ -718,3 +718,11 @@ Nota técnica: a pesquisa de pontos usa sempre o centro do mapa com um raio de 1
 
 **🌦️ Clima no mapa**: um pequeno indicador no canto do mapa mostra a temperatura e o tempo atual de onde quer que estejas a ver — reaproveita a mesma API de meteorologia já usada na aba "Meteorologia" (Open-Meteo, gratuita, sem chave), só que agora também aceita coordenadas diretas em vez de precisar do nome de uma cidade. Atualiza sempre que saltas para uma cidade ou tocas em "🔍 Procurar aqui", mesmo numa vista de país inteiro (onde a procura de pontos turísticos fica em pausa à espera que te aproximes, mas o clima continua a fazer sentido).
 
+## 💰 Dividir despesas de viagem
+
+Em qualquer conversa (grupo ou 1-para-1), o menu "⋮ Mais" tem agora um botão "💰 Despesas" que abre um mini-Splitwise: mostra quanto cada pessoa deve ou tem a receber, e permite adicionar uma nova despesa (descrição, valor, moeda, quem pagou, e por quem é dividida). Cada despesa aparece também como uma mensagem normal na conversa, com um resumo rápido ("Pago por X · dividido por N pessoas").
+
+**Como funciona por baixo**: não há nenhuma tabela nova no servidor — cada despesa é só mais um campo opcional (`expense`) numa mensagem normal, tal como já acontece com as enquetes e os jogos, por isso viaja automaticamente pelo mesmo caminho (`send_message` / `receive_message` / histórico da conversa) sem precisar de guardar nada extra. O valor é convertido para euros no momento em que é registado, reaproveitando as mesmas taxas de câmbio já usadas na aba "Câmbio".
+
+**Simplificação assumida**: como os grupos nesta app são "abertos" (qualquer conta cadastrada vê o grupo, sem uma lista fixa de membros a consultar), não há como perguntar ao servidor "quem está neste grupo". Por isso, quem pagou e quem participa numa despesa é identificado pelo **nome** de quem já enviou mensagens nessa conversa (não pelo número de telefone) — funciona bem no uso normal, mas duas pessoas com o mesmo nome de perfil na mesma conversa seriam tratadas como uma só.
+
