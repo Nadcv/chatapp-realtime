@@ -1410,13 +1410,13 @@
                     <button onclick="chatSearchNav(1)" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">⬇️</button>
                     <button onclick="toggleChatSearch()" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-size:16px;">✖️</button>
                 </div>
-                <div id="pinnedBanner" style="display:none;padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid rgba(255,255,255,0.08);align-items:center;gap:8px;cursor:pointer;" onclick="scrollToPinned()">
+                <div id="pinnedBanner" style="display:none;padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid rgba(255,255,255,0.08);align-items:center;gap:8px;cursor:pointer;" onclick="onPinnedBannerClick()">
                     <span style="font-size:14px;">📌</span>
                     <div style="flex:1;overflow:hidden;">
-                        <div style="font-size:11px;color:var(--text-secondary);">Mensagem fixada</div>
+                        <div id="pinnedBannerLabel" style="font-size:11px;color:var(--text-secondary);">Mensagem fixada</div>
                         <div id="pinnedBannerText" style="font-size:13px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
                     </div>
-                    <button onclick="event.stopPropagation(); unpinCurrentMessage();" style="background:none;border:none;color:var(--text-secondary);font-size:14px;cursor:pointer;">✖️</button>
+                    <button id="pinnedBannerUnpinBtn" onclick="event.stopPropagation(); unpinBannerMessage();" style="background:none;border:none;color:var(--text-secondary);font-size:14px;cursor:pointer;">✖️</button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="reply-preview-bar" id="replyPreviewBar" style="display:none;">
@@ -1793,6 +1793,15 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalAddExpense');openExpensesModal()">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="submitExpense()">Adicionar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalPinnedMessages">
+            <div class="modal">
+                <h3>📌 Mensagens fixadas</h3>
+                <div id="pinnedMessagesList" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalPinnedMessages')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -4227,19 +4236,32 @@
         setTimeout(() => startCall(type === 'video' ? 'video' : 'voice'), 200);
     }
 
-    // ==================== MENSAGENS FIXADAS ====================
+    // ==================== MENSAGENS FIXADAS (até 10 por conversa) ====================
     APP.pinnedByChatId = {};
     socket.on('message_pinned_received', (data) => {
         if (!data?.chatId) return;
-        if (data.pin) APP.pinnedByChatId[data.chatId] = data.pin; else delete APP.pinnedByChatId[data.chatId];
-        if (APP.currentChatId === data.chatId) updatePinnedBanner();
+        const pins = Array.isArray(data.pins) ? data.pins : (data.pin ? [data.pin] : []);
+        if (pins.length) APP.pinnedByChatId[data.chatId] = pins; else delete APP.pinnedByChatId[data.chatId];
+        if (APP.currentChatId === data.chatId) { updatePinnedBanner(); renderMessages(); }
+        if (document.getElementById('modalPinnedMessages').classList.contains('active')) renderPinnedMessagesList();
+    });
+    socket.on('message_pin_rejected', (data) => {
+        if (data?.reason) alert(data.reason);
     });
     function updatePinnedBanner() {
         const banner = document.getElementById('pinnedBanner');
-        const pin = APP.pinnedByChatId[APP.currentChatId];
-        if (!pin) { banner.style.display = 'none'; return; }
+        const pins = APP.pinnedByChatId[APP.currentChatId] || [];
+        if (!pins.length) { banner.style.display = 'none'; return; }
         banner.style.display = 'flex';
-        document.getElementById('pinnedBannerText').textContent = `${pin.sender}: ${pin.text}`;
+        if (pins.length === 1) {
+            document.getElementById('pinnedBannerLabel').textContent = 'Mensagem fixada';
+            document.getElementById('pinnedBannerText').textContent = `${pins[0].sender}: ${pins[0].text}`;
+            document.getElementById('pinnedBannerUnpinBtn').style.display = 'block';
+        } else {
+            document.getElementById('pinnedBannerLabel').textContent = `${pins.length} mensagens fixadas`;
+            document.getElementById('pinnedBannerText').textContent = 'Toca para ver todas';
+            document.getElementById('pinnedBannerUnpinBtn').style.display = 'none';
+        }
     }
     function pinMessage(msgId) {
         const msgs = APP.messages[APP.currentChatId];
@@ -4247,15 +4269,40 @@
         if (!msg || !APP.currentChatId) return;
         socket.emit('pin_message', { chatId: APP.currentChatId, messageId: msgId, text: (msg.text || '').substring(0, 200), sender: msg.type === 'sent' ? 'Você' : msg.sender });
     }
-    function unpinCurrentMessage() {
-        if (!APP.currentChatId) return;
-        socket.emit('unpin_message', { chatId: APP.currentChatId });
+    function unpinMessage(msgId) {
+        if (!APP.currentChatId || !msgId) return;
+        socket.emit('unpin_message', { chatId: APP.currentChatId, messageId: msgId });
     }
-    function scrollToPinned() {
-        const pin = APP.pinnedByChatId[APP.currentChatId];
-        if (!pin) return;
-        const el = document.querySelector(`[data-msg-id="${pin.messageId}"]`);
+    function unpinBannerMessage() {
+        const pins = APP.pinnedByChatId[APP.currentChatId] || [];
+        if (pins.length === 1) unpinMessage(pins[0].messageId);
+    }
+    function onPinnedBannerClick() {
+        const pins = APP.pinnedByChatId[APP.currentChatId] || [];
+        if (pins.length <= 1) scrollToPinned(pins[0]?.messageId);
+        else openPinnedMessagesModal();
+    }
+    function scrollToPinned(messageId) {
+        const targetId = messageId || (APP.pinnedByChatId[APP.currentChatId] || [])[0]?.messageId;
+        if (!targetId) return;
+        const el = document.querySelector(`[data-msg-id="${targetId}"]`);
         if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.background = 'rgba(0,168,132,0.25)'; setTimeout(() => el.style.background = '', 1500); }
+    }
+    function openPinnedMessagesModal() {
+        renderPinnedMessagesList();
+        document.getElementById('modalPinnedMessages').classList.add('active');
+    }
+    function renderPinnedMessagesList() {
+        const pins = APP.pinnedByChatId[APP.currentChatId] || [];
+        const list = document.getElementById('pinnedMessagesList');
+        list.innerHTML = pins.length ? pins.map(p => `
+            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start;">
+                <div style="flex:1;cursor:pointer;overflow:hidden;" onclick="closeModal('modalPinnedMessages');scrollToPinned('${p.messageId}')">
+                    <div style="font-size:12px;font-weight:600;">${escapeHtml(p.sender)}</div>
+                    <div style="font-size:13px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(p.text)}</div>
+                </div>
+                <button onclick="unpinMessage('${p.messageId}')" title="Desafixar" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">✖️</button>
+            </div>`).join('') : '<p style="color:#8696a0;font-size:13px;">Nenhuma mensagem fixada nesta conversa.</p>';
     }
 
     // ==================== MENSAGENS TEMPORÁRIAS ====================
@@ -7839,7 +7886,7 @@
             const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
             const threadCount = replyCounts[msg.id] || 0;
             const threadHtml = threadCount ? `<div style="font-size:11px;color:var(--blue);cursor:pointer;margin-top:2px;" onclick="openThread('${msg.id}')">🧵 ${threadCount} resposta${threadCount > 1 ? 's' : ''}</div>` : '';
-            const isPinned = APP.pinnedByChatId[APP.currentChatId]?.messageId === msg.id;
+            const isPinned = (APP.pinnedByChatId[APP.currentChatId] || []).some(p => p.messageId === msg.id);
             const pinnedLabel = isPinned ? '<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">📌 Fixada</div>' : '';
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
@@ -7862,7 +7909,7 @@
                     <button onclick="replyToMessage('${msg.id}')" title="Responder" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↩️</button>
                     <button onclick="toggleReactionPicker('${msg.id}', this)" title="Reagir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">😀</button>
                     <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🌐</button>
-                    <button onclick="${isPinned ? 'unpinCurrentMessage()' : `pinMessage('${msg.id}')`}" title="${isPinned ? 'Desafixar' : 'Fixar'}" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">📌</button>
+                    <button onclick="${isPinned ? `unpinMessage('${msg.id}')` : `pinMessage('${msg.id}')`}" title="${isPinned ? 'Desafixar' : 'Fixar'}" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">📌</button>
                     ${canEdit ? `<button onclick="editMessage('${msg.id}')" title="Editar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">✏️</button>` : ''}
                     ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Apagar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🗑️</button>` : ''}
                     ` : ''}

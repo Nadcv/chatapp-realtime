@@ -1754,12 +1754,21 @@ function saveNotesLocal() {
   });
 }
 
-// ==================== MENSAGENS FIXADAS (uma por conversa) ====================
+// ==================== MENSAGENS FIXADAS (várias por conversa, até MAX_PINS_PER_ROOM) ====================
 const PINS_FILE = path.join(__dirname, 'pins.json');
-let pinnedByRoom = {}; // roomId -> { messageId, text, sender }
+const MAX_PINS_PER_ROOM = 10;
+let pinnedByRoom = {}; // roomId -> [{ messageId, text, sender, pinnedAt }, ...]
 function loadPinsLocal() {
-  try { if (fs.existsSync(PINS_FILE)) pinnedByRoom = JSON.parse(fs.readFileSync(PINS_FILE, 'utf-8')); }
-  catch (err) { console.error('Erro ao carregar mensagens fixadas:', err.message); }
+  try {
+    if (fs.existsSync(PINS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(PINS_FILE, 'utf-8'));
+      // Compatibilidade com o formato antigo (um único pin por conversa, não era um array).
+      pinnedByRoom = {};
+      Object.entries(raw || {}).forEach(([roomId, val]) => {
+        pinnedByRoom[roomId] = Array.isArray(val) ? val : (val ? [val] : []);
+      });
+    }
+  } catch (err) { console.error('Erro ao carregar mensagens fixadas:', err.message); }
 }
 function savePinsLocal() {
   fs.writeFile(PINS_FILE, JSON.stringify(pinnedByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens fixadas:', err.message); });
@@ -2365,7 +2374,7 @@ io.on('connection', (socket) => {
     socket.emit('room_history', { chatId: roomId, messages: history });
     // Aproveita a entrada na sala para sincronizar o estado dessa conversa que
     // não vem no histórico de mensagens: mensagem fixada e mensagens temporárias.
-    if (pinnedByRoom[roomId]) socket.emit('message_pinned_received', { chatId: roomId, pin: pinnedByRoom[roomId] });
+    if (pinnedByRoom[roomId]?.length) socket.emit('message_pinned_received', { chatId: roomId, pins: pinnedByRoom[roomId] });
     if (disappearingByRoom[roomId]) socket.emit('disappearing_updated', { chatId: roomId, seconds: disappearingByRoom[roomId] });
   });
 
@@ -2826,16 +2835,29 @@ io.on('connection', (socket) => {
   socket.on('pin_message', (data) => {
     const { chatId, messageId, text, sender } = data || {};
     if (!chatId || !messageId) return;
-    pinnedByRoom[chatId] = { messageId, text: (text || '').substring(0, 300), sender: sender || 'Alguém' };
+    if (!pinnedByRoom[chatId]) pinnedByRoom[chatId] = [];
+    if (pinnedByRoom[chatId].some((p) => p.messageId === messageId)) return; // já está fixada
+    if (pinnedByRoom[chatId].length >= MAX_PINS_PER_ROOM) {
+      socket.emit('message_pin_rejected', { chatId, reason: `Já tens o máximo de ${MAX_PINS_PER_ROOM} mensagens fixadas nesta conversa. Desafixa uma primeiro.` });
+      return;
+    }
+    pinnedByRoom[chatId].push({ messageId, text: (text || '').substring(0, 300), sender: sender || 'Alguém', pinnedAt: Date.now() });
     savePinsLocal();
-    io.to(chatId).emit('message_pinned_received', { chatId, pin: pinnedByRoom[chatId] });
+    io.to(chatId).emit('message_pinned_received', { chatId, pins: pinnedByRoom[chatId] });
   });
   socket.on('unpin_message', (data) => {
-    const { chatId } = data || {};
+    const { chatId, messageId } = data || {};
     if (!chatId) return;
-    delete pinnedByRoom[chatId];
+    if (messageId) {
+      pinnedByRoom[chatId] = (pinnedByRoom[chatId] || []).filter((p) => p.messageId !== messageId);
+    } else {
+      // Compatibilidade com clientes antigos (em cache) que ainda mandam só chatId, sem messageId:
+      // desafixa a mais recente, tal como o comportamento original de "um pin só" fazia.
+      (pinnedByRoom[chatId] || []).pop();
+    }
+    if (pinnedByRoom[chatId] && pinnedByRoom[chatId].length === 0) delete pinnedByRoom[chatId];
     savePinsLocal();
-    io.to(chatId).emit('message_pinned_received', { chatId, pin: null });
+    io.to(chatId).emit('message_pinned_received', { chatId, pins: pinnedByRoom[chatId] || [] });
   });
 
   // ==================== MENSAGENS TEMPORÁRIAS ====================

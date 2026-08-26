@@ -732,3 +732,9 @@ Em "O meu perfil" há agora uma secção de Privacidade com duas opções indepe
 
 **Simplificação assumida (ao contrário do WhatsApp)**: aqui a proteção é só num sentido — ligar qualquer uma destas opções não te tira a ti a visão do estado online ou das confirmações de leitura dos teus contactos, só esconde a tua própria informação deles. É mais simples de perceber (não há o efeito secundário de "se escondes o teu, também deixas de ver o dos outros") à custa de ser menos rigoroso que o WhatsApp nesse aspeto.
 
+## 📌 Várias mensagens fixadas por conversa
+
+Cada conversa (1-para-1 ou grupo) já deixava fixar uma mensagem; agora dá para fixar até 10 ao mesmo tempo. Com só uma fixada, a barra no topo da conversa continua igual (mostra quem escreveu e o texto, toca para saltar até lá, ✖️ para desafixar). Com duas ou mais, a barra passa a mostrar "N mensagens fixadas — toca para ver todas", abrindo uma lista onde é possível saltar para qualquer uma delas ou desafixá-las individualmente.
+
+**Nota técnica**: o limite de 10 é aplicado no servidor (não só na aparência) — ao tentar fixar mais do que isso, aparece um aviso a pedir para desafixar alguma primeiro. Mantida também compatibilidade com o formato antigo do ficheiro `pins.json` (uma mensagem só, não um array), para não perder o que já estava fixado em conversas antigas.
+
