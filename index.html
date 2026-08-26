@@ -2420,7 +2420,7 @@
                 <p id="tourismPoiExtract" style="font-size:13px;color:var(--text-secondary);"></p>
                 <div class="modal-actions" style="flex-wrap:wrap;">
                     <a id="tourismPoiWikiLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">📖 Ler mais</button></a>
-                    <a id="tourismPoiDirectionsLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small btn-accept">🧭 Como chegar</button></a>
+                    <button class="btn-small btn-accept" onclick="showTourismDirections()">🧭 Como chegar</button>
                     <button class="btn-small" id="tourismPoiTransportBtn" style="display:none;" onclick="openTransportFromTourism()">🚌 Transportes (PT)</button>
                     <button class="btn-small" onclick="closeModal('modalTourismPoi')">Fechar</button>
                 </div>
@@ -4908,13 +4908,14 @@
     }
 
     // ==================== TURISMO (pontos de interesse pelo mundo) ====================
-    // Sem API de comboios/autocarros próprios — "como chegar" abre direções de
-    // transporte público no Google Maps (funciona em qualquer lugar do mundo,
-    // sem precisarmos de manter dados de transportes nós próprios). Dentro de
-    // Portugal, oferece também um atalho para a aba "Transportes" já existente
-    // (que tem estações reais de metro/comboio).
+    // "Como chegar" calcula e desenha a rota dentro do próprio mapa desta aba
+    // (reaproveitando o /api/nav/route já usado na Navegação, sem sair da app).
+    // Sem API de comboios/autocarros próprios, esta rota é sempre de carro —
+    // não há dados de transporte público mundiais grátis para desenhar aqui.
+    // Dentro de Portugal, o botão "🚌 Transportes (PT)" continua a abrir a aba
+    // de Transportes já existente, essa sim com estações reais de metro/comboio.
     const TOURISM = {
-        map: null, layer: null,
+        map: null, layer: null, lastPoi: null, routeLine: null, routeMarkers: [],
         cities: {
             madrid: { lat: 40.4168, lon: -3.7038, zoom: 12 },
             paris: { lat: 48.8566, lon: 2.3522, zoom: 12 },
@@ -4958,6 +4959,7 @@
             const res = await fetch(`/api/tourism/poi?lat=${center.lat}&lon=${center.lng}&radius=10000`);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Falha ao procurar.');
+            clearTourismRoute();
             TOURISM.layer.clearLayers();
             (data.points || []).forEach(p => {
                 L.marker([p.lat, p.lon]).bindTooltip(p.title).on('click', () => openTourismPoi(p)).addTo(TOURISM.layer);
@@ -4968,10 +4970,10 @@
         }
     }
     async function openTourismPoi(point) {
+        TOURISM.lastPoi = point;
         document.getElementById('tourismPoiTitle').textContent = point.title;
         document.getElementById('tourismPoiExtract').textContent = 'A carregar informação...';
         document.getElementById('tourismPoiImage').style.display = 'none';
-        document.getElementById('tourismPoiDirectionsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=transit`;
         document.getElementById('tourismPoiWikiLink').href = `https://pt.wikipedia.org/wiki/${encodeURIComponent(point.title)}`;
         document.getElementById('tourismPoiTransportBtn').style.display = isInPortugal(point.lat, point.lon) ? 'flex' : 'none';
         document.getElementById('modalTourismPoi').classList.add('active');
@@ -4993,6 +4995,51 @@
         closeModal('modalTourismPoi');
         closeTourismScreen();
         openTransportScreen();
+    }
+
+    // Desenha a rota (de carro — ver nota acima sobre não termos dados de
+    // transporte público) diretamente no mapa desta aba, sem abrir nenhuma
+    // app/site externo. Fecha a ficha do ponto e volta a mostrar o mapa com a
+    // rota traçada, tal como já acontece na aba de Navegação.
+    function clearTourismRoute() {
+        if (TOURISM.routeLine) { TOURISM.map.removeLayer(TOURISM.routeLine); TOURISM.routeLine = null; }
+        TOURISM.routeMarkers.forEach((m) => TOURISM.map.removeLayer(m));
+        TOURISM.routeMarkers = [];
+    }
+    function showTourismDirections() {
+        const point = TOURISM.lastPoi;
+        if (!point) return;
+        if (!navigator.geolocation) {
+            alert('Este navegador não suporta geolocalização — não é possível calcular a rota.');
+            return;
+        }
+        closeModal('modalTourismPoi');
+        const status = document.getElementById('tourismStatus');
+        status.textContent = 'A obter a tua localização...';
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            const origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            status.textContent = 'A calcular a rota...';
+            try {
+                const url = `/api/nav/route?fromLat=${origin.lat}&fromLng=${origin.lng}&toLat=${point.lat}&toLng=${point.lon}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Não foi possível calcular a rota.');
+                const route = data.routes[0];
+                clearTourismRoute();
+                const latlngs = route.geometry.coordinates.map((c) => [c[1], c[0]]);
+                TOURISM.routeLine = L.polyline(latlngs, { color: getAccentHex(), weight: 5 }).addTo(TOURISM.map);
+                TOURISM.routeMarkers.push(L.marker([origin.lat, origin.lng]).bindTooltip('A tua localização').addTo(TOURISM.map));
+                TOURISM.routeMarkers.push(L.marker([point.lat, point.lon]).bindTooltip(point.title).addTo(TOURISM.map));
+                TOURISM.map.fitBounds(TOURISM.routeLine.getBounds(), { padding: [30, 30] });
+                const km = (route.distance / 1000).toFixed(1);
+                const min = Math.round(route.duration / 60);
+                status.textContent = `🚗 ${point.title}: ${km} km, ~${min} min de carro (não temos dados de transporte público para desenhar aqui).`;
+            } catch (err) {
+                status.textContent = '⚠️ ' + err.message;
+            }
+        }, () => {
+            status.textContent = '⚠️ Não foi possível obter a tua localização — permite o acesso à localização para calcular a rota.';
+        }, { enableHighAccuracy: true, timeout: 10000 });
     }
 
     // ==================== NOTÍCIAS ====================
