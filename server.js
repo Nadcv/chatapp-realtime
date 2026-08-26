@@ -655,6 +655,53 @@ app.get('/api/tourism/poi', async (req, res) => {
     res.status(502).json({ error: 'Não foi possível procurar pontos turísticos agora.' });
   }
 });
+// Praias, museus, atrações e parques/praças perto de um sítio — usa o
+// Overpass API (gratuito, sem chave), que consulta diretamente as tags reais
+// do OpenStreetMap (ex.: natural=beach, tourism=museum), muito mais preciso
+// para isto do que a pesquisa genérica da Wikipédia usada em "Geral" acima.
+// Quando o próprio OSM já liga o sítio a um artigo da Wikipédia (tag
+// "wikipedia"), guardamos esse título para a ficha do ponto ir buscar a
+// descrição certa, em vez de adivinhar pelo nome do OSM.
+const TOURISM_CATEGORY_FILTERS = {
+  praias: [['natural', 'beach']],
+  museus: [['tourism', 'museum'], ['tourism', 'gallery']],
+  atracoes: [['tourism', 'attraction'], ['tourism', 'viewpoint'], ['tourism', 'theme_park'], ['tourism', 'zoo'], ['tourism', 'aquarium']],
+  parques: [['leisure', 'park'], ['place', 'square'], ['landuse', 'recreation_ground']]
+};
+app.get('/api/tourism/category', async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  const category = req.query.category;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ error: 'Coordenadas em falta.' });
+  const filters = TOURISM_CATEGORY_FILTERS[category];
+  if (!filters) return res.status(400).json({ error: 'Categoria desconhecida.' });
+  const radius = Math.min(Math.max(parseInt(req.query.radius) || 10000, 500), 15000);
+  try {
+    const clauses = filters.map(([k, v]) => `node["${k}"="${v}"](around:${radius},${lat},${lon});\n  way["${k}"="${v}"](around:${radius},${lat},${lon});`).join('\n  ');
+    const query = `[out:json][timeout:20];\n(\n  ${clauses}\n);\nout center 40;`;
+    const cacheKey = `tourism_cat_${category}_${lat.toFixed(3)}_${lon.toFixed(3)}_${radius}`;
+    const data = await cachedFetch(cacheKey, 'https://overpass-api.de/api/interpreter', 3600000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query)
+    });
+    const points = (data.elements || [])
+      .filter((el) => el.tags?.name)
+      .map((el) => {
+        const elLat = el.lat ?? el.center?.lat;
+        const elLon = el.lon ?? el.center?.lon;
+        const wikiTag = el.tags.wikipedia; // formato "pt:Título do artigo"
+        const wikiTitle = wikiTag ? wikiTag.split(':').slice(1).join(':') || wikiTag : null;
+        return { title: el.tags.name, lat: elLat, lon: elLon, wikiTitle };
+      })
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+      .slice(0, 40);
+    res.json({ points });
+  } catch (err) {
+    console.error('Erro categoria turística:', err.message);
+    res.status(502).json({ error: 'Não foi possível procurar agora.' });
+  }
+});
 app.get('/api/tourism/details', async (req, res) => {
   const title = (req.query.title || '').trim();
   if (!title) return res.status(400).json({ error: 'Falta o título do ponto.' });
