@@ -716,3 +716,5 @@ Nota técnica: a pesquisa de pontos usa sempre o centro do mapa com um raio de 1
 
 **⭐ Favoritos**: o botão ⭐ no cabeçalho da aba de Turismo abre a tua lista de favoritos, e dentro da ficha de qualquer ponto há um botão "⭐ Guardar" (passa a "★ Guardado") — guarda o sítio (nome, coordenadas, e o título da Wikipédia quando existe) numa lista pessoal, sincronizada por conta no servidor tal como as pastas de conversas. Tocar num favorito na lista fecha-a, centra o mapa lá, e reabre logo a ficha desse ponto.
 
+**🌦️ Clima no mapa**: um pequeno indicador no canto do mapa mostra a temperatura e o tempo atual de onde quer que estejas a ver — reaproveita a mesma API de meteorologia já usada na aba "Meteorologia" (Open-Meteo, gratuita, sem chave), só que agora também aceita coordenadas diretas em vez de precisar do nome de uma cidade. Atualiza sempre que saltas para uma cidade ou tocas em "🔍 Procurar aqui", mesmo numa vista de país inteiro (onde a procura de pontos turísticos fica em pausa à espera que te aproximes, mas o clima continua a fazer sentido).
+

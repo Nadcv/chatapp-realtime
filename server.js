@@ -1042,19 +1042,34 @@ app.get('/api/quote-of-day', async (req, res) => {
 // previsão para essas coordenadas. Não precisa de nenhuma configuração.
 app.get('/api/weather', async (req, res) => {
   const query = (req.query.q || '').trim();
-  if (!query) return res.status(400).json({ error: 'Indica uma cidade ou localidade.' });
+  const rawLat = parseFloat(req.query.lat);
+  const rawLon = parseFloat(req.query.lon);
+  let place = null;
+  let latitude, longitude;
   try {
-    const geoData = await cachedFetch(
-      'weather_geo_' + query.toLowerCase(),
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=pt&format=json`,
-      24 * 60 * 60 * 1000
-    );
-    const place = (geoData.results || [])[0];
-    if (!place) return res.status(404).json({ error: 'Não encontrei essa localidade.' });
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`;
-    const data = await cachedFetch('weather_fc_' + place.id, forecastUrl, 30 * 60 * 1000);
+    if (query) {
+      const geoData = await cachedFetch(
+        'weather_geo_' + query.toLowerCase(),
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=pt&format=json`,
+        24 * 60 * 60 * 1000
+      );
+      place = (geoData.results || [])[0];
+      if (!place) return res.status(404).json({ error: 'Não encontrei essa localidade.' });
+      latitude = place.latitude;
+      longitude = place.longitude;
+    } else if (Number.isFinite(rawLat) && Number.isFinite(rawLon)) {
+      // Usado pela aba de Turismo: tempo para onde quer que o mapa esteja
+      // centrado, sem precisar de saber o nome do sítio.
+      latitude = rawLat;
+      longitude = rawLon;
+    } else {
+      return res.status(400).json({ error: 'Indica uma cidade/localidade, ou coordenadas.' });
+    }
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`;
+    const cacheKey = place ? ('weather_fc_' + place.id) : `weather_fc_${latitude.toFixed(2)}_${longitude.toFixed(2)}`;
+    const data = await cachedFetch(cacheKey, forecastUrl, 30 * 60 * 1000);
     res.json({
-      place: { name: place.name, country: place.country, admin1: place.admin1 || null },
+      place: place ? { name: place.name, country: place.country, admin1: place.admin1 || null } : null,
       current: data.current,
       daily: data.daily
     });
