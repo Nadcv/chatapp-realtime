@@ -1431,6 +1431,7 @@
                     <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
                     <button class="btn-icon" id="pollBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
+                    <button class="btn-icon" id="rsvpBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openCreateRsvpModal()" title="Criar evento (RSVP)">🎉</button>
                     <button class="btn-icon" id="gamesBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
@@ -1761,6 +1762,15 @@
                     <input type="text" class="poll-option-input" placeholder="Opção 2">
                 </div>
                 <button class="btn-small" onclick="addPollOptionInput()" style="margin-top:8px;">➕ Mais uma opção</button>
+                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-top:12px;">⏳ Encerrar votação automaticamente</label>
+                <select id="pollExpirySelect" style="width:100%;margin-top:4px;">
+                    <option value="0">Nunca (fica aberta)</option>
+                    <option value="3600000">Daqui a 1 hora</option>
+                    <option value="21600000">Daqui a 6 horas</option>
+                    <option value="86400000">Daqui a 24 horas</option>
+                    <option value="259200000">Daqui a 3 dias</option>
+                    <option value="604800000">Daqui a 7 dias</option>
+                </select>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalCreatePoll')">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="sendPoll()">Criar</button>
@@ -1786,6 +1796,9 @@
                     <input type="number" id="expenseAmount" placeholder="Valor" min="0" step="0.01" style="flex:1;">
                     <select id="expenseCurrency" style="flex:1;"></select>
                 </div>
+                <input type="file" id="expenseReceiptInput" accept="image/*" style="display:none;" onchange="handleExpenseReceiptSelected(this)">
+                <button class="btn-small" onclick="document.getElementById('expenseReceiptInput').click()" style="margin-top:8px;">📸 Ler valor de um recibo (opcional)</button>
+                <div id="expenseReceiptStatus" style="font-size:11px;color:var(--text-secondary);margin-top:4px;min-height:14px;"></div>
                 <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Quem pagou:</label>
                 <select id="expensePaidBy" style="width:100%;margin-top:4px;"></select>
                 <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Dividir entre:</label>
@@ -6656,6 +6669,7 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('rsvpBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('gamesBtn').style.display = (chat.type === 'user' || chat.type === 'group') ? 'flex' : 'none';
         updateEncryptionBadge();
         const avatarContent = isAI ? '✨' : (isGroup ? (chat.avatar || '👥') : avatarInnerHtml(chat.name, chat.avatarUrl));
@@ -8736,9 +8750,24 @@
     // ==================== ENQUETES EM GRUPO ====================
     function openCreatePollModal() {
         document.getElementById('pollQuestionInput').value = '';
+        document.getElementById('pollQuestionInput').placeholder = 'Pergunta da enquete...';
         document.getElementById('pollOptionsInputs').innerHTML = `
             <input type="text" class="poll-option-input" placeholder="Opção 1">
             <input type="text" class="poll-option-input" placeholder="Opção 2">`;
+        document.getElementById('pollExpirySelect').value = '0';
+        document.getElementById('modalCreatePoll').classList.add('active');
+    }
+    // Atalho de "RSVP": um evento é só uma enquete normal com as opções já
+    // prontas (Vou/Não vou/Talvez) — reaproveita 100% da estrutura de
+    // enquetes já existente (mesmos dados, mesmo render, mesmo voto).
+    function openCreateRsvpModal() {
+        document.getElementById('pollQuestionInput').value = '';
+        document.getElementById('pollQuestionInput').placeholder = 'Nome do evento (ex.: Festa de sábado às 22h)';
+        document.getElementById('pollOptionsInputs').innerHTML = `
+            <input type="text" class="poll-option-input" value="✅ Vou">
+            <input type="text" class="poll-option-input" value="❌ Não vou">
+            <input type="text" class="poll-option-input" value="🤔 Talvez">`;
+        document.getElementById('pollExpirySelect').value = '0';
         document.getElementById('modalCreatePoll').classList.add('active');
     }
     function addPollOptionInput() {
@@ -8762,7 +8791,8 @@
         if (!chat || chat.type !== 'group') return;
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        const poll = { question, options: options.map(text => ({ text, votes: [] })) };
+        const expiryMs = parseInt(document.getElementById('pollExpirySelect').value) || 0;
+        const poll = { question, options: options.map(text => ({ text, votes: [] })), expiresAt: expiryMs ? Date.now() + expiryMs : null };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', poll, read: false });
         renderMessages();
@@ -8770,15 +8800,25 @@
         closeModal('modalCreatePoll');
         socket.emit('send_message', { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, text: '', time, poll });
     }
+    function formatPollExpiry(ts) {
+        const diffMs = ts - Date.now();
+        if (diffMs <= 0) return 'agora';
+        const mins = Math.round(diffMs / 60000);
+        if (mins < 60) return `em ${mins} min`;
+        const hours = Math.round(mins / 60);
+        if (hours < 48) return `em ${hours}h`;
+        return `em ${Math.round(hours / 24)} dias`;
+    }
     function renderPoll(msg) {
         const poll = msg.poll;
+        const isExpired = !!(poll.expiresAt && Date.now() > poll.expiresAt);
         const totalVotes = poll.options.reduce((sum, o) => sum + o.votes.length, 0);
         const myVoteIndex = poll.options.findIndex(o => o.votes.includes(APP.user.phone));
         const optionsHtml = poll.options.map((opt, i) => {
             const pct = totalVotes ? Math.round((opt.votes.length / totalVotes) * 100) : 0;
             const isMine = i === myVoteIndex;
             return `
-                <div onclick="votePoll('${msg.id}', ${i})" style="cursor:pointer;margin:6px 0;padding:8px 10px;border-radius:8px;background:${isMine ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isMine ? 'var(--green)' : 'transparent'};position:relative;overflow:hidden;">
+                <div ${isExpired ? '' : `onclick="votePoll('${msg.id}', ${i})"`} style="cursor:${isExpired ? 'default' : 'pointer'};opacity:${isExpired ? 0.7 : 1};margin:6px 0;padding:8px 10px;border-radius:8px;background:${isMine ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isMine ? 'var(--green)' : 'transparent'};position:relative;overflow:hidden;">
                     <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(255,255,255,0.1);z-index:0;"></div>
                     <div style="position:relative;z-index:1;display:flex;justify-content:space-between;gap:8px;">
                         <span>${isMine ? '✓ ' : ''}${escapeHtml(opt.text)}</span>
@@ -8786,16 +8826,29 @@
                     </div>
                 </div>`;
         }).join('');
+        const expiryLine = poll.expiresAt
+            ? (isExpired ? '<div style="font-size:10px;color:#e74c3c;margin-top:4px;">🔒 Votação encerrada</div>' : `<div style="font-size:10px;opacity:0.7;margin-top:4px;">⏳ Encerra ${formatPollExpiry(poll.expiresAt)}</div>`)
+            : '';
         return `<div style="min-width:200px;">
             <div style="font-weight:600;margin-bottom:6px;">📊 ${escapeHtml(poll.question)}</div>
             ${optionsHtml}
             <div style="font-size:11px;opacity:0.7;margin-top:4px;">${totalVotes} voto${totalVotes !== 1 ? 's' : ''}</div>
+            ${expiryLine}
         </div>`;
     }
     function votePoll(messageId, optionIndex) {
         if (!APP.currentChatId) return;
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === messageId);
+        if (msg?.poll?.expiresAt && Date.now() > msg.poll.expiresAt) return;
         socket.emit('vote_poll', { chatId: APP.currentChatId, messageId, optionIndex });
     }
+    // Reavalia periodicamente as enquetes com prazo (a contagem/estado "encerrada"
+    // não muda sozinha na tela sem isto, já que só re-renderiza quando chega
+    // mensagem nova ou um voto).
+    setInterval(() => {
+        const msgs = APP.messages[APP.currentChatId] || [];
+        if (msgs.some(m => m.poll?.expiresAt)) renderMessages();
+    }, 30000);
     socket.on('poll_updated', (data) => {
         if (!data?.chatId || !data?.messageId) return;
         const msgs = APP.messages[data.chatId];
@@ -8868,6 +8921,7 @@
         if (!APP.currentChatId) return;
         document.getElementById('expenseDescription').value = '';
         document.getElementById('expenseAmount').value = '';
+        document.getElementById('expenseReceiptStatus').textContent = '';
         if (!CURRENCY.loaded) await loadCurrencyRates();
         populateExpenseCurrencySelect();
         const names = getChatParticipantNames(APP.currentChatId);
@@ -8911,6 +8965,79 @@
             <div style="font-size:15px;">${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(exp.currency)}</div>
             <div style="font-size:11px;opacity:0.7;margin-top:4px;">Pago por ${escapeHtml(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
         </div>`;
+    }
+
+    // Leitura opcional de um recibo por foto: extrai um valor plausível para
+    // pré-preencher o campo "Valor" (nunca envia nada sozinho — a pessoa
+    // continua a poder editar/corrigir antes de guardar a despesa). Carrega o
+    // Tesseract.js só quando esta funcionalidade é mesmo usada (é uma
+    // biblioteca pesada, não vale a pena no carregamento normal da app).
+    let TESSERACT_LOAD_PROMISE = null;
+    function loadTesseractScript() {
+        if (window.Tesseract) return Promise.resolve();
+        if (TESSERACT_LOAD_PROMISE) return TESSERACT_LOAD_PROMISE;
+        TESSERACT_LOAD_PROMISE = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+            script.onload = () => resolve();
+            script.onerror = () => { TESSERACT_LOAD_PROMISE = null; reject(new Error('Não foi possível carregar o leitor de recibos.')); };
+            document.head.appendChild(script);
+        });
+        return TESSERACT_LOAD_PROMISE;
+    }
+    // Normaliza um número como "12,50" / "12.50" / "1.234,56" / "1,234.56" para
+    // um float — o separador decimal é sempre o ÚLTIMO símbolo (vírgula/ponto)
+    // do token, já que a regex só apanha números com exatamente 2 casas finais.
+    function normalizeAmountToken(raw) {
+        const decimalIndex = Math.max(raw.lastIndexOf(','), raw.lastIndexOf('.'));
+        const intPart = raw.slice(0, decimalIndex).replace(/[.,]/g, '');
+        const decPart = raw.slice(decimalIndex + 1);
+        const value = parseFloat(intPart + '.' + decPart);
+        return isFinite(value) ? value : null;
+    }
+    // Prefere o maior valor numa linha com uma palavra-chave de "total"; sem
+    // isso, o maior valor encontrado em todo o texto (o total costuma ser o
+    // maior número de um recibo, maior do que qualquer item individual).
+    function extractReceiptAmount(text) {
+        const amountRe = /(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})(?!\d)/g;
+        const totalKeywords = /total|montante|valor a pagar|amount due|grand total/i;
+        let totalCandidates = [], allCandidates = [];
+        (text || '').split(/\r?\n/).forEach((line) => {
+            [...line.matchAll(amountRe)].forEach((m) => {
+                const value = normalizeAmountToken(m[1]);
+                if (value == null) return;
+                allCandidates.push(value);
+                if (totalKeywords.test(line)) totalCandidates.push(value);
+            });
+        });
+        if (totalCandidates.length) return Math.max(...totalCandidates);
+        if (allCandidates.length) return Math.max(...allCandidates);
+        return null;
+    }
+    async function handleExpenseReceiptSelected(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        const statusEl = document.getElementById('expenseReceiptStatus');
+        statusEl.style.color = 'var(--text-secondary)';
+        statusEl.textContent = 'A carregar o leitor de recibos...';
+        try {
+            await loadTesseractScript();
+            statusEl.textContent = 'A ler o recibo (pode demorar alguns segundos)...';
+            const { data: { text } } = await Tesseract.recognize(file, 'eng');
+            const amount = extractReceiptAmount(text);
+            if (amount != null) {
+                document.getElementById('expenseAmount').value = amount.toFixed(2);
+                statusEl.style.color = 'var(--green)';
+                statusEl.textContent = `✅ Valor detetado: ${amount.toFixed(2)} — confirma antes de guardar.`;
+            } else {
+                statusEl.style.color = 'var(--red)';
+                statusEl.textContent = '⚠️ Não consegui identificar o valor no recibo — preenche manualmente.';
+            }
+        } catch (err) {
+            statusEl.style.color = 'var(--red)';
+            statusEl.textContent = '⚠️ Não foi possível ler o recibo agora — preenche manualmente.';
+        }
     }
 
     // ==================== JOGOS (numa conversa 1-para-1) ====================
