@@ -2035,6 +2035,18 @@ function deliverToPhone(phone, event, payload, excludeSocketId) {
   });
   return delivered;
 }
+// Uma conta pode ter até 2 dispositivos ligados ao mesmo tempo (ver /api/login),
+// e uma chamada 1-para-1 é entregue a TODOS eles (deliverToPhone acima) — sem
+// isto, se a pessoa atendesse ou recusasse num dos aparelhos, o(s) outro(s)
+// continuavam a tocar para sempre, sem saberem que a chamada já tinha resposta
+// noutro lado. Se a pessoa depois tocasse em "Aceitar" no aparelho esquecido,
+// criava uma segunda ligação a tentar responder à mesma chamada já respondida,
+// e o lado que ligou recebia uma segunda resposta (SDP) inválida para a mesma
+// negociação já fechada.
+function notifySiblingDevicesCallTaken(socket) {
+  const myPhone = users[socket.id]?.phone;
+  if (myPhone) deliverToPhone(myPhone, 'call_taken_elsewhere', {}, socket.id);
+}
 const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20+ pessoas em simultâneo)
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
@@ -2861,6 +2873,7 @@ io.on('connection', (socket) => {
   socket.on('answer_call', (data) => {
     if (data.targetPhone) deliverToPhone(data.targetPhone, 'call_answered', data, socket.id);
     else socket.to(data.targetRoomId).emit('call_answered', data);
+    notifySiblingDevicesCallTaken(socket);
   });
   socket.on('ice_candidate', (data) => {
     if (data.targetPhone) deliverToPhone(data.targetPhone, 'ice_candidate_received', data, socket.id);
@@ -2869,6 +2882,7 @@ io.on('connection', (socket) => {
   socket.on('end_call', (data) => {
     if (data.targetPhone) deliverToPhone(data.targetPhone, 'call_ended', data, socket.id);
     else socket.to(data.targetRoomId).emit('call_ended', data);
+    notifySiblingDevicesCallTaken(socket);
   });
 
   // ==================== MENSAGENS FIXADAS ====================

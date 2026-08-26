@@ -9572,6 +9572,19 @@
         if (btn) btn.textContent = ringtoneMuted ? '🔇 Toque silenciado' : '🔊 Silenciar toque';
     }
 
+    // Esta conta tem outro dispositivo ligado (até 2 em simultâneo) e a chamada
+    // já foi atendida ou recusada lá — para de tocar aqui também, e não deixa
+    // esta tela tentar responder à mesma chamada (o que criaria uma segunda
+    // resposta inválida do lado de quem ligou, e este aparelho ficava preso
+    // para sempre em "Conectando...", nunca chegando a ligar de verdade).
+    socket.on('call_taken_elsewhere', () => {
+        if (incomingCallData) {
+            stopRingtone();
+            document.getElementById('modalIncomingCall').classList.remove('active');
+            incomingCallData = null;
+        }
+    });
+
     // A pessoa para quem ligaste está offline / sem nenhum dispositivo ligado
     // neste momento — antes disto a chamada ficava "Chamando..." para sempre.
     socket.on('call_unavailable', () => {
@@ -9645,9 +9658,17 @@
 
     socket.on('call_answered', async (data) => {
         if (callRingTimeout) { clearTimeout(callRingTimeout); callRingTimeout = null; }
-        if (peerConnection) {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            flushPendingIce(peerConnection);
+        // 'call_taken_elsewhere' já evita isto no caso normal (a pessoa tem 2
+        // aparelhos e um deles respondeu depois do outro), mas o estado da
+        // ligação só aceita UMA resposta — uma segunda (ex.: por mensagens
+        // fora de ordem na rede) rejeitava com uma exceção não tratada.
+        if (peerConnection && peerConnection.signalingState !== 'stable') {
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                flushPendingIce(peerConnection);
+            } catch (err) {
+                console.warn('Resposta de chamada ignorada (ligação já estava noutro estado):', err.message);
+            }
         }
     });
 
