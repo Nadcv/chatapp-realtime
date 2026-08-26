@@ -2397,7 +2397,10 @@
         <div class="location-screen" id="tourismScreen">
             <div class="location-header">
                 <strong>🗺️ Turismo</strong>
-                <button onclick="closeTourismScreen()">✖️</button>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="openTourismFavoritesModal()" title="Favoritos">⭐</button>
+                    <button onclick="closeTourismScreen()">✖️</button>
+                </div>
             </div>
             <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);overflow-x:auto;">
                 <button class="btn-small" onclick="flyTourismTo('valencia')" style="flex-shrink:0;">🇪🇸 Valência</button>
@@ -2429,11 +2432,23 @@
                 <h3 id="tourismPoiTitle"></h3>
                 <p id="tourismPoiExtract" style="font-size:13px;color:var(--text-secondary);"></p>
                 <div class="modal-actions" style="flex-wrap:wrap;">
+                    <button class="btn-small" id="tourismPoiFavBtn" onclick="toggleTourismFavorite()">⭐ Guardar</button>
                     <a id="tourismPoiWikiLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">📖 Ler mais</button></a>
                     <button class="btn-small btn-accept" onclick="showTourismDirections()">🧭 Como chegar (na app)</button>
                     <a id="tourismPoiGoogleMapsLink" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">🗺️ Abrir no Google Maps</button></a>
                     <button class="btn-small" id="tourismPoiTransportBtn" style="display:none;" onclick="openTransportFromTourism()">🚌 Transportes (PT)</button>
                     <button class="btn-small" onclick="closeModal('modalTourismPoi')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ FAVORITOS DO TURISMO ============ -->
+        <div class="modal-overlay" id="modalTourismFavorites" style="z-index:200;">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>⭐ Favoritos</h3>
+                <div id="tourismFavoritesList" style="margin:10px 0;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalTourismFavorites')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -4933,7 +4948,7 @@
         parques: { label: '🌳 Parques/Praças', endpoint: 'category' }
     };
     const TOURISM = {
-        map: null, layer: null, lastPoi: null, routeLine: null, routeMarkers: [], category: 'geral',
+        map: null, layer: null, lastPoi: null, routeLine: null, routeMarkers: [], category: 'geral', favorites: [],
         cities: {
             valencia: { lat: 39.4699, lon: -0.3763, zoom: 12 },
             madrid: { lat: 40.4168, lon: -3.7038, zoom: 12 },
@@ -5015,6 +5030,7 @@
         document.getElementById('tourismPoiWikiLink').href = `https://pt.wikipedia.org/wiki/${encodeURIComponent(detailsTitle)}`;
         document.getElementById('tourismPoiGoogleMapsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=transit`;
         document.getElementById('tourismPoiTransportBtn').style.display = isInPortugal(point.lat, point.lon) ? 'flex' : 'none';
+        updateTourismFavButton();
         document.getElementById('modalTourismPoi').classList.add('active');
         try {
             const res = await fetch(`/api/tourism/details?title=${encodeURIComponent(detailsTitle)}`);
@@ -5034,6 +5050,55 @@
         closeModal('modalTourismPoi');
         closeTourismScreen();
         openTransportScreen();
+    }
+
+    // ==================== FAVORITOS DO TURISMO ====================
+    socket.on('tourism_favorites_list', (list) => {
+        TOURISM.favorites = list || [];
+        updateTourismFavButton();
+        if (document.getElementById('modalTourismFavorites').classList.contains('active')) renderTourismFavoritesList();
+    });
+    function findTourismFavorite(point) {
+        return TOURISM.favorites.find((f) => f.title === point.title && Math.abs(f.lat - point.lat) < 0.0005 && Math.abs(f.lon - point.lon) < 0.0005);
+    }
+    function updateTourismFavButton() {
+        const btn = document.getElementById('tourismPoiFavBtn');
+        if (!btn || !TOURISM.lastPoi) return;
+        const fav = findTourismFavorite(TOURISM.lastPoi);
+        btn.textContent = fav ? '★ Guardado' : '⭐ Guardar';
+        btn.classList.toggle('btn-accept', !!fav);
+    }
+    function toggleTourismFavorite() {
+        const point = TOURISM.lastPoi;
+        if (!point) return;
+        const existing = findTourismFavorite(point);
+        if (existing) socket.emit('delete_tourism_favorite', { id: existing.id });
+        else socket.emit('save_tourism_favorite', { title: point.title, lat: point.lat, lon: point.lon, wikiTitle: point.wikiTitle || null });
+    }
+    function openTourismFavoritesModal() {
+        renderTourismFavoritesList();
+        document.getElementById('modalTourismFavorites').classList.add('active');
+    }
+    function renderTourismFavoritesList() {
+        const el = document.getElementById('tourismFavoritesList');
+        if (!TOURISM.favorites.length) {
+            el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Ainda não guardaste nenhum favorito. Abre um ponto turístico e toca em "⭐ Guardar".</p>';
+            return;
+        }
+        el.innerHTML = TOURISM.favorites.map((f) => `
+            <div class="chat-item" style="cursor:pointer;" onclick="goToTourismFavorite('${f.id}')">
+                <div class="chat-item-avatar avatar-user">⭐</div>
+                <div class="chat-item-info"><h4>${escapeHtml(f.title)}</h4><p>Toca para ver no mapa</p></div>
+                <button class="btn-icon" style="width:30px;height:30px;font-size:13px;flex:0 0 auto;" onclick="event.stopPropagation(); socket.emit('delete_tourism_favorite', { id: '${f.id}' })" title="Remover">🗑️</button>
+            </div>`).join('');
+    }
+    function goToTourismFavorite(id) {
+        const f = TOURISM.favorites.find((x) => x.id === id);
+        if (!f) return;
+        closeModal('modalTourismFavorites');
+        if (!TOURISM.map) openTourismScreen();
+        TOURISM.map.setView([f.lat, f.lon], 14);
+        openTourismPoi({ title: f.title, lat: f.lat, lon: f.lon, wikiTitle: f.wikiTitle });
     }
 
     // Desenha a rota (de carro — ver nota acima sobre não termos dados de

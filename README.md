@@ -714,3 +714,5 @@ Nota técnica: a pesquisa de pontos usa sempre o centro do mapa com um raio de 1
 
 **O mesmo bug encontrado e corrigido também na aba Estados**: o modal "🟢 Novo estado" (aberto ao tocar em "O meu estado" ou no ➕, dentro da aba Estados) tinha exatamente o mesmo problema — sem z-index próprio, ficava por baixo do ecrã de Estados e só aparecia depois de o fechar. Corrigido da mesma forma (z-index 200). Verificado também que os restantes ecrãs com um modal próprio (`modalBroadcastEdit`, dentro da aba de listas de transmissão) já tinham esta correção aplicada.
 
+**⭐ Favoritos**: o botão ⭐ no cabeçalho da aba de Turismo abre a tua lista de favoritos, e dentro da ficha de qualquer ponto há um botão "⭐ Guardar" (passa a "★ Guardado") — guarda o sítio (nome, coordenadas, e o título da Wikipédia quando existe) numa lista pessoal, sincronizada por conta no servidor tal como as pastas de conversas. Tocar num favorito na lista fecha-a, centra o mapa lá, e reabre logo a ficha desse ponto.
+
