@@ -2161,6 +2161,16 @@
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">Nesse horário não recebes notificações — as mensagens continuam a chegar normalmente, só ficam silenciosas.</p>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🙈 Privacidade</div>
+                    <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="hideOnlineStatusCheck" onchange="savePrivacySettings()"> Esconder o meu estado online dos contactos
+                    </label>
+                    <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;margin-top:6px;">
+                        <input type="checkbox" id="hideReadReceiptsCheck" onchange="savePrivacySettings()"> Não enviar confirmação de leitura (✓✓ azul)
+                    </label>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">Só afeta o que os outros veem de ti — tu continuas a ver o estado online e as confirmações de leitura deles normalmente.</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <button class="btn-small" style="width:100%;" onclick="closeModal('modalProfile');openMyStatsModal()">📊 As minhas estatísticas</button>
                 </div>
                 <div class="modal-actions">
@@ -3909,9 +3919,30 @@
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
         document.getElementById('profileBirthdayInput').value = APP.user.birthday || '';
+        document.getElementById('hideOnlineStatusCheck').checked = !!APP.user.hideOnlineStatus;
+        document.getElementById('hideReadReceiptsCheck').checked = !!APP.user.hideReadReceipts;
         loadDndSettingsIntoProfile();
         document.getElementById('modalProfile').classList.add('active');
     }
+    function savePrivacySettings() {
+        if (!APP.user) return;
+        const hideOnlineStatus = document.getElementById('hideOnlineStatusCheck').checked;
+        const hideReadReceipts = document.getElementById('hideReadReceiptsCheck').checked;
+        APP.user.hideOnlineStatus = hideOnlineStatus;
+        APP.user.hideReadReceipts = hideReadReceipts;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        socket.emit('set_privacy', { hideOnlineStatus, hideReadReceipts });
+    }
+    socket.on('privacy_updated', (data) => {
+        if (!APP.user || !data) return;
+        APP.user.hideOnlineStatus = !!data.hideOnlineStatus;
+        APP.user.hideReadReceipts = !!data.hideReadReceipts;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        if (document.getElementById('modalProfile').classList.contains('active')) {
+            document.getElementById('hideOnlineStatusCheck').checked = APP.user.hideOnlineStatus;
+            document.getElementById('hideReadReceiptsCheck').checked = APP.user.hideReadReceipts;
+        }
+    });
     function setBirthday(birthday) {
         if (!APP.user || !birthday) return;
         APP.user.birthday = birthday;
