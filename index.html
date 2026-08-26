@@ -1425,17 +1425,17 @@
                 </div>
                 <div class="chat-input-area" style="position:relative;">
                     <div id="mentionAutocomplete" style="display:none;position:absolute;bottom:52px;left:56px;right:56px;max-height:160px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:20;"></div>
-                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="toggleEmojiPicker('messageInput')">😊</button>
-                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
-                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="openImageGenModal()" title="Gerar imagem com IA">🪄</button>
-                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
+                    <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="toggleEmojiPicker('messageInput')">😊</button>
+                    <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
+                    <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="openImageGenModal()" title="Gerar imagem com IA">🪄</button>
+                    <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="document.getElementById('attachFileInput').click()" title="Enviar foto ou documento">📎</button>
                     <input type="file" id="attachFileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" onchange="handleFileAttach(this)">
-                    <button class="btn-icon" id="pollBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
-                    <button class="btn-icon" id="rsvpBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openCreateRsvpModal()" title="Criar evento (RSVP)">🎉</button>
-                    <button class="btn-icon" id="gamesBtn" style="width:34px;height:34px;font-size:15px;display:none;flex:0 0 auto;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
+                    <button class="btn-icon" id="pollBtn" style="width:28px;height:28px;font-size:13px;display:none;flex:0 0 auto;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
+                    <button class="btn-icon" id="rsvpBtn" style="width:28px;height:28px;font-size:13px;display:none;flex:0 0 auto;" onclick="openCreateRsvpModal()" title="Criar evento (RSVP)">🎉</button>
+                    <button class="btn-icon" id="gamesBtn" style="width:28px;height:28px;font-size:13px;display:none;flex:0 0 auto;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
                     <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
-                    <button class="btn-icon" id="voiceRecordBtn" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
-                    <button class="btn-icon" style="width:34px;height:34px;font-size:15px;flex:0 0 auto;" onclick="sendMessage()">📨</button>
+                    <button class="btn-icon" id="voiceRecordBtn" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
+                    <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="sendMessage()">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
                 </div>
             </div>
