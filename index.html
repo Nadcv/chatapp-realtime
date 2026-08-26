@@ -1767,6 +1767,35 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalExpenses" style="z-index:200;">
+            <div class="modal">
+                <h3>💰 Despesas da viagem</h3>
+                <div id="expensesBalancesBox" style="margin-bottom:10px;"></div>
+                <div id="expensesList" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalExpenses')">Fechar</button>
+                    <button class="btn-small btn-accept" onclick="openAddExpenseForm()">➕ Nova despesa</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalAddExpense" style="z-index:200;">
+            <div class="modal">
+                <h3>➕ Nova despesa</h3>
+                <input type="text" id="expenseDescription" placeholder="Descrição (ex.: Jantar, Hotel...)">
+                <div style="display:flex;gap:8px;margin-top:8px;">
+                    <input type="number" id="expenseAmount" placeholder="Valor" min="0" step="0.01" style="flex:1;">
+                    <select id="expenseCurrency" style="flex:1;"></select>
+                </div>
+                <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Quem pagou:</label>
+                <select id="expensePaidBy" style="width:100%;margin-top:4px;"></select>
+                <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Dividir entre:</label>
+                <div id="expenseParticipants" style="display:flex;flex-direction:column;gap:4px;margin-top:4px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalAddExpense');openExpensesModal()">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="submitExpense()">Adicionar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalGameChooser">
             <div class="modal">
                 <h3>🎮 Jogar</h3>
@@ -2045,6 +2074,7 @@
                     <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
                     <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
                 </div>
@@ -7784,14 +7814,14 @@
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
             const editedLabel = msg.edited ? '<span style="opacity:0.6;font-size:10px;"> (editada)</span>' : '';
-            const linkPreviewUrl = (!msg.deleted && !msg.poll && !msg.game && !msg.fileData) ? extractFirstUrl(msg.text) : null;
+            const linkPreviewUrl = (!msg.deleted && !msg.poll && !msg.game && !msg.expense && !msg.fileData) ? extractFirstUrl(msg.text) : null;
             if (linkPreviewUrl) maybeFetchLinkPreview(msg, linkPreviewUrl);
             html += `
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId))))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.expense ? renderExpense(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId)))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${linkPreviewUrl ? `<div id="linkpreview_${msg.id}">${renderLinkPreviewCard(msg.linkPreview)}</div>` : ''}
                 ${reactionsHtml}
@@ -8299,6 +8329,7 @@
                 transcript: m.transcript || null,
                 poll: m.poll || null,
                 game: m.game || null,
+                expense: m.expense || null,
                 viewOnce: !!m.viewOnce,
                 viewOnceOpened: !!m.viewOnceOpened
             };
@@ -8355,6 +8386,7 @@
             transcript: data.transcript || null,
             poll: data.poll || null,
             game: data.game || null,
+            expense: data.expense || null,
             viewOnce: !!data.viewOnce,
             viewOnceOpened: !!data.viewOnceOpened
         });
@@ -8679,6 +8711,114 @@
         msg.poll = data.poll;
         if (APP.currentChatId === data.chatId) renderMessages();
     });
+
+    // ==================== DESPESAS DE VIAGEM (divisão simples entre quem participou na conversa) ====================
+    // Os grupos aqui são "abertos" (todos os utilizadores cadastrados veem-nos, sem lista fixa de
+    // membros), por isso os "participantes" de uma despesa são derivados dos nomes de quem já enviou
+    // mensagens nesta conversa — são identificados por NOME, não por telefone (limitação assumida).
+    function getChatParticipantNames(chatId) {
+        const names = new Set(['Você']);
+        const msgs = APP.messages[chatId] || [];
+        msgs.forEach(m => { if (m.sender && m.sender !== 'Você') names.add(m.sender); });
+        return [...names];
+    }
+    function getChatExpenses(chatId) {
+        return (APP.messages[chatId] || []).filter(m => m.expense).map(m => m.expense);
+    }
+    function openExpensesModal() {
+        if (!APP.currentChatId) return;
+        renderExpensesModal();
+        document.getElementById('modalExpenses').classList.add('active');
+    }
+    function renderExpensesModal() {
+        const expenses = getChatExpenses(APP.currentChatId);
+        const balances = {};
+        expenses.forEach(exp => {
+            const share = exp.amountEUR / exp.participants.length;
+            balances[exp.paidBy] = (balances[exp.paidBy] || 0) + exp.amountEUR;
+            exp.participants.forEach(p => { balances[p] = (balances[p] || 0) - share; });
+        });
+        const balancesHtml = Object.keys(balances).length ? Object.entries(balances).map(([name, val]) => {
+            const rounded = Math.round(val * 100) / 100;
+            const color = rounded > 0.01 ? 'var(--green)' : (rounded < -0.01 ? '#e74c3c' : 'inherit');
+            const label = rounded > 0.01 ? `deve receber ${rounded.toFixed(2)}€` : (rounded < -0.01 ? `deve ${Math.abs(rounded).toFixed(2)}€` : 'em dia');
+            return `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>${escapeHtml(name)}</span><span style="color:${color};font-weight:600;">${label}</span></div>`;
+        }).join('') : '<div style="opacity:0.7;font-size:13px;">Ainda sem despesas registadas.</div>';
+        document.getElementById('expensesBalancesBox').innerHTML = `<div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;">${balancesHtml}</div>`;
+        const listHtml = expenses.length ? expenses.slice().reverse().map(exp => `
+            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;font-size:13px;">
+                <div style="font-weight:600;">${escapeHtml(exp.description)} — ${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(exp.currency)}</div>
+                <div style="opacity:0.75;">Pago por ${escapeHtml(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
+            </div>`).join('') : '';
+        document.getElementById('expensesList').innerHTML = listHtml;
+    }
+    function populateExpenseCurrencySelect() {
+        const sel = document.getElementById('expenseCurrency');
+        if (CURRENCY.rates) {
+            const codes = Object.keys(CURRENCY.rates);
+            const sorted = [...codes].sort((a, b) => {
+                const pa = CURRENCY_PRIORITY.indexOf(a), pb = CURRENCY_PRIORITY.indexOf(b);
+                if (pa !== -1 || pb !== -1) return (pa === -1 ? 999 : pa) - (pb === -1 ? 999 : pb);
+                return a.localeCompare(b);
+            });
+            sel.innerHTML = sorted.map(code => {
+                const info = CURRENCY_INFO[code];
+                const label = info ? `${info.flag} ${code} — ${info.name}` : code;
+                return `<option value="${code}">${escapeHtml(label)}</option>`;
+            }).join('');
+            if (codes.includes('EUR')) sel.value = 'EUR';
+        } else {
+            sel.innerHTML = '<option value="EUR">🇪🇺 EUR — Euro</option>';
+        }
+    }
+    async function openAddExpenseForm() {
+        if (!APP.currentChatId) return;
+        document.getElementById('expenseDescription').value = '';
+        document.getElementById('expenseAmount').value = '';
+        if (!CURRENCY.loaded) await loadCurrencyRates();
+        populateExpenseCurrencySelect();
+        const names = getChatParticipantNames(APP.currentChatId);
+        const paidBySel = document.getElementById('expensePaidBy');
+        paidBySel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        document.getElementById('expenseParticipants').innerHTML = names.map((n, i) => `
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                <input type="checkbox" class="expense-participant-checkbox" value="${escapeHtml(n)}" checked>
+                ${escapeHtml(n)}
+            </label>`).join('');
+        closeModal('modalExpenses');
+        document.getElementById('modalAddExpense').classList.add('active');
+    }
+    function submitExpense() {
+        const description = document.getElementById('expenseDescription').value.trim();
+        const amount = parseFloat(document.getElementById('expenseAmount').value);
+        const currency = document.getElementById('expenseCurrency').value;
+        const paidBy = document.getElementById('expensePaidBy').value;
+        const participants = [...document.querySelectorAll('.expense-participant-checkbox:checked')].map(el => el.value);
+        if (!description) return alert('Escreve uma descrição para a despesa.');
+        if (!amount || amount <= 0) return alert('Indica um valor válido.');
+        if (!participants.length) return alert('Seleciona pelo menos uma pessoa para dividir.');
+        const rate = CURRENCY.rates ? CURRENCY.rates[currency] : null;
+        const amountEUR = rate ? amount / rate : amount;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat) return;
+        const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const expense = { description, amount, currency, amountEUR, paidBy, participants };
+        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', expense, read: false });
+        renderMessages();
+        renderChatList();
+        closeModal('modalAddExpense');
+        socket.emit('send_message', { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, text: '', time, expense });
+    }
+    function renderExpense(msg) {
+        const exp = msg.expense;
+        return `<div style="min-width:200px;cursor:pointer;" onclick="openExpensesModal()">
+            <div style="font-weight:600;margin-bottom:4px;">💰 ${escapeHtml(exp.description)}</div>
+            <div style="font-size:15px;">${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(exp.currency)}</div>
+            <div style="font-size:11px;opacity:0.7;margin-top:4px;">Pago por ${escapeHtml(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
+        </div>`;
+    }
 
     // ==================== JOGOS (numa conversa 1-para-1) ====================
     // Quem é X e quem é O é fixo em qualquer jogo: X é sempre quem começou,
