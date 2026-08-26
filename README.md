@@ -710,3 +710,5 @@ Nota técnica: a pesquisa de pontos usa sempre o centro do mapa com um raio de 1
 
 **Correção**: a ficha de um ponto (`modalTourismPoi`) não tinha z-index definido e ficava por baixo do ecrã de Turismo (que tem z-index 100) — abria, mas ficava escondida atrás do mapa, só visível depois de fechar a aba de Turismo. Corrigido com o mesmo z-index (200) já usado por outros modais que também abrem por cima de ecrãs de mapa/lista (ex.: `modalWatchProviders`, `modalBroadcastSend`).
 
+**O mesmo bug encontrado e corrigido também na aba Estados**: o modal "🟢 Novo estado" (aberto ao tocar em "O meu estado" ou no ➕, dentro da aba Estados) tinha exatamente o mesmo problema — sem z-index próprio, ficava por baixo do ecrã de Estados e só aparecia depois de o fechar. Corrigido da mesma forma (z-index 200). Verificado também que os restantes ecrãs com um modal próprio (`modalBroadcastEdit`, dentro da aba de listas de transmissão) já tinham esta correção aplicada.
+
