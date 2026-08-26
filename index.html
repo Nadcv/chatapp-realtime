@@ -1846,6 +1846,16 @@
                 </div>
             </div>
         </div>
+        <div class="modal-overlay" id="modalOpponentPicker">
+            <div class="modal">
+                <h3 id="opponentPickerTitle">🎯 Escolher adversário</h3>
+                <p style="font-size:12px;opacity:0.7;">Só quem escolheres joga contigo — o resto do grupo vê o jogo, mas não participa.</p>
+                <div id="opponentPickerList" style="max-height:200px;overflow-y:auto;margin-top:8px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalOpponentPicker')">Cancelar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalUnoGroupPicker">
             <div class="modal">
                 <h3>🃏 Escolher jogadores de UNO</h3>
@@ -5003,12 +5013,16 @@
         statusEl.textContent = 'A obter a tua localização...';
         navigator.geolocation.getCurrentPosition(async (pos) => {
             statusEl.textContent = 'A enviar email...';
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             try {
                 const res = await fetch('/api/fires/send-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token },
-                    body: JSON.stringify({ token: APP.token, to, lat: pos.coords.latitude, lng: pos.coords.longitude })
+                    body: JSON.stringify({ token: APP.token, to, lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
                 const data = await res.json();
                 if (data.configured === false) {
                     statusEl.style.color = 'var(--red)';
@@ -5019,8 +5033,9 @@
                 statusEl.style.color = 'var(--green)';
                 statusEl.textContent = '✅ Email enviado para ' + to + '.';
             } catch (err) {
+                clearTimeout(timeoutId);
                 statusEl.style.color = 'var(--red)';
-                statusEl.textContent = '⚠️ ' + err.message;
+                statusEl.textContent = err.name === 'AbortError' ? '⚠️ O servidor demorou demasiado a responder — o email pode não ter sido enviado. Tenta de novo.' : '⚠️ ' + err.message;
             }
         }, () => {
             statusEl.style.color = 'var(--red)';
@@ -8905,12 +8920,38 @@
     function openGameChooserModal() {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
-        const isGroup = chat.type === 'group';
-        // Galo e Damas são só de 2 jogadores fixos (X = quem começou, O = a
-        // outra pessoa da DM) — não fazem sentido num grupo com N pessoas.
-        document.getElementById('gameChooserTicTacToeBtn').style.display = isGroup ? 'none' : 'flex';
-        document.getElementById('gameChooserCheckersBtn').style.display = isGroup ? 'none' : 'flex';
+        // Galo e Damas continuam a ser sempre 2 jogadores fixos (X = quem começou,
+        // O = o adversário escolhido) — num grupo, escolhe-se o adversário com um
+        // seletor (ver openOpponentPickerModal), tal como já acontecia no UNO.
         document.getElementById('modalGameChooser').classList.add('active');
+    }
+    function nameForPhone(phone) {
+        if (phone === APP.user.phone) return 'Você';
+        return APP.chats.find(c => c.phone === phone)?.name || 'Alguém';
+    }
+    function openOpponentPickerModal(gameType) {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat) return;
+        closeModal('modalGameChooser');
+        OPPONENT_PICKER.gameType = gameType;
+        const contacts = APP.chats.filter(c => c.type === 'user');
+        document.getElementById('opponentPickerTitle').textContent = gameType === 'checkers' ? '♟️ Escolher adversário (Damas)' : '🎯 Escolher adversário (Jogo do Galo)';
+        const list = document.getElementById('opponentPickerList');
+        list.innerHTML = contacts.length ? contacts.map(c => `
+            <div class="chat-item" style="cursor:pointer;" onclick="confirmStartGameWithOpponent('${c.phone}')">
+                <div class="chat-item-avatar avatar-user">${escapeHtml((c.name || '?')[0].toUpperCase())}</div>
+                <div class="chat-item-info"><h4>${escapeHtml(c.name)}</h4></div>
+            </div>`).join('') : '<p style="color:#8696a0;text-align:center;">Nenhum contacto disponível para desafiar.</p>';
+        document.getElementById('modalOpponentPicker').classList.add('active');
+    }
+    const OPPONENT_PICKER = { gameType: null };
+    function confirmStartGameWithOpponent(opponentPhone) {
+        closeModal('modalOpponentPicker');
+        if (OPPONENT_PICKER.gameType === 'checkers') {
+            startNewGameMessage({ type: 'checkers', board: initCheckersBoard(), players: [APP.user.phone, opponentPhone], turn: 'X', winner: null });
+        } else if (OPPONENT_PICKER.gameType === 'tictactoe') {
+            startNewGameMessage({ type: 'tictactoe', board: Array(9).fill(null), players: [APP.user.phone, opponentPhone], turn: 'X', winner: null });
+        }
     }
     function startNewGameMessage(game) {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
@@ -8925,18 +8966,22 @@
     }
     function startTicTacToe() {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        if (!chat || chat.type !== 'user') return;
+        if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
+        if (chat.type === 'group') { openOpponentPickerModal('tictactoe'); return; }
         startNewGameMessage({ type: 'tictactoe', board: Array(9).fill(null), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
     }
     function renderGame(msg) {
         const game = msg.game;
         const myMark = game.players[0] === APP.user.phone ? 'X' : (game.players[1] === APP.user.phone ? 'O' : null);
-        const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        const otherName = chat?.type === 'user' ? chat.name : 'a outra pessoa';
+        const turnName = nameForPhone(game.turn === 'X' ? game.players[0] : game.players[1]);
         let statusLine;
         if (game.winner === 'draw') statusLine = '🤝 Empate!';
-        else if (game.winner) statusLine = (game.winner === myMark ? '🎉 Ganhaste!' : `😅 ${escapeHtml(otherName)} ganhou!`);
-        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(otherName)}`) + ` (és ${myMark || '—'})`;
+        else if (game.winner) {
+            const winnerName = nameForPhone(game.winner === 'X' ? game.players[0] : game.players[1]);
+            statusLine = (game.winner === myMark ? '🎉 Ganhaste!' : `😅 ${escapeHtml(winnerName)} ganhou!`);
+        }
+        else if (myMark === null) statusLine = `Vez de ${escapeHtml(turnName)} (só a ver)`;
+        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(turnName)}`) + ` (és ${myMark})`;
         const cellsHtml = game.board.map((cell, i) => {
             const clickable = !game.winner && cell === null && game.turn === myMark;
             return `<div data-cell="${i}" onclick="${clickable ? `moveGame('${msg.id}', ${i})` : ''}" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;background:rgba(255,255,255,0.08);border-radius:6px;cursor:${clickable ? 'pointer' : 'default'};">${cell || ''}</div>`;
@@ -8982,7 +9027,8 @@
     }
     function startCheckers() {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        if (!chat || chat.type !== 'user') return;
+        if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
+        if (chat.type === 'group') { openOpponentPickerModal('checkers'); return; }
         startNewGameMessage({ type: 'checkers', board: initCheckersBoard(), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
     }
     // Estado só local (não sincronizado) de qual peça está selecionada
@@ -8993,11 +9039,14 @@
         const game = msg.game;
         const myMark = game.players[0] === APP.user.phone ? 'X' : (game.players[1] === APP.user.phone ? 'O' : null);
         const myOwner = myMark === 'X' ? 0 : 1;
-        const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        const otherName = chat?.type === 'user' ? chat.name : 'a outra pessoa';
+        const turnName = nameForPhone(game.turn === 'X' ? game.players[0] : game.players[1]);
         let statusLine;
-        if (game.winner) statusLine = (game.winner === myMark ? '🎉 Ganhaste!' : `😅 ${escapeHtml(otherName)} ganhou!`);
-        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(otherName)}`) + ` (és ${myMark === 'X' ? '🔴' : (myMark === 'O' ? '⚪' : '—')})`;
+        if (game.winner) {
+            const winnerName = nameForPhone(game.winner === 'X' ? game.players[0] : game.players[1]);
+            statusLine = (game.winner === myMark ? '🎉 Ganhaste!' : `😅 ${escapeHtml(winnerName)} ganhou!`);
+        }
+        else if (myMark === null) statusLine = `Vez de ${escapeHtml(turnName)} (só a ver)`;
+        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(turnName)}`) + ` (és ${myMark === 'X' ? '🔴' : '⚪'})`;
         const selectedCell = CHECKERS_SELECTED.messageId === msg.id ? CHECKERS_SELECTED.cell : null;
         const myTurn = !game.winner && game.turn === myMark;
         const cellsHtml = game.board.map((piece, i) => {
