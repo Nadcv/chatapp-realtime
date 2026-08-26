@@ -2602,6 +2602,7 @@ io.on('connection', (socket) => {
     if (!msgs || !myPhone) return;
     const msg = msgs.find(m => m.id === data.messageId);
     if (!msg || !msg.poll?.options?.[data.optionIndex]) return;
+    if (msg.poll.expiresAt && Date.now() > msg.poll.expiresAt) return; // enquete já encerrada — validado aqui, não só na aparência
     const alreadyVotedHere = msg.poll.options[data.optionIndex].votes.includes(myPhone);
     msg.poll.options.forEach((opt) => { opt.votes = opt.votes.filter((p) => p !== myPhone); });
     if (!alreadyVotedHere) msg.poll.options[data.optionIndex].votes.push(myPhone);

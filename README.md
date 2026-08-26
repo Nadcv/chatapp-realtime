@@ -750,3 +750,19 @@ Se a rede do servidor bloqueasse a ligação SMTP (comum em vários serviços de
 
 A instância pública do Overpass API (usada nas categorias Praias/Museus/Atrações/Parques) tem limites de utilização apertados e por vezes fica lenta ou sobrecarregada. Agora cada pedido tem um limite de 12 segundos (em vez de poder ficar preso sem limite) e, se a instância principal falhar ou estiver a recusar pedidos, tenta automaticamente um espelho público alternativo antes de desistir — a pesquisa só mostra erro se as duas falharem.
 
+## 🎉 Eventos (RSVP) e ⏳ enquetes com prazo
+
+Ao lado do botão de enquete (📊) numa conversa em grupo há agora um botão 🎉 "Criar evento" — é um atalho que abre a mesma criação de enquete já existente, só com as opções já prontas ("✅ Vou" / "❌ Não vou" / "🤔 Talvez") e o campo principal a pedir o nome do evento em vez de uma pergunta qualquer. Não é uma funcionalidade nova por baixo — é literalmente a mesma enquete de sempre, só com um atalho para o caso de uso "quem vai à festa?".
+
+Todas as enquetes (incluindo estes eventos) podem agora ter um prazo: ao criar, escolhe-se quanto tempo até a votação encerrar sozinha (1h/6h/24h/3 dias/7 dias, ou nunca, como antes). Passado esse prazo, a enquete mostra "🔒 Votação encerrada" e deixa de aceitar votos — validado também no servidor (não só escondendo o botão no ecrã), para não dar para votar depois de encerrada só porque alguém edita o código no navegador.
+
+## 📸 Ler valor de um recibo por foto (nas despesas de viagem)
+
+Ao criar uma despesa, há agora um botão opcional "📸 Ler valor de um recibo" — tira/escolhe uma foto do recibo e o valor é lido automaticamente para o campo "Valor" (usando OCR no próprio telemóvel/computador, com a biblioteca gratuita Tesseract.js, carregada só quando este botão é mesmo usado, para não pesar no carregamento normal da app). É sempre só uma sugestão: o campo continua editável antes de guardar, e se não for possível identificar um valor claro no recibo aparece um aviso a pedir para preencher à mão.
+
+**Como o valor é escolhido**: o texto lido do recibo é procurado por números com vírgula/ponto decimal (ex.: "14,50"); se alguma linha tiver uma palavra como "total", usa-se o maior valor dessas linhas — senão, usa-se o maior valor encontrado em todo o recibo (o total costuma ser o maior número, maior do que qualquer item individual).
+
+## Nota: partilha de localização ao vivo já existia
+
+Ao propor novas ideias, sugeri "partilhar localização ao vivo" sem verificar primeiro se já existia — e já existia (aba de Navegação → "📡 Partilhar minha localização", com duração limitada de 15 min/1h/8h e aviso persistente com botão para parar a qualquer momento). Não foi duplicada nem alterada.
+
