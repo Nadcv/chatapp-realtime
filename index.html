@@ -2408,6 +2408,13 @@
                 <button class="btn-small" onclick="flyTourismTo('holanda')" style="flex-shrink:0;">🇳🇱 Holanda</button>
                 <button class="btn-small" onclick="flyTourismTo('world')" style="flex-shrink:0;">🌍 Mundo</button>
             </div>
+            <div style="display:flex;gap:6px;padding:0 10px 8px;background:var(--bg-secondary);overflow-x:auto;">
+                <button class="btn-small tourism-category btn-accept" data-category="geral" onclick="setTourismCategory('geral')" style="flex-shrink:0;">📍 Geral</button>
+                <button class="btn-small tourism-category" data-category="praias" onclick="setTourismCategory('praias')" style="flex-shrink:0;">🏖️ Praias</button>
+                <button class="btn-small tourism-category" data-category="museus" onclick="setTourismCategory('museus')" style="flex-shrink:0;">🏛️ Museus</button>
+                <button class="btn-small tourism-category" data-category="atracoes" onclick="setTourismCategory('atracoes')" style="flex-shrink:0;">🎭 Atrações</button>
+                <button class="btn-small tourism-category" data-category="parques" onclick="setTourismCategory('parques')" style="flex-shrink:0;">🌳 Parques/Praças</button>
+            </div>
             <div style="position:relative;flex:1;overflow:hidden;">
                 <div id="tourismMap" style="position:absolute;inset:0;"></div>
                 <button onclick="searchTourismHere()" style="position:absolute;top:10px;right:10px;z-index:500;padding:8px 14px;border-radius:20px;background:var(--bg-secondary);border:none;font-size:13px;cursor:pointer;box-shadow:var(--shadow);">🔍 Procurar aqui</button>
@@ -4918,8 +4925,15 @@
     // não há dados de transporte público mundiais grátis para desenhar aqui.
     // Dentro de Portugal, o botão "🚌 Transportes (PT)" continua a abrir a aba
     // de Transportes já existente, essa sim com estações reais de metro/comboio.
+    const TOURISM_CATEGORIES = {
+        geral: { label: '📍 Geral', endpoint: 'poi' },
+        praias: { label: '🏖️ Praias', endpoint: 'category' },
+        museus: { label: '🏛️ Museus', endpoint: 'category' },
+        atracoes: { label: '🎭 Atrações', endpoint: 'category' },
+        parques: { label: '🌳 Parques/Praças', endpoint: 'category' }
+    };
     const TOURISM = {
-        map: null, layer: null, lastPoi: null, routeLine: null, routeMarkers: [],
+        map: null, layer: null, lastPoi: null, routeLine: null, routeMarkers: [], category: 'geral',
         cities: {
             valencia: { lat: 39.4699, lon: -0.3763, zoom: 12 },
             madrid: { lat: 40.4168, lon: -3.7038, zoom: 12 },
@@ -4953,6 +4967,14 @@
     function isInPortugal(lat, lon) {
         return lat >= 36.8 && lat <= 42.2 && lon >= -9.6 && lon <= -6.0;
     }
+    function setTourismCategory(cat) {
+        if (!TOURISM_CATEGORIES[cat]) return;
+        TOURISM.category = cat;
+        document.querySelectorAll('.tourism-category').forEach((btn) => {
+            btn.classList.toggle('btn-accept', btn.dataset.category === cat);
+        });
+        searchTourismHere();
+    }
     async function searchTourismHere() {
         const status = document.getElementById('tourismStatus');
         const center = TOURISM.map.getCenter();
@@ -4961,9 +4983,13 @@
             status.textContent = 'Aproxima-te mais (zoom) para veres pontos turísticos nesta área.';
             return;
         }
-        status.textContent = 'A procurar pontos turísticos...';
+        const catInfo = TOURISM_CATEGORIES[TOURISM.category] || TOURISM_CATEGORIES.geral;
+        status.textContent = 'A procurar...';
         try {
-            const res = await fetch(`/api/tourism/poi?lat=${center.lat}&lon=${center.lng}&radius=10000`);
+            const url = catInfo.endpoint === 'category'
+                ? `/api/tourism/category?lat=${center.lat}&lon=${center.lng}&radius=10000&category=${TOURISM.category}`
+                : `/api/tourism/poi?lat=${center.lat}&lon=${center.lng}&radius=10000`;
+            const res = await fetch(url);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Falha ao procurar.');
             clearTourismRoute();
@@ -4971,32 +4997,37 @@
             (data.points || []).forEach(p => {
                 L.marker([p.lat, p.lon]).bindTooltip(p.title).on('click', () => openTourismPoi(p)).addTo(TOURISM.layer);
             });
-            status.textContent = data.points?.length ? `${data.points.length} ponto(s) encontrados nesta área — toca num marcador para saber mais.` : 'Nenhum ponto turístico encontrado aqui — tenta noutra área do mapa.';
+            status.textContent = data.points?.length ? `${data.points.length} ponto(s) encontrados nesta área — toca num marcador para saber mais.` : `Nada encontrado em "${catInfo.label}" nesta área — tenta noutra área ou categoria.`;
         } catch (err) {
             status.textContent = '⚠️ ' + err.message;
         }
     }
     async function openTourismPoi(point) {
         TOURISM.lastPoi = point;
+        // Pontos vindos do OpenStreetMap (praias/museus/atrações/parques) trazem o
+        // nome real do sítio (point.title), que pode não bater certo com o título
+        // do artigo na Wikipédia — quando o próprio OSM já liga a um artigo
+        // (point.wikiTitle), usamos esse em vez de adivinhar pelo nome.
+        const detailsTitle = point.wikiTitle || point.title;
         document.getElementById('tourismPoiTitle').textContent = point.title;
         document.getElementById('tourismPoiExtract').textContent = 'A carregar informação...';
         document.getElementById('tourismPoiImage').style.display = 'none';
-        document.getElementById('tourismPoiWikiLink').href = `https://pt.wikipedia.org/wiki/${encodeURIComponent(point.title)}`;
+        document.getElementById('tourismPoiWikiLink').href = `https://pt.wikipedia.org/wiki/${encodeURIComponent(detailsTitle)}`;
         document.getElementById('tourismPoiGoogleMapsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=transit`;
         document.getElementById('tourismPoiTransportBtn').style.display = isInPortugal(point.lat, point.lon) ? 'flex' : 'none';
         document.getElementById('modalTourismPoi').classList.add('active');
         try {
-            const res = await fetch(`/api/tourism/details?title=${encodeURIComponent(point.title)}`);
+            const res = await fetch(`/api/tourism/details?title=${encodeURIComponent(detailsTitle)}`);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Falha.');
-            document.getElementById('tourismPoiExtract').textContent = data.extract || 'Sem descrição disponível para este ponto.';
+            document.getElementById('tourismPoiExtract').textContent = data.extract || 'Sem descrição disponível para este local.';
             if (data.thumbnail) {
                 document.getElementById('tourismPoiImg').src = data.thumbnail;
                 document.getElementById('tourismPoiImage').style.display = 'block';
             }
             if (data.wikiUrl) document.getElementById('tourismPoiWikiLink').href = data.wikiUrl;
         } catch (err) {
-            document.getElementById('tourismPoiExtract').textContent = '⚠️ Não foi possível carregar mais informação agora.';
+            document.getElementById('tourismPoiExtract').textContent = 'Sem descrição disponível para este local.';
         }
     }
     function openTransportFromTourism() {
