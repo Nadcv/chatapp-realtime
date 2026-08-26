@@ -726,3 +726,9 @@ Em qualquer conversa (grupo ou 1-para-1), o menu "⋮ Mais" tem agora um botão 
 
 **Simplificação assumida**: como os grupos nesta app são "abertos" (qualquer conta cadastrada vê o grupo, sem uma lista fixa de membros a consultar), não há como perguntar ao servidor "quem está neste grupo". Por isso, quem pagou e quem participa numa despesa é identificado pelo **nome** de quem já enviou mensagens nessa conversa (não pelo número de telefone) — funciona bem no uso normal, mas duas pessoas com o mesmo nome de perfil na mesma conversa seriam tratadas como uma só.
 
+## 🙈 Privacidade — esconder estado online e confirmação de leitura
+
+Em "O meu perfil" há agora uma secção de Privacidade com duas opções independentes: "Esconder o meu estado online dos contactos" (os outros passam a ver-te sempre como offline, mesmo estando ligado) e "Não enviar confirmação de leitura" (as mensagens que enviares a outras pessoas nunca mostram o ✓✓ azul, mesmo depois de as teres lido).
+
+**Simplificação assumida (ao contrário do WhatsApp)**: aqui a proteção é só num sentido — ligar qualquer uma destas opções não te tira a ti a visão do estado online ou das confirmações de leitura dos teus contactos, só esconde a tua própria informação deles. É mais simples de perceber (não há o efeito secundário de "se escondes o teu, também deixas de ver o dos outros") à custa de ser menos rigoroso que o WhatsApp nesse aspeto.
+

@@ -56,7 +56,9 @@ const accountSchema = new mongoose.Schema({
   pushSubscriptions: { type: [Object], default: [] }, // inscrições de notificações push (um dispositivo pode ter mais do que uma)
   totalTimeSpentSec: { type: Number, default: 0 }, // tempo total acumulado com a app em primeiro plano, para o cronómetro "quantas horas perdeu"
   birthday: String, // 'YYYY-MM-DD', opcional — mostrado aos contactos para lembrete de aniversário
-  devices: { type: [Object], default: [] } // [{id, name, lastSeenAt}] — máximo 2 por conta, ver /api/login
+  devices: { type: [Object], default: [] }, // [{id, name, lastSeenAt}] — máximo 2 por conta, ver /api/login
+  hideOnlineStatus: { type: Boolean, default: false }, // esconde "online"/última vez dos contactos (sempre aparece offline)
+  hideReadReceipts: { type: Boolean, default: false } // não envia confirmação de leitura (✓✓ azul) às mensagens que eu recebo
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -2077,7 +2079,7 @@ function broadcastUnoUpdate(chatId, messageId, game) {
 }
 
 function contactPublicInfo(u) {
-  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null };
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: u.hideOnlineStatus ? false : onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null };
 }
 
 function sendContactsTo(phone) {
@@ -2136,6 +2138,7 @@ io.on('connection', (socket) => {
       socket.emit('broadcast_list', broadcastsByPhone[myPhone] || []);
       socket.emit('folders_list', foldersByPhone[myPhone] || []);
       socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone] || []);
+      socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
     }
@@ -2762,7 +2765,29 @@ io.on('connection', (socket) => {
 
   socket.on('message_read', (data) => {
     if (!data?.chatId) return;
-    socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: users[socket.id]?.phone });
+    const myPhone = users[socket.id]?.phone;
+    if (myPhone && accounts[myPhone]?.hideReadReceipts) return;
+    socket.to(data.chatId).emit('message_read_received', { chatId: data.chatId, reader: myPhone });
+  });
+
+  // Privacidade: esconder o estado online e/ou não enviar confirmação de
+  // leitura (✓✓ azul) aos outros. É só de um lado (não recíproco, ao
+  // contrário do WhatsApp) — mais simples, e o utilizador continua a ver o
+  // estado/confirmações dos outros normalmente.
+  socket.on('set_privacy', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone]) return;
+    const hideOnlineStatus = !!data?.hideOnlineStatus;
+    const hideReadReceipts = !!data?.hideReadReceipts;
+    accounts[myPhone].hideOnlineStatus = hideOnlineStatus;
+    accounts[myPhone].hideReadReceipts = hideReadReceipts;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { hideOnlineStatus, hideReadReceipts }).catch(e => console.error('Erro Mongo (privacidade):', e.message));
+    } else {
+      saveUsers();
+    }
+    notifyContactsOfStatusChange(myPhone);
+    socket.emit('privacy_updated', { hideOnlineStatus, hideReadReceipts });
   });
 
   // Chamadas 1-para-1: entregues diretamente ao(s) socket(s) do telefone-alvo
