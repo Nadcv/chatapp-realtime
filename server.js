@@ -492,6 +492,42 @@ async function cachedFetch(key, url, ttlMs, options) {
   return data;
 }
 
+// A instância pública do Overpass API (overpass-api.de) tem limites de taxa
+// apertados e por vezes fica lenta/indisponível sob carga — sem isto, um
+// pedido preso lá ficava pendurado (sem timeout) e o utilizador só via "Não
+// foi possível procurar agora" muito depois, ou nunca. Com timeout curto por
+// tentativa e um espelho público de reserva, uma falha na instância
+// principal recupera automaticamente em vez de deixar a funcionalidade
+// inutilizável enquanto essa instância estiver em baixo.
+const OVERPASS_ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS_TIMEOUT_MS = 12000;
+async function fetchOverpass(key, query, ttlMs) {
+  const now = Date.now();
+  if (transportCache[key] && (now - transportCache[key].t) < ttlMs) return transportCache[key].data;
+  let lastErr = null;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!r.ok) { lastErr = new Error('HTTP ' + r.status + ' ao consultar ' + endpoint); continue; }
+      const data = await r.json();
+      transportCache[key] = { t: now, data };
+      return data;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Overpass indisponível.');
+}
+
 app.get('/api/transport/buses', async (req, res) => {
   try {
     const data = await cachedFetch('buses', 'https://api.carrismetropolitana.pt/v2/vehicles', 10000);
@@ -596,13 +632,20 @@ app.get('/api/fires', async (req, res) => {
 // conta de email própria (Gmail com "palavra-passe de aplicação", ou outro
 // serviço SMTP) configurada no servidor — grátis, mas precisa de configuração.
 let mailTransporter = null;
+// Timeouts explícitos: sem isto, se a rede do servidor bloquear a porta SMTP
+// (comum em muitos serviços de alojamento, por prevenção de spam) ou o Gmail
+// demorar a responder, o pedido fica pendurado por muito tempo (ou para
+// sempre) em vez de falhar — o utilizador via "A enviar email..." parado sem
+// nunca saber que não estava a funcionar.
+const MAIL_TIMEOUT_MS = 12000;
 function getMailTransporter() {
   if (mailTransporter) return mailTransporter;
   const { EMAIL_USER, EMAIL_PASS, SMTP_HOST, SMTP_PORT } = process.env;
   if (!EMAIL_USER || !EMAIL_PASS || !nodemailer) return null;
+  const timeouts = { connectionTimeout: MAIL_TIMEOUT_MS, greetingTimeout: MAIL_TIMEOUT_MS, socketTimeout: MAIL_TIMEOUT_MS };
   mailTransporter = SMTP_HOST
-    ? nodemailer.createTransport({ host: SMTP_HOST, port: Number(SMTP_PORT) || 587, secure: Number(SMTP_PORT) === 465, auth: { user: EMAIL_USER, pass: EMAIL_PASS } })
-    : nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS } });
+    ? nodemailer.createTransport({ host: SMTP_HOST, port: Number(SMTP_PORT) || 587, secure: Number(SMTP_PORT) === 465, auth: { user: EMAIL_USER, pass: EMAIL_PASS }, ...timeouts })
+    : nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS }, ...timeouts });
   return mailTransporter;
 }
 function escapeHtmlServer(str) {
@@ -682,11 +725,7 @@ app.get('/api/tourism/category', async (req, res) => {
     const clauses = filters.map(([k, v]) => `node["${k}"="${v}"](around:${radius},${lat},${lon});\n  way["${k}"="${v}"](around:${radius},${lat},${lon});`).join('\n  ');
     const query = `[out:json][timeout:20];\n(\n  ${clauses}\n);\nout center 40;`;
     const cacheKey = `tourism_cat_${category}_${lat.toFixed(3)}_${lon.toFixed(3)}_${radius}`;
-    const data = await cachedFetch(cacheKey, 'https://overpass-api.de/api/interpreter', 3600000, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(query)
-    });
+    const data = await fetchOverpass(cacheKey, query, 3600000);
     const points = (data.elements || [])
       .filter((el) => el.tags?.name)
       .map((el) => {

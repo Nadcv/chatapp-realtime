@@ -738,3 +738,15 @@ Cada conversa (1-para-1 ou grupo) já deixava fixar uma mensagem; agora dá para
 
 **Nota técnica**: o limite de 10 é aplicado no servidor (não só na aparência) — ao tentar fixar mais do que isso, aparece um aviso a pedir para desafixar alguma primeiro. Mantida também compatibilidade com o formato antigo do ficheiro `pins.json` (uma mensagem só, não um array), para não perder o que já estava fixado em conversas antigas.
 
+## ♟️ Damas e Jogo do Galo também em grupos
+
+Estes dois jogos são sempre de 2 jogadores fixos (não fazem sentido com N pessoas), por isso até agora só estavam disponíveis em conversas 1-para-1. Dentro de um grupo, ao escolher "Jogo do Galo" ou "Damas" no menu 🎮, aparece um seletor para escolheres com qual dos teus contactos queres jogar — tal como já acontecia com o UNO. Só vocês os dois jogam; o resto do grupo vê o tabuleiro a atualizar-se ao vivo, com um aviso "(só a ver)" e sem conseguir tocar nas peças.
+
+## Correção: email de aviso de incêndio às vezes ficava "a enviar" para sempre
+
+Se a rede do servidor bloqueasse a ligação SMTP (comum em vários serviços de alojamento, como proteção contra spam) ou o Gmail demorasse a responder, o envio ficava pendurado indefinidamente — sem erro, sem sucesso, só "A enviar email..." parado. Corrigido em dois sítios: o servidor agora define um limite de 12 segundos para a ligação SMTP (em vez de esperar sem limite), e o próprio pedido feito pelo telemóvel/computador desiste ao fim de 15 segundos e mostra um aviso claro a pedir para tentar de novo, em vez de ficar preso no ecrã.
+
+## Correção: pesquisa por categoria em Turismo às vezes falhava com "Não foi possível procurar agora"
+
+A instância pública do Overpass API (usada nas categorias Praias/Museus/Atrações/Parques) tem limites de utilização apertados e por vezes fica lenta ou sobrecarregada. Agora cada pedido tem um limite de 12 segundos (em vez de poder ficar preso sem limite) e, se a instância principal falhar ou estiver a recusar pedidos, tenta automaticamente um espelho público alternativo antes de desistir — a pesquisa só mostra erro se as duas falharem.
+
