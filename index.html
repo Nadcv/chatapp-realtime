@@ -2420,6 +2420,7 @@
             </div>
             <div style="position:relative;flex:1;overflow:hidden;">
                 <div id="tourismMap" style="position:absolute;inset:0;"></div>
+                <div id="tourismWeather" style="display:none;position:absolute;top:10px;left:10px;z-index:500;padding:6px 12px;border-radius:20px;background:var(--bg-secondary);font-size:13px;box-shadow:var(--shadow);white-space:nowrap;"></div>
                 <button onclick="searchTourismHere()" style="position:absolute;top:10px;right:10px;z-index:500;padding:8px 14px;border-radius:20px;background:var(--bg-secondary);border:none;font-size:13px;cursor:pointer;box-shadow:var(--shadow);">🔍 Procurar aqui</button>
             </div>
             <div id="tourismStatus" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);text-align:center;background:var(--bg-secondary);">Escolhe uma cidade acima, navega no mapa, ou toca num ponto qualquer para explorar essa área.</div>
@@ -4982,6 +4983,22 @@
     function isInPortugal(lat, lon) {
         return lat >= 36.8 && lat <= 42.2 && lon >= -9.6 && lon <= -6.0;
     }
+    // Reaproveita a API de meteorologia já existente noutra aba (/api/weather),
+    // agora também aceitando coordenadas diretas em vez de só o nome de uma
+    // cidade — mostra o tempo de onde quer que o mapa do Turismo esteja centrado.
+    async function loadTourismWeather(lat, lon) {
+        const el = document.getElementById('tourismWeather');
+        try {
+            const res = await fetch(`/api/weather?lat=${lat}&lon=${lon}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha.');
+            const info = weatherInfo(data.current.weather_code);
+            el.textContent = `${info.icon} ${Math.round(data.current.temperature_2m)}°C`;
+            el.style.display = 'block';
+        } catch (err) {
+            el.style.display = 'none';
+        }
+    }
     function setTourismCategory(cat) {
         if (!TOURISM_CATEGORIES[cat]) return;
         TOURISM.category = cat;
@@ -4994,6 +5011,7 @@
         const status = document.getElementById('tourismStatus');
         const center = TOURISM.map.getCenter();
         const zoom = TOURISM.map.getZoom();
+        loadTourismWeather(center.lat, center.lng);
         if (zoom < 8) {
             status.textContent = 'Aproxima-te mais (zoom) para veres pontos turísticos nesta área.';
             return;
