@@ -162,7 +162,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1872,6 +1872,19 @@ function saveFoldersLocal() {
   fs.writeFile(FOLDERS_FILE, JSON.stringify(foldersByPhone), (err) => { if (err) console.error('Erro ao salvar pastas de conversas:', err.message); });
 }
 
+// ==================== FAVORITOS DO TURISMO ====================
+// Guarda pontos de interesse para uma lista pessoal — organização própria,
+// tal como as pastas de conversas acima, sem afetar mais ninguém.
+const TOURISM_FAVORITES_FILE = path.join(__dirname, 'tourism-favorites.json');
+let tourismFavoritesByPhone = {}; // phone -> [{id, title, lat, lon, wikiTitle}]
+function loadTourismFavoritesLocal() {
+  try { if (fs.existsSync(TOURISM_FAVORITES_FILE)) tourismFavoritesByPhone = JSON.parse(fs.readFileSync(TOURISM_FAVORITES_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar favoritos de turismo:', err.message); }
+}
+function saveTourismFavoritesLocal() {
+  fs.writeFile(TOURISM_FAVORITES_FILE, JSON.stringify(tourismFavoritesByPhone), (err) => { if (err) console.error('Erro ao salvar favoritos de turismo:', err.message); });
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -2107,6 +2120,7 @@ io.on('connection', (socket) => {
       socket.emit('blocked_list', blockedByPhone[myPhone] || []);
       socket.emit('broadcast_list', broadcastsByPhone[myPhone] || []);
       socket.emit('folders_list', foldersByPhone[myPhone] || []);
+      socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone] || []);
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
     }
@@ -3038,6 +3052,33 @@ io.on('connection', (socket) => {
     else { folder.chatIds = folder.chatIds.filter((c) => c !== chatId); }
     saveFoldersLocal();
     socket.emit('folders_list', foldersByPhone[myPhone]);
+  });
+
+  // ==================== FAVORITOS DO TURISMO ====================
+  socket.on('get_tourism_favorites', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone] || []);
+  });
+  socket.on('save_tourism_favorite', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { title, lat, lon, wikiTitle } = data || {};
+    if (!myPhone || !title || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    if (!tourismFavoritesByPhone[myPhone]) tourismFavoritesByPhone[myPhone] = [];
+    // Evita duplicados óbvios (mesmo sítio guardado duas vezes).
+    const alreadySaved = tourismFavoritesByPhone[myPhone].some((f) => f.title === title && Math.abs(f.lat - lat) < 0.0005 && Math.abs(f.lon - lon) < 0.0005);
+    if (!alreadySaved) {
+      tourismFavoritesByPhone[myPhone].push({ id: 'fav' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), title: String(title).substring(0, 200), lat, lon, wikiTitle: wikiTitle || null });
+      saveTourismFavoritesLocal();
+    }
+    socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone]);
+  });
+  socket.on('delete_tourism_favorite', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { id } = data || {};
+    if (!myPhone || !id || !tourismFavoritesByPhone[myPhone]) return;
+    tourismFavoritesByPhone[myPhone] = tourismFavoritesByPhone[myPhone].filter((f) => f.id !== id);
+    saveTourismFavoritesLocal();
+    socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone]);
   });
 
   // ==================== "NÃO INCOMODAR" AGENDADO ====================
