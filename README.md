@@ -810,4 +810,10 @@ Dentro do menu de "💰 Despesas" de qualquer conversa há agora um botão "🔁
 
 **Se o dia escolhido não existir nesse mês** (ex.: dia 31 em fevereiro ou abril), a despesa é lançada no último dia real desse mês, para nunca "saltar" um mês inteiro. E se em algum mês já foi lançada, não volta a ser lançada de novo nesse mesmo mês.
 
+## 📊 Estatísticas do grupo
+
+A versão "de grupo" de "📊 As minhas estatísticas": no menu "⋯ Mais desta conversa" de qualquer **grupo** há agora um botão "📊 Estatísticas" com um ranking de quem mais fala (e quantas fotos/vídeos cada pessoa partilhou), além do total de mensagens/fotos/vídeos/áudios do grupo todo, o emoji mais usado e a hora do dia mais movimentada.
+
+Tal como as estatísticas pessoais, é tudo calculado a partir do histórico já carregado no aparelho — não pede nada novo ao servidor. Só aparece para grupos (não faz sentido num "ranking" de uma conversa 1-para-1).
+
 
