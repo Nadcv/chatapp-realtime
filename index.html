@@ -2040,6 +2040,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSpaceScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛰️<span style="font-size:11px;">Espaço</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTourismScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗺️<span style="font-size:11px;">Turismo</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openShoppingScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛒<span style="font-size:11px;">Compras</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDriveListenScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚗<span style="font-size:11px;">Conduzir e Ouvir</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openWeatherScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌦️<span style="font-size:11px;">Meteorologia</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openActivitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏃<span style="font-size:11px;">Atividades</span></button>
@@ -2522,6 +2523,41 @@
                 <div id="tourismFavoritesList" style="margin:10px 0;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalTourismFavorites')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ LISTA DE COMPRAS ============ -->
+        <div class="location-screen" id="shoppingScreen">
+            <div class="location-header">
+                <strong>🛒 Lista de Compras</strong>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="openShoppingHistoryModal()" title="Histórico">📜</button>
+                    <button onclick="closeShoppingScreen()">✖️</button>
+                </div>
+            </div>
+            <div style="padding:10px 14px;display:flex;gap:8px;">
+                <input type="text" id="shoppingItemNameInput" placeholder="Nome do artigo (ex.: Leite)" style="flex:1;" onkeypress="if(event.key==='Enter')addShoppingItem()">
+                <input type="number" id="shoppingItemQtyInput" placeholder="Qtd" min="1" value="1" style="width:60px;">
+                <button class="btn-small btn-accept" onclick="addShoppingItem()">➕</button>
+            </div>
+            <div id="shoppingListItems" style="flex:1;overflow-y:auto;padding:0 14px;"></div>
+            <div style="padding:10px 14px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div>
+                    <div style="font-size:11px;color:var(--text-secondary);">Total estimado (preço mais barato de cada artigo)</div>
+                    <div id="shoppingListTotal" style="font-size:18px;font-weight:700;">0,00 €</div>
+                </div>
+                <button class="btn-small btn-accept" onclick="finalizeShoppingList()">✅ Finalizar e gerar PDF</button>
+            </div>
+        </div>
+
+        <!-- ============ HISTÓRICO DE LISTAS DE COMPRAS ============ -->
+        <div class="modal-overlay" id="modalShoppingHistory" style="z-index:200;">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>📜 Histórico de listas</h3>
+                <div id="shoppingHistoryList" style="margin:10px 0;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalShoppingHistory')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -5298,6 +5334,156 @@
         }, () => {
             status.textContent = '⚠️ Não foi possível obter a tua localização — permite o acesso à localização para calcular a rota.';
         }, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    // ==================== LISTA DE COMPRAS ====================
+    // Lista pessoal, sem reset automático mensal — "Finalizar" arquiva a lista
+    // atual no histórico (com data e total) e limpa-a para recomeçar, dando o
+    // mesmo efeito sem depender de um dia fixo do mês.
+    const SHOPPING = { items: [], history: [] };
+    socket.on('shopping_list_updated', (list) => {
+        SHOPPING.items = list?.items || [];
+        SHOPPING.history = list?.history || [];
+        if (document.getElementById('shoppingScreen').classList.contains('active')) renderShoppingList();
+        if (document.getElementById('modalShoppingHistory').classList.contains('active')) renderShoppingHistory();
+    });
+    function openShoppingScreen() {
+        document.getElementById('shoppingScreen').classList.add('active');
+        renderShoppingList();
+    }
+    function closeShoppingScreen() { document.getElementById('shoppingScreen').classList.remove('active'); }
+    function computeShoppingTotal(items) {
+        return items.reduce((sum, item) => {
+            const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : 0;
+            return sum + cheapest * item.qty;
+        }, 0);
+    }
+    function formatEuro(value) {
+        return value.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    }
+    function addShoppingItem() {
+        const nameInput = document.getElementById('shoppingItemNameInput');
+        const name = nameInput.value.trim();
+        const qty = parseInt(document.getElementById('shoppingItemQtyInput').value) || 1;
+        if (!name) return;
+        socket.emit('add_shopping_item', { name, qty });
+        nameInput.value = '';
+        document.getElementById('shoppingItemQtyInput').value = '1';
+        nameInput.focus();
+    }
+    function deleteShoppingItem(itemId) { socket.emit('delete_shopping_item', { itemId }); }
+    function toggleShoppingItem(itemId) { socket.emit('toggle_shopping_item', { itemId }); }
+    function addShoppingPrice(itemId) {
+        const storeInput = document.querySelector(`.shopping-store-input[data-item="${itemId}"]`);
+        const priceInput = document.querySelector(`.shopping-price-input[data-item="${itemId}"]`);
+        const store = storeInput.value.trim();
+        const price = parseFloat(priceInput.value);
+        if (!store || !Number.isFinite(price) || price < 0) return alert('Indica a loja e um preço válido.');
+        socket.emit('add_shopping_price', { itemId, store, price });
+        storeInput.value = '';
+        priceInput.value = '';
+    }
+    function deleteShoppingPrice(itemId, priceId) { socket.emit('delete_shopping_price', { itemId, priceId }); }
+    function renderShoppingItemRow(item) {
+        const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : null;
+        const pricesHtml = item.prices.map((p) => {
+            const isCheapest = p.price === cheapest;
+            return `<span style="background:${isCheapest ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isCheapest ? 'var(--green)' : 'transparent'};border-radius:12px;padding:3px 8px;font-size:11px;display:inline-flex;align-items:center;gap:5px;">
+                ${isCheapest ? '✅ ' : ''}${escapeHtml(p.store)}: ${p.price.toFixed(2)}€
+                <span onclick="deleteShoppingPrice('${item.id}','${p.id}')" style="cursor:pointer;opacity:0.7;">✕</span>
+            </span>`;
+        }).join('');
+        return `<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:10px;margin:8px 0;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" ${item.bought ? 'checked' : ''} onchange="toggleShoppingItem('${item.id}')">
+                <div style="flex:1;font-weight:600;text-decoration:${item.bought ? 'line-through' : 'none'};opacity:${item.bought ? 0.6 : 1};">${escapeHtml(item.name)} <span style="font-size:11px;opacity:0.7;font-weight:400;">x${item.qty}</span></div>
+                <button onclick="deleteShoppingItem('${item.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">🗑️</button>
+            </div>
+            ${pricesHtml ? `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">${pricesHtml}</div>` : ''}
+            <div style="display:flex;gap:6px;margin-top:6px;">
+                <input type="text" placeholder="Loja" class="shopping-store-input" data-item="${item.id}" style="flex:1;font-size:12px;padding:5px 8px;">
+                <input type="number" placeholder="Preço" class="shopping-price-input" data-item="${item.id}" step="0.01" min="0" style="width:70px;font-size:12px;padding:5px 8px;">
+                <button class="btn-small" onclick="addShoppingPrice('${item.id}')" style="font-size:11px;padding:5px 8px;">+ Preço</button>
+            </div>
+        </div>`;
+    }
+    function renderShoppingList() {
+        const el = document.getElementById('shoppingListItems');
+        el.innerHTML = SHOPPING.items.length
+            ? SHOPPING.items.map(renderShoppingItemRow).join('')
+            : '<p style="color:#8696a0;text-align:center;padding:20px;">A tua lista está vazia. Adiciona o primeiro artigo acima.</p>';
+        document.getElementById('shoppingListTotal').textContent = formatEuro(computeShoppingTotal(SHOPPING.items));
+    }
+    function finalizeShoppingList() {
+        if (!SHOPPING.items.length) return alert('A tua lista está vazia.');
+        if (!confirm('Finalizar a lista? Fica guardada no histórico com o total, o PDF é gerado agora, e a lista atual fica vazia para recomeçares.')) return;
+        generateShoppingPdf([...SHOPPING.items], computeShoppingTotal(SHOPPING.items), new Date());
+        socket.emit('finalize_shopping_list');
+    }
+    function openShoppingHistoryModal() {
+        renderShoppingHistory();
+        document.getElementById('modalShoppingHistory').classList.add('active');
+    }
+    function renderShoppingHistory() {
+        const el = document.getElementById('shoppingHistoryList');
+        el.innerHTML = SHOPPING.history.length ? SHOPPING.history.map((h) => `
+            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <div>
+                    <div style="font-size:13px;">${new Date(h.finalizedAt).toLocaleDateString('pt-PT')}</div>
+                    <div style="font-size:11px;opacity:0.7;">${h.items.length} artigo${h.items.length !== 1 ? 's' : ''}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="font-weight:600;">${formatEuro(h.total)}</div>
+                    <button class="btn-small" onclick="regenerateShoppingPdf('${h.id}')">📄 PDF</button>
+                </div>
+            </div>`).join('') : '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não finalizaste nenhuma lista.</p>';
+    }
+    function regenerateShoppingPdf(historyId) {
+        const entry = SHOPPING.history.find((h) => h.id === historyId);
+        if (!entry) return;
+        generateShoppingPdf(entry.items, entry.total, new Date(entry.finalizedAt));
+    }
+    // O jsPDF é pesado (não vale a pena no carregamento normal da app) — só é
+    // carregado do CDN quando esta funcionalidade é mesmo usada pela primeira vez.
+    let JSPDF_LOAD_PROMISE = null;
+    function loadJsPdfScript() {
+        if (window.jspdf) return Promise.resolve();
+        if (JSPDF_LOAD_PROMISE) return JSPDF_LOAD_PROMISE;
+        JSPDF_LOAD_PROMISE = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+            script.onload = () => resolve();
+            script.onerror = () => { JSPDF_LOAD_PROMISE = null; reject(new Error('Não foi possível carregar o gerador de PDF.')); };
+            document.head.appendChild(script);
+        });
+        return JSPDF_LOAD_PROMISE;
+    }
+    async function generateShoppingPdf(items, total, date) {
+        try {
+            await loadJsPdfScript();
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(16);
+            doc.text('Lista de Compras', 14, 18);
+            doc.setFontSize(10);
+            doc.text(date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), 14, 25);
+            let y = 36;
+            doc.setFontSize(11);
+            items.forEach((item) => {
+                const cheapest = item.prices.length ? item.prices.reduce((a, b) => (a.price < b.price ? a : b)) : null;
+                const line = `${item.name} x${item.qty}` + (cheapest ? ` — ${cheapest.store}: ${cheapest.price.toFixed(2)}€ (subtotal ${(cheapest.price * item.qty).toFixed(2)}€)` : ' — sem preço registado');
+                doc.text(line, 14, y);
+                y += 8;
+                if (y > 280) { doc.addPage(); y = 20; }
+            });
+            y += 6;
+            doc.setFontSize(13);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Total: ${total.toFixed(2)} €`, 14, y);
+            doc.save(`lista-compras-${date.toISOString().slice(0, 10)}.pdf`);
+        } catch (err) {
+            alert('⚠️ Não foi possível gerar o PDF agora: ' + err.message);
+        }
     }
 
     // ==================== NOTÍCIAS ====================
