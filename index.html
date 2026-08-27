@@ -5370,6 +5370,9 @@
     };
     const SHOPPING = { items: [], history: [] };
     let EDITING_SHOPPING_ITEM_ID = null;
+    let EDITING_SHOPPING_PRICE = null; // { itemId, priceId } | null
+    let EXPANDED_SHOPPING_HISTORY_ID = null;
+    let EDITING_SHOPPING_HISTORY_PRICE = null; // { historyId, itemId, priceId } | null
     socket.on('shopping_list_updated', (list) => {
         SHOPPING.items = list?.items || [];
         SHOPPING.history = list?.history || [];
@@ -5435,6 +5438,21 @@
         priceInput.value = '';
     }
     function deleteShoppingPrice(itemId, priceId) { socket.emit('delete_shopping_price', { itemId, priceId }); }
+    function startEditShoppingPrice(itemId, priceId) {
+        EDITING_SHOPPING_PRICE = { itemId, priceId };
+        renderShoppingList();
+    }
+    function cancelEditShoppingPrice() {
+        EDITING_SHOPPING_PRICE = null;
+        renderShoppingList();
+    }
+    function saveEditShoppingPrice(itemId, priceId) {
+        const store = document.getElementById(`shoppingEditPriceStore_${priceId}`).value.trim();
+        const price = parseFloat(document.getElementById(`shoppingEditPriceValue_${priceId}`).value);
+        if (!store || !Number.isFinite(price) || price < 0) return alert('Indica a loja e um preço válido.');
+        socket.emit('edit_shopping_price', { itemId, priceId, store, price });
+        EDITING_SHOPPING_PRICE = null;
+    }
     function renderShoppingItemRow(item) {
         if (EDITING_SHOPPING_ITEM_ID === item.id) {
             return `<div style="background:rgba(255,255,255,0.08);border-radius:8px;padding:10px;margin:8px 0;border:1px solid var(--green);">
@@ -5452,8 +5470,18 @@
         const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : null;
         const pricesHtml = item.prices.map((p) => {
             const isCheapest = p.price === cheapest;
+            const isEditing = EDITING_SHOPPING_PRICE && EDITING_SHOPPING_PRICE.itemId === item.id && EDITING_SHOPPING_PRICE.priceId === p.id;
+            if (isEditing) {
+                return `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.1);border-radius:12px;padding:3px 6px;">
+                    <input type="text" id="shoppingEditPriceStore_${p.id}" value="${escapeHtml(p.store)}" style="width:70px;font-size:11px;padding:2px 4px;">
+                    <input type="number" id="shoppingEditPriceValue_${p.id}" value="${p.price}" step="0.01" min="0" style="width:50px;font-size:11px;padding:2px 4px;">
+                    <span onclick="saveEditShoppingPrice('${item.id}','${p.id}')" style="cursor:pointer;color:var(--green);">✓</span>
+                    <span onclick="cancelEditShoppingPrice()" style="cursor:pointer;opacity:0.7;">✕</span>
+                </span>`;
+            }
             return `<span style="background:${isCheapest ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isCheapest ? 'var(--green)' : 'transparent'};border-radius:12px;padding:3px 8px;font-size:11px;display:inline-flex;align-items:center;gap:5px;">
                 ${isCheapest ? '✅ ' : ''}${escapeHtml(p.store)}: ${p.price.toFixed(2)}€
+                <span onclick="startEditShoppingPrice('${item.id}','${p.id}')" style="cursor:pointer;opacity:0.7;">✏️</span>
                 <span onclick="deleteShoppingPrice('${item.id}','${p.id}')" style="cursor:pointer;opacity:0.7;">✕</span>
             </span>`;
         }).join('');
@@ -5550,17 +5578,70 @@
     }
     function renderShoppingHistory() {
         const el = document.getElementById('shoppingHistoryList');
-        el.innerHTML = SHOPPING.history.length ? SHOPPING.history.map((h) => `
-            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <div>
-                    <div style="font-size:13px;">${new Date(h.finalizedAt).toLocaleDateString('pt-PT')}</div>
-                    <div style="font-size:11px;opacity:0.7;">${h.items.length} artigo${h.items.length !== 1 ? 's' : ''}</div>
+        el.innerHTML = SHOPPING.history.length ? SHOPPING.history.map((h) => {
+            const isExpanded = EXPANDED_SHOPPING_HISTORY_ID === h.id;
+            return `<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin:6px 0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;" onclick="toggleShoppingHistoryExpand('${h.id}')">
+                    <div>
+                        <div style="font-size:13px;">${new Date(h.finalizedAt).toLocaleDateString('pt-PT')}</div>
+                        <div style="font-size:11px;opacity:0.7;">${h.items.length} artigo${h.items.length !== 1 ? 's' : ''} · toca para ${isExpanded ? 'esconder' : 'corrigir preços'}</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="font-weight:600;">${formatEuro(h.total)}</div>
+                        <button class="btn-small" onclick="event.stopPropagation();regenerateShoppingPdf('${h.id}')">📄 PDF</button>
+                    </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <div style="font-weight:600;">${formatEuro(h.total)}</div>
-                    <button class="btn-small" onclick="regenerateShoppingPdf('${h.id}')">📄 PDF</button>
-                </div>
-            </div>`).join('') : '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não finalizaste nenhuma lista.</p>';
+                ${isExpanded ? renderShoppingHistoryItems(h) : ''}
+            </div>`;
+        }).join('') : '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não finalizaste nenhuma lista.</p>';
+    }
+    function toggleShoppingHistoryExpand(historyId) {
+        EXPANDED_SHOPPING_HISTORY_ID = EXPANDED_SHOPPING_HISTORY_ID === historyId ? null : historyId;
+        EDITING_SHOPPING_HISTORY_PRICE = null;
+        renderShoppingHistory();
+    }
+    function renderShoppingHistoryItems(entry) {
+        return `<div style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.1);padding-top:8px;">
+            ${entry.items.map((item) => renderShoppingHistoryItemRow(entry.id, item)).join('')}
+        </div>`;
+    }
+    function renderShoppingHistoryItemRow(historyId, item) {
+        const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : null;
+        const pricesHtml = item.prices.length ? item.prices.map((p) => {
+            const isCheapest = p.price === cheapest;
+            const isEditing = EDITING_SHOPPING_HISTORY_PRICE && EDITING_SHOPPING_HISTORY_PRICE.historyId === historyId && EDITING_SHOPPING_HISTORY_PRICE.itemId === item.id && EDITING_SHOPPING_HISTORY_PRICE.priceId === p.id;
+            if (isEditing) {
+                return `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.1);border-radius:12px;padding:3px 6px;">
+                    <input type="text" id="shoppingHistEditStore_${p.id}" value="${escapeHtml(p.store)}" style="width:70px;font-size:11px;padding:2px 4px;">
+                    <input type="number" id="shoppingHistEditValue_${p.id}" value="${p.price}" step="0.01" min="0" style="width:50px;font-size:11px;padding:2px 4px;">
+                    <span onclick="saveEditShoppingHistoryPrice('${historyId}','${item.id}','${p.id}')" style="cursor:pointer;color:var(--green);">✓</span>
+                    <span onclick="cancelEditShoppingHistoryPrice()" style="cursor:pointer;opacity:0.7;">✕</span>
+                </span>`;
+            }
+            return `<span style="background:${isCheapest ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isCheapest ? 'var(--green)' : 'transparent'};border-radius:12px;padding:3px 8px;font-size:11px;display:inline-flex;align-items:center;gap:5px;">
+                ${isCheapest ? '✅ ' : ''}${escapeHtml(p.store)}: ${p.price.toFixed(2)}€
+                <span onclick="startEditShoppingHistoryPrice('${historyId}','${item.id}','${p.id}')" style="cursor:pointer;opacity:0.7;">✏️</span>
+            </span>`;
+        }).join('') : '<span style="font-size:11px;opacity:0.6;">sem preço registado</span>';
+        return `<div style="padding:4px 0;">
+            <div style="font-size:12px;">${escapeHtml(item.name)} <span style="opacity:0.7;">x${item.qty}</span></div>
+            <div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:5px;">${pricesHtml}</div>
+        </div>`;
+    }
+    function startEditShoppingHistoryPrice(historyId, itemId, priceId) {
+        EDITING_SHOPPING_HISTORY_PRICE = { historyId, itemId, priceId };
+        renderShoppingHistory();
+    }
+    function cancelEditShoppingHistoryPrice() {
+        EDITING_SHOPPING_HISTORY_PRICE = null;
+        renderShoppingHistory();
+    }
+    function saveEditShoppingHistoryPrice(historyId, itemId, priceId) {
+        const store = document.getElementById(`shoppingHistEditStore_${priceId}`).value.trim();
+        const price = parseFloat(document.getElementById(`shoppingHistEditValue_${priceId}`).value);
+        if (!store || !Number.isFinite(price) || price < 0) return alert('Indica a loja e um preço válido.');
+        socket.emit('edit_shopping_history_price', { historyId, itemId, priceId, store, price });
+        EDITING_SHOPPING_HISTORY_PRICE = null;
     }
     function regenerateShoppingPdf(historyId) {
         const entry = SHOPPING.history.find((h) => h.id === historyId);

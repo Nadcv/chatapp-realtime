@@ -3280,6 +3280,20 @@ io.on('connection', (socket) => {
     saveShoppingListLocal();
     socket.emit('shopping_list_updated', list);
   });
+  socket.on('edit_shopping_price', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const store = (data?.store || '').trim();
+    const price = parseFloat(data?.price);
+    if (!myPhone || !data?.itemId || !data?.priceId || !store || !Number.isFinite(price) || price < 0) return;
+    const list = getMyShoppingList(myPhone);
+    const item = list.items.find((i) => i.id === data.itemId);
+    const priceEntry = item?.prices.find((p) => p.id === data.priceId);
+    if (!priceEntry) return;
+    priceEntry.store = store.substring(0, 60);
+    priceEntry.price = price;
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
   socket.on('delete_shopping_price', (data) => {
     const myPhone = users[socket.id]?.phone;
     if (!myPhone || !data?.itemId || !data?.priceId) return;
@@ -3290,6 +3304,12 @@ io.on('connection', (socket) => {
     saveShoppingListLocal();
     socket.emit('shopping_list_updated', list);
   });
+  function computeShoppingTotalServer(items) {
+    return items.reduce((sum, item) => {
+      const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : 0;
+      return sum + cheapest * item.qty;
+    }, 0);
+  }
   // "Finalizar" arquiva a lista atual no histórico (com data e total, usando o
   // preço mais barato registado de cada artigo) e limpa-a para uma lista nova
   // — dá o mesmo efeito de "fechar o mês" sem depender de nenhuma data fixa.
@@ -3298,13 +3318,29 @@ io.on('connection', (socket) => {
     if (!myPhone) return;
     const list = getMyShoppingList(myPhone);
     if (!list.items.length) return;
-    const total = list.items.reduce((sum, item) => {
-      const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : 0;
-      return sum + cheapest * item.qty;
-    }, 0);
+    const total = computeShoppingTotalServer(list.items);
     list.history.unshift({ id: 'hist' + Date.now(), finalizedAt: new Date().toISOString(), items: list.items, total });
     list.history = list.history.slice(0, MAX_SHOPPING_HISTORY);
     list.items = [];
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  // Corrige um preço numa lista JÁ finalizada (ex.: o valor real do recibo
+  // saiu diferente do estimado) — recalcula o total dessa lista arquivada,
+  // sem afetar a lista ativa nem outras entradas do histórico.
+  socket.on('edit_shopping_history_price', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const store = (data?.store || '').trim();
+    const price = parseFloat(data?.price);
+    if (!myPhone || !data?.historyId || !data?.itemId || !data?.priceId || !store || !Number.isFinite(price) || price < 0) return;
+    const list = getMyShoppingList(myPhone);
+    const entry = list.history.find((h) => h.id === data.historyId);
+    const item = entry?.items.find((i) => i.id === data.itemId);
+    const priceEntry = item?.prices.find((p) => p.id === data.priceId);
+    if (!priceEntry) return;
+    priceEntry.store = store.substring(0, 60);
+    priceEntry.price = price;
+    entry.total = computeShoppingTotalServer(entry.items);
     saveShoppingListLocal();
     socket.emit('shopping_list_updated', list);
   });

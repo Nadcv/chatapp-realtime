@@ -788,3 +788,5 @@ Nova aba pessoal (menu "⋯ Mais funcionalidades") para preparar as compras: adi
 
 **Partilhar lista numa conversa**: o botão 📤 no cabeçalho envia um resumo da lista atual (artigo, quantidade, e o preço mais barato encontrado) como mensagem para um contacto ou grupo — aparece na conversa como uma mensagem normal, com o total no fim. É um instantâneo do momento em que é partilhada (como as despesas de viagem), não fica ligada à tua lista pessoal depois de enviada.
 
+**Editar preços, também no histórico**: cada preço registado (✏️ ao lado do valor) pode ser corrigido sem apagar e voltar a adicionar. E isto funciona também dentro de uma lista **já finalizada** — tocar numa entrada do histórico expande-a e mostra os artigos com os preços registados nessa altura, para corrigir com o valor real do recibo, por exemplo. Corrigir um preço aí recalcula logo o total dessa lista arquivada (sem afetar a lista ativa nem outras entradas do histórico), e o botão "📄 PDF" gera o ficheiro já com os valores corrigidos.
+
