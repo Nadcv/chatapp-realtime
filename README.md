@@ -774,3 +774,11 @@ Uma chamada 1-para-1 que ainda só está a tocar (o ecrã de "Aceitar/Recusar", 
 
 **Corrigido**: agora, assim que a chamada é atendida ou recusada num aparelho, o servidor avisa os outros aparelhos da mesma conta para pararem de tocar e fecharem o ecrã de chamada a receber, em vez de deixarem a pessoa tentar responder outra vez a uma chamada já resolvida. Também protegido do lado de quem liga contra receber uma segunda resposta inválida à mesma chamada, caso alguma mensagem chegue fora de ordem.
 
+## 🛒 Lista de Compras
+
+Nova aba pessoal (menu "⋯ Mais funcionalidades") para preparar as compras: adicionar artigos com quantidade, registar o preço encontrado em várias lojas por artigo (para comparar) e marcar o que já foi apanhado no carrinho. A app destaca automaticamente o preço mais barato de cada artigo (✅) e mostra sempre o total estimado da lista, somando o preço mais barato de cada artigo pela quantidade.
+
+**"Finalizar" em vez de reset automático por mês**: em vez de reiniciar a lista sozinha numa data fixa (nem toda a gente faz compras no mesmo dia do mês), há um botão "✅ Finalizar e gerar PDF" — arquiva a lista atual no histórico (com a data e o total) e limpa-a para uma nova, dando o mesmo efeito de "fechar o mês" mas quando tu decidires. O histórico (📜, no cabeçalho da aba) guarda as últimas 30 listas finalizadas, cada uma com o botão para voltar a descarregar o PDF dessa lista específica.
+
+**PDF gerado no próprio telemóvel/computador**: usa a biblioteca gratuita jsPDF (carregada só quando o botão "Finalizar" ou "PDF" do histórico é mesmo usado pela primeira vez, para não pesar no carregamento normal da app) — o ficheiro é montado e descarregado localmente, sem passar pelo servidor.
+

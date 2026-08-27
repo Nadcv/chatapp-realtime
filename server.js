@@ -164,7 +164,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1950,6 +1950,28 @@ function saveTourismFavoritesLocal() {
   fs.writeFile(TOURISM_FAVORITES_FILE, JSON.stringify(tourismFavoritesByPhone), (err) => { if (err) console.error('Erro ao salvar favoritos de turismo:', err.message); });
 }
 
+// ==================== LISTA DE COMPRAS ====================
+// Lista pessoal (por conta, como as notas/favoritos acima) — não é reiniciada
+// automaticamente todo o mês: fica sempre ativa até se tocar em "Finalizar",
+// que arquiva os artigos atuais no histórico (com data e total) e limpa a
+// lista para recomeçar, dando o mesmo efeito de "mês novo" sem depender de um
+// calendário rígido (nem todos fazem compras no mesmo dia do mês).
+const SHOPPING_LIST_FILE = path.join(__dirname, 'shopping-list.json');
+const MAX_SHOPPING_ITEMS = 200;
+const MAX_SHOPPING_HISTORY = 30;
+let shoppingListByPhone = {}; // phone -> { items: [{id, name, qty, prices: [{id, store, price}], bought}], history: [{id, finalizedAt, items, total}] }
+function loadShoppingListLocal() {
+  try { if (fs.existsSync(SHOPPING_LIST_FILE)) shoppingListByPhone = JSON.parse(fs.readFileSync(SHOPPING_LIST_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar lista de compras:', err.message); }
+}
+function saveShoppingListLocal() {
+  fs.writeFile(SHOPPING_LIST_FILE, JSON.stringify(shoppingListByPhone), (err) => { if (err) console.error('Erro ao salvar lista de compras:', err.message); });
+}
+function getMyShoppingList(phone) {
+  if (!shoppingListByPhone[phone]) shoppingListByPhone[phone] = { items: [], history: [] };
+  return shoppingListByPhone[phone];
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -2198,6 +2220,7 @@ io.on('connection', (socket) => {
       socket.emit('broadcast_list', broadcastsByPhone[myPhone] || []);
       socket.emit('folders_list', foldersByPhone[myPhone] || []);
       socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone] || []);
+      socket.emit('shopping_list_updated', getMyShoppingList(myPhone));
       socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
@@ -3195,6 +3218,78 @@ io.on('connection', (socket) => {
     tourismFavoritesByPhone[myPhone] = tourismFavoritesByPhone[myPhone].filter((f) => f.id !== id);
     saveTourismFavoritesLocal();
     socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone]);
+  });
+
+  // ==================== LISTA DE COMPRAS ====================
+  socket.on('add_shopping_item', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const name = (data?.name || '').trim();
+    if (!myPhone || !name) return;
+    const list = getMyShoppingList(myPhone);
+    if (list.items.length >= MAX_SHOPPING_ITEMS) return;
+    const qty = Math.min(999, Math.max(1, parseInt(data.qty) || 1));
+    list.items.push({ id: 'item' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name: name.substring(0, 100), qty, prices: [], bought: false });
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  socket.on('delete_shopping_item', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.itemId) return;
+    const list = getMyShoppingList(myPhone);
+    list.items = list.items.filter((i) => i.id !== data.itemId);
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  socket.on('toggle_shopping_item', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.itemId) return;
+    const list = getMyShoppingList(myPhone);
+    const item = list.items.find((i) => i.id === data.itemId);
+    if (!item) return;
+    item.bought = !item.bought;
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  socket.on('add_shopping_price', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const store = (data?.store || '').trim();
+    const price = parseFloat(data?.price);
+    if (!myPhone || !data?.itemId || !store || !Number.isFinite(price) || price < 0) return;
+    const list = getMyShoppingList(myPhone);
+    const item = list.items.find((i) => i.id === data.itemId);
+    if (!item) return;
+    if (item.prices.length >= 20) return; // limite razoável de lojas comparadas por artigo
+    item.prices.push({ id: 'price' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), store: store.substring(0, 60), price });
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  socket.on('delete_shopping_price', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.itemId || !data?.priceId) return;
+    const list = getMyShoppingList(myPhone);
+    const item = list.items.find((i) => i.id === data.itemId);
+    if (!item) return;
+    item.prices = item.prices.filter((p) => p.id !== data.priceId);
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  // "Finalizar" arquiva a lista atual no histórico (com data e total, usando o
+  // preço mais barato registado de cada artigo) e limpa-a para uma lista nova
+  // — dá o mesmo efeito de "fechar o mês" sem depender de nenhuma data fixa.
+  socket.on('finalize_shopping_list', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    const list = getMyShoppingList(myPhone);
+    if (!list.items.length) return;
+    const total = list.items.reduce((sum, item) => {
+      const cheapest = item.prices.length ? Math.min(...item.prices.map((p) => p.price)) : 0;
+      return sum + cheapest * item.qty;
+    }, 0);
+    list.history.unshift({ id: 'hist' + Date.now(), finalizedAt: new Date().toISOString(), items: list.items, total });
+    list.history = list.history.slice(0, MAX_SHOPPING_HISTORY);
+    list.items = [];
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
   });
 
   // ==================== "NÃO INCOMODAR" AGENDADO ====================
