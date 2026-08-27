@@ -165,7 +165,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -2184,6 +2184,25 @@ function getRoomParticipantPhones(chatId) {
   return [...phones];
 }
 
+// ==================== CHAMADA AGENDADA ====================
+// Marca uma data/hora para uma chamada de voz/vídeo numa conversa — não liga
+// sozinha (ligar de verdade exige pedir câmara/microfone a partir de um toque
+// genuíno da pessoa, não dá para automatizar isso em segurança), só avisa as
+// duas partes na hora marcada (push + evento em tempo real, ver verificação
+// periódica mais abaixo) com um botão de "iniciar chamada agora", que usa o
+// mesmo fluxo normal de ligar já existente. Numa conversa 1-para-1 "toPhone"
+// vem do cliente (para funcionar mesmo numa conversa nova, sem histórico
+// ainda); num grupo usa getRoomParticipantPhones (deriva de quem já falou lá).
+const SCHEDULED_CALLS_FILE = path.join(__dirname, 'scheduled-calls.json');
+let scheduledCalls = []; // [{id, chatId, callType, scheduledAt, createdByPhone, createdByName, toPhone, notified}]
+function loadScheduledCallsLocal() {
+  try { if (fs.existsSync(SCHEDULED_CALLS_FILE)) scheduledCalls = JSON.parse(fs.readFileSync(SCHEDULED_CALLS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar chamadas agendadas:', err.message); }
+}
+function saveScheduledCallsLocal() {
+  fs.writeFile(SCHEDULED_CALLS_FILE, JSON.stringify(scheduledCalls), (err) => { if (err) console.error('Erro ao salvar chamadas agendadas:', err.message); });
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -2688,6 +2707,8 @@ io.on('connection', (socket) => {
     if (pinnedByRoom[roomId]?.length) socket.emit('message_pinned_received', { chatId: roomId, pins: pinnedByRoom[roomId] });
     if (disappearingByRoom[roomId]) socket.emit('disappearing_updated', { chatId: roomId, seconds: disappearingByRoom[roomId] });
     if (recurringExpensesByChat[roomId]?.length) socket.emit('recurring_expenses_list', { chatId: roomId, list: recurringExpensesByChat[roomId] });
+    const roomScheduledCalls = scheduledCalls.filter((c) => c.chatId === roomId);
+    if (roomScheduledCalls.length) socket.emit('scheduled_calls_list', { chatId: roomId, list: roomScheduledCalls });
   });
 
   socket.on('send_message', async (data) => {
@@ -3667,6 +3688,34 @@ io.on('connection', (socket) => {
     io.to(chatId).emit('recurring_expenses_list', { chatId, list: recurringExpensesByChat[chatId] });
   });
 
+  // ==================== CHAMADA AGENDADA ====================
+  socket.on('schedule_call', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const chatId = data?.chatId;
+    const callType = data?.callType === 'voice' ? 'voice' : 'video';
+    const scheduledAt = parseInt(data?.scheduledAt);
+    const toPhone = typeof data?.toPhone === 'string' && data.toPhone ? data.toPhone : null;
+    if (!myPhone || !chatId || !Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) return;
+    if (!isDmRoomAllowedForPhone(myPhone, chatId)) return;
+    if (scheduledCalls.filter((c) => c.chatId === chatId).length >= 20) return; // limite razoável
+    scheduledCalls.push({
+      id: 'sc' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      chatId, callType, scheduledAt, toPhone,
+      createdByPhone: myPhone, createdByName: users[socket.id]?.name || 'Alguém', notified: false
+    });
+    saveScheduledCallsLocal();
+    io.to(chatId).emit('scheduled_calls_list', { chatId, list: scheduledCalls.filter((c) => c.chatId === chatId) });
+  });
+  socket.on('cancel_scheduled_call', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const chatId = data?.chatId;
+    if (!myPhone || !chatId || !data?.id) return;
+    if (!isDmRoomAllowedForPhone(myPhone, chatId)) return;
+    scheduledCalls = scheduledCalls.filter((c) => !(c.id === data.id && c.chatId === chatId));
+    saveScheduledCallsLocal();
+    io.to(chatId).emit('scheduled_calls_list', { chatId, list: scheduledCalls.filter((c) => c.chatId === chatId) });
+  });
+
   // ==================== "NÃO INCOMODAR" AGENDADO ====================
   socket.on('set_dnd_active', (data) => {
     const myPhone = users[socket.id]?.phone;
@@ -4158,6 +4207,25 @@ connectDatabase().then(async () => {
     }
     if (anyChanged) saveRecurringExpensesLocal();
   }, 60 * 60 * 1000);
+
+  // Chamada agendada: avisa as duas partes na hora marcada (push + evento em
+  // tempo real) — nunca liga sozinha (ver comentário mais acima).
+  setInterval(() => {
+    const now = Date.now();
+    const due = scheduledCalls.filter((c) => !c.notified && c.scheduledAt <= now);
+    if (!due.length) return;
+    due.forEach((c) => {
+      c.notified = true;
+      const chatLabel = groups[c.chatId]?.name || null;
+      const phones = c.toPhone ? [c.createdByPhone, c.toPhone] : getRoomParticipantPhones(c.chatId);
+      const body = c.callType === 'video' ? '🎥 Chamada de vídeo agendada agora' : '📞 Chamada de voz agendada agora';
+      phones.forEach((phone) => {
+        deliverToPhone(phone, 'scheduled_call_due', { chatId: c.chatId, callType: c.callType, chatName: chatLabel }, null);
+        sendPushToPhone(phone, { title: '📅 Hora da chamada agendada', body, chatId: c.chatId }).catch(() => {});
+      });
+    });
+    saveScheduledCallsLocal();
+  }, 20 * 1000);
 
   server.listen(PORT, '0.0.0.0', () => {
     let ipAddress = 'localhost';
