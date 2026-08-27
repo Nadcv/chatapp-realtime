@@ -10563,6 +10563,24 @@
         }, 6000);
     }
 
+    // "Permission denied" (NotAllowedError) é sempre uma permissão bloqueada no
+    // próprio navegador/aparelho — o site não tem forma de contornar isso por
+    // código, só de explicar exatamente onde ir desbloquear. NotFoundError e
+    // NotReadableError são situações diferentes (sem câmara, ou já ocupada por
+    // outra app) que mereciam outra explicação, não a mesma dica de permissões.
+    function describeMediaError(err) {
+        const ua = navigator.userAgent || '';
+        const isIphone = /iPhone|iPad|iPod/.test(ua);
+        const isAndroid = /Android/.test(ua);
+        if (err.name === 'NotAllowedError' || /Permission denied/i.test(err.message || '')) {
+            if (isIphone) return '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirma que o site é aberto com https://.';
+            if (isAndroid) return '\n\nNo Chrome do Android: toca no 🔒 (ou "i") ao lado do endereço → Permissões → Câmara e Microfone → Permitir, e recarrega a página. Se continuar bloqueado, confirma também em Definições do telemóvel → Apps → Chrome → Permissões, que a Câmara e o Microfone estão ativados para o Chrome.';
+            return '\n\nVerifica as permissões de câmara/microfone deste site nas definições do navegador.';
+        }
+        if (err.name === 'NotFoundError') return '\n\nNão foi encontrada nenhuma câmara/microfone neste aparelho.';
+        if (err.name === 'NotReadableError') return '\n\nA câmara/microfone já está a ser usada por outra aplicação ou separador — fecha-a e tenta de novo.';
+        return '';
+    }
     function startCall(type) {
         if (!APP.currentChatId) return alert('Abra uma conversa primeiro!');
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
@@ -10617,7 +10635,7 @@
                 }, 35000);
             });
         }).catch(err => {
-            alert('Erro ao acessar câmera/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
+            alert('Erro ao acessar câmera/microfone: ' + err.message + describeMediaError(err));
             document.getElementById('callStatus').textContent = 'Falha na conexão';
             APP.callActive = false;
         });
@@ -10788,7 +10806,7 @@
             await pc.setLocalDescription(answer);
             socket.emit('answer_call', { targetRoomId: data.targetRoomId, targetPhone: data.callerPhone, answer: pc.localDescription });
         } catch (err) {
-            alert('Erro ao aceder à câmara/microfone: ' + err.message + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '\n\nNo iPhone: Ajustes → Safari → Câmara/Microfone → Permitir, e confirme que o site é aberto com https://.' : ''));
+            alert('Erro ao aceder à câmara/microfone: ' + err.message + describeMediaError(err));
             endCall();
         }
     }
@@ -10868,7 +10886,7 @@
             startCallTimer();
             startCallQualityMonitor();
         }).catch(err => {
-            alert('Erro ao aceder à câmara/microfone: ' + err.message);
+            alert('Erro ao aceder à câmara/microfone: ' + err.message + describeMediaError(err));
             endCall();
         });
     }
