@@ -861,21 +861,50 @@
             position: absolute;
             bottom: 56px;
             right: 10px;
-            width: 220px;
-            max-height: 180px;
-            overflow-y: auto;
+            width: 270px;
+            max-height: 280px;
             background: var(--bg-tertiary);
             border-radius: 12px;
             padding: 8px;
             display: none;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 4px;
             box-shadow: var(--shadow);
         }
         .emoji-picker.active {
             display: flex;
         }
-        .emoji-picker span {
+        .emoji-picker-tabs {
+            display: flex;
+            gap: 2px;
+            overflow-x: auto;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 4px;
+            flex: 0 0 auto;
+        }
+        .emoji-picker-tabs button {
+            background: none;
+            border: none;
+            font-size: 16px;
+            padding: 4px 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            opacity: 0.55;
+            flex: 0 0 auto;
+        }
+        .emoji-picker-tabs button.active {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.12);
+        }
+        .emoji-picker-grid {
+            display: flex;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            gap: 2px;
+            overflow-y: auto;
+            flex: 1 1 auto;
+        }
+        .emoji-picker-grid span {
             font-size: 20px;
             cursor: pointer;
             padding: 3px;
@@ -3106,7 +3135,21 @@
     // página, antes de o script chegar à zona onde o bloqueio por PIN vive.
     const PIN_STATE = { entered: '', mode: null, firstEntry: null, cancelable: false };
 
-    const COMMON_EMOJIS = ['😀','😂','😍','😊','😉','😘','😎','🤔','😢','😭','😡','👍','👎','👏','🙏','❤️','🔥','🎉','😴','🤗','😱','🥳','👋','💯','✅','❌','🎵','📞','📹','😅'];
+    // Biblioteca de emojis por categoria (não precisa de nenhuma dependência
+    // externa — são só carateres unicode normais, tal como os 30 de sempre,
+    // só que organizados e muito mais completos).
+    const EMOJI_LIBRARY = {
+        'Sorrisos': ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👻','👽','🤖'],
+        'Pessoas': ['👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦵','🦶','👂','👃','🧠','👀','👁️','👅','👄','👶','🧒','👦','👧','🧑','👨','👩','🧓','👴','👵','😀','👮','🕵️','💂','👷','🤴','👸','👳','👲','🧕','🤵','👰','🤰','🤱','👼','🎅','🤶','🦸','🦹','🧙','🧚','🧛','🧜','🧝','🧞','🧟','💆','💇','🚶','🧍','🧎','🏃','💃','🕺','👯','🧖','🧘','👭','👬','👫','💏','💑','👪'],
+        'Animais': ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐽','🐸','🐵','🙈','🙉','🙊','🐒','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️','🕸️','🦂','🐢','🐍','🦎','🦖','🦕','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🐈','🐓','🦃','🦚','🦜','🦢','🦩','🕊️','🐇','🦝','🦨','🦡','🦦','🦥','🐁','🐀','🐿️','🦔'],
+        'Comida': ['🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🫒','🧄','🧅','🥔','🍠','🥐','🥯','🍞','🥖','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫓','🥪','🥙','🧆','🌮','🌯','🫔','🥗','🥘','🫕','🥫','🍝','🍜','🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥠','🥮','🍢','🍡','🍧','🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🧂','🥜','🍯','🥛','🍼','☕','🍵','🧃','🥤','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🍾'],
+        'Atividades': ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍','🏏','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸️','🥌','🎿','⛷️','🏂','🏋️','🤼','🤸','⛹️','🤺','🤾','🏌️','🏇','🧘','🏄','🏊','🤽','🚣','🧗','🚵','🚴','🏆','🥇','🥈','🥉','🏅','🎖️','🏵️','🎗️','🎫','🎟️','🎪','🤹','🎭','🩰','🎨','🎬','🎤','🎧','🎼','🎹','🥁','🪘','🎷','🎺','🎸','🪕','🎻','🎲','♟️','🎯','🎳','🎮','🎰','🧩'],
+        'Viagens': ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🛵','🏍️','🛺','🚲','🛴','🚨','🚔','🚍','🚘','🚖','🚡','🚠','🚟','🚃','🚋','🚞','🚝','🚄','🚅','🚈','🚂','🚆','🚇','🚊','🚉','✈️','🛫','🛬','🛩️','💺','🛰️','🚀','🛸','🚁','🛶','⛵','🚤','🛥️','🛳️','⛴️','🚢','⚓','🪝','⛽','🚧','🚦','🚥','🗺️','🗿','🗽','🗼','🏰','🏯','🏟️','🎡','🎢','🎠','⛲','⛱️','🏖️','🏝️','🏜️','🌋','⛰️','🏔️','🗻','🏕️','⛺','🏠','🏡','🏘️','🏢','🏬','🏣','🏤','🏥','🏦','🏨','🏪','🏫','🏩','💒','🏛️','⛪','🕌','🕍','🛕','🕋','⛩️','🌍','🌎','🌏'],
+        'Objetos': ['⌚','📱','💻','⌨️','🖥️','🖨️','🖱️','🖲️','🕹️','💽','💾','💿','📀','📷','📸','📹','🎥','📞','☎️','📟','📠','📺','📻','🎙️','🎚️','🎛️','🧭','⏱️','⏲️','⏰','🕰️','⌛','⏳','📡','🔋','🪫','🔌','💡','🔦','🕯️','🪔','🧯','🛢️','💸','💵','💴','💶','💷','🪙','💰','💳','💎','⚖️','🪜','🧰','🪛','🔧','🔨','⚒️','🛠️','⛏️','🪚','🔩','⚙️','🪤','🧱','⛓️','🧲','🔫','💣','🧨','🪓','🔪','🗡️','⚔️','🛡️','🚬','⚰️','🪦','⚱️','🏺','🔮','📿','🧿','💈','⚗️','🔭','🔬','🕳️','💊','💉','🩸','🩹','🩺','🌡️','🧬','🦠','🧫','🧪','🧹','🧺','🧻','🚽','🚰','🚿','🛁','🛀','🧼','🪥','🪒','🧴','🛎️','🔑','🗝️','🚪','🪑','🛋️','🛏️','🖼️','📦','📫'],
+        'Símbolos': ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯','💢','♨️','🚷','🚯','🚳','🚱','🔞','📵','🚭','❗','❓','❕','❔','‼️','⁉️','🔅','🔆','〽️','⚠️','🚸','🔱','⚜️','🔰','♻️','✅','🈯','💹','❇️','✳️','❎','🌐','💠','Ⓜ️','🌀','💤','🏧','🚾','♿','🅿️','🈳','🈂️','🛂','🛃','🛄','🛅'],
+        'Bandeiras': ['🏁','🚩','🎌','🏴','🏳️','🏳️‍🌈','🇵🇹','🇧🇷','🇦🇴','🇲🇿','🇨🇻','🇬🇼','🇸🇹','🇹🇱','🇪🇸','🇫🇷','🇬🇧','🇺🇸','🇮🇹','🇩🇪','🇳🇱','🇧🇪','🇨🇭','🇨🇦','🇲🇽','🇦🇷','🇨🇱','🇨🇴','🇵🇪','🇻🇪','🇺🇾','🇯🇵','🇨🇳','🇰🇷','🇮🇳','🇷🇺','🇦🇺','🇿🇦','🇲🇦','🇪🇬','🇹🇷']
+    };
+    const EMOJI_CATEGORY_ICONS = { 'Recentes': '🕐', 'Sorrisos': '😀', 'Pessoas': '👋', 'Animais': '🐶', 'Comida': '🍔', 'Atividades': '⚽', 'Viagens': '🚗', 'Objetos': '💡', 'Símbolos': '❤️', 'Bandeiras': '🚩' };
 
     const DEFAULT_CONTACTS = [
         { id: 'gemini_assistant', name: '✨ Gemini', phone: '', avatar: '✨', type: 'ai', provider: 'gemini', memberCount: 1 },
@@ -11440,15 +11483,38 @@
         emojiTargetInputId = inputId || (document.getElementById('callChatPanel').classList.contains('active') ? 'callMessageInput' : 'messageInput');
         const pickerId = emojiTargetInputId === 'callMessageInput' ? 'emojiPicker' : 'emojiPickerMain';
         const picker = document.getElementById(pickerId);
-        if (!picker.innerHTML) {
-            picker.innerHTML = COMMON_EMOJIS.map(e => `<span onclick="insertEmoji('${e}')">${e}</span>`).join('');
+        if (!picker.dataset.built) {
+            picker.dataset.built = '1';
+            const categories = ['Recentes', ...Object.keys(EMOJI_LIBRARY)];
+            picker.innerHTML = `
+                <div class="emoji-picker-tabs">${categories.map(cat => `<button data-category="${cat}" onclick="renderEmojiPickerCategory('${pickerId}','${cat}')" title="${cat}">${EMOJI_CATEGORY_ICONS[cat]}</button>`).join('')}</div>
+                <div class="emoji-picker-grid" id="${pickerId}Grid"></div>
+            `;
+            renderEmojiPickerCategory(pickerId, getRecentEmojis().length ? 'Recentes' : 'Sorrisos');
         }
         picker.classList.toggle('active');
+    }
+    function getRecentEmojis() {
+        try { return JSON.parse(localStorage.getItem('recentEmojis') || '[]'); } catch (e) { return []; }
+    }
+    function addRecentEmoji(emoji) {
+        const recent = getRecentEmojis().filter(e => e !== emoji);
+        recent.unshift(emoji);
+        localStorage.setItem('recentEmojis', JSON.stringify(recent.slice(0, 24)));
+    }
+    function renderEmojiPickerCategory(pickerId, category) {
+        const picker = document.getElementById(pickerId);
+        picker.querySelectorAll('.emoji-picker-tabs button').forEach(btn => btn.classList.toggle('active', btn.dataset.category === category));
+        const list = category === 'Recentes' ? getRecentEmojis() : EMOJI_LIBRARY[category];
+        document.getElementById(pickerId + 'Grid').innerHTML = (list && list.length)
+            ? list.map(e => `<span onclick="insertEmoji('${e}')">${e}</span>`).join('')
+            : '<p style="width:100%;color:#8696a0;font-size:11px;text-align:center;padding:12px 4px;">Ainda sem emojis recentes.</p>';
     }
 
     function insertEmoji(emoji) {
         const input = document.getElementById(emojiTargetInputId);
         if (input) { input.value += emoji; input.focus(); }
+        addRecentEmoji(emoji);
     }
 
     function toggleMusicPlayer() {
