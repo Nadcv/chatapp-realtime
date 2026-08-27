@@ -1959,7 +1959,10 @@ function saveTourismFavoritesLocal() {
 const SHOPPING_LIST_FILE = path.join(__dirname, 'shopping-list.json');
 const MAX_SHOPPING_ITEMS = 200;
 const MAX_SHOPPING_HISTORY = 30;
-let shoppingListByPhone = {}; // phone -> { items: [{id, name, qty, prices: [{id, store, price}], bought}], history: [{id, finalizedAt, items, total}] }
+// Ordem fixa = ordem sugerida de corredores no supermercado (mesma lista usada
+// no cliente, para agrupar a lista por categoria).
+const SHOPPING_CATEGORIES = ['frutas', 'padaria', 'laticinios', 'carnes', 'congelados', 'mercearia', 'bebidas', 'limpeza', 'higiene', 'outros'];
+let shoppingListByPhone = {}; // phone -> { items: [{id, name, qty, category, prices: [{id, store, price}], bought}], history: [{id, finalizedAt, items, total}] }
 function loadShoppingListLocal() {
   try { if (fs.existsSync(SHOPPING_LIST_FILE)) shoppingListByPhone = JSON.parse(fs.readFileSync(SHOPPING_LIST_FILE, 'utf-8')); }
   catch (err) { console.error('Erro ao carregar lista de compras:', err.message); }
@@ -3228,7 +3231,21 @@ io.on('connection', (socket) => {
     const list = getMyShoppingList(myPhone);
     if (list.items.length >= MAX_SHOPPING_ITEMS) return;
     const qty = Math.min(999, Math.max(1, parseInt(data.qty) || 1));
-    list.items.push({ id: 'item' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name: name.substring(0, 100), qty, prices: [], bought: false });
+    const category = SHOPPING_CATEGORIES.includes(data?.category) ? data.category : 'outros';
+    list.items.push({ id: 'item' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name: name.substring(0, 100), qty, category, prices: [], bought: false });
+    saveShoppingListLocal();
+    socket.emit('shopping_list_updated', list);
+  });
+  socket.on('edit_shopping_item', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const name = (data?.name || '').trim();
+    if (!myPhone || !data?.itemId || !name) return;
+    const list = getMyShoppingList(myPhone);
+    const item = list.items.find((i) => i.id === data.itemId);
+    if (!item) return;
+    item.name = name.substring(0, 100);
+    item.qty = Math.min(999, Math.max(1, parseInt(data.qty) || 1));
+    if (SHOPPING_CATEGORIES.includes(data?.category)) item.category = data.category;
     saveShoppingListLocal();
     socket.emit('shopping_list_updated', list);
   });
