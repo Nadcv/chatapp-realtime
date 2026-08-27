@@ -4186,7 +4186,7 @@ connectDatabase().then(async () => {
           id: 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
           chatId, sender: '🔁 Despesa fixa', senderPhone: null, text: '',
           time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          expense: { description: tpl.description, amount: tpl.amount, currency: tpl.currency, amountEUR, paidBy: tpl.paidBy, participants: tpl.participants }
+          expense: { description: tpl.description, amount: tpl.amount, currency: tpl.currency, amountEUR, paidBy: tpl.paidBy, participants: tpl.participants, createdAt: Date.now() }
         };
         if (!messagesByRoom[chatId]) messagesByRoom[chatId] = [];
         messagesByRoom[chatId].push(msgData);

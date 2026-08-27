@@ -842,4 +842,10 @@ Grupos grandes ganham uma barra de "tópicos" por cima das mensagens: "🗂️ T
 
 **Não é uma conversa/sala à parte**: é só uma etiqueta nas mensagens do próprio grupo (guardada como qualquer outro campo da mensagem), derivada do histórico já carregado — por isso funciona sem nenhuma alteração no servidor, e todas as outras funcionalidades do grupo (chamadas, enquetes, despesas, etc.) continuam a valer para o grupo inteiro, não por tópico.
 
+## 📈 Gráfico de despesas ao longo do tempo
+
+Dentro de "💰 Despesas" há agora um botão "📈 Gráfico" com um gráfico de barras simples do total gasto por mês (em euros), juntando despesas avulsas e as lançadas automaticamente pelas despesas fixas recorrentes.
+
+**Só entram despesas com data**: a partir de agora, cada despesa criada guarda o momento exato em que foi criada (`createdAt`) — despesas criadas antes desta funcionalidade existir não têm essa data (só tinham a hora do dia, não o dia em si) e por isso não entram no gráfico; continuam a aparecer normalmente na lista/balanços de sempre.
+
 
