@@ -10488,10 +10488,24 @@
             const statusEl = document.getElementById('callStatus');
             if (state === 'disconnected') {
                 if (statusEl) statusEl.textContent = '⚠️ Ligação instável — a tentar recuperar...';
+                // "disconnected" dizia "a tentar recuperar..." mas nunca tentava nada
+                // de verdade — ficava preso nesse texto para sempre em quedas de rede
+                // que o navegador demora muito (ou nunca chega) a classificar como
+                // "failed". Dá alguns segundos para recuperar sozinho (é comum e
+                // normal, ex.: mudança breve de rede) antes de forçar uma renegociação.
+                if (disconnectRecoveryTimer1to1) clearTimeout(disconnectRecoveryTimer1to1);
+                const pcAtSchedule = peerConnection;
+                disconnectRecoveryTimer1to1 = setTimeout(() => {
+                    if (peerConnection === pcAtSchedule && peerConnection.iceConnectionState === 'disconnected') {
+                        attemptIceRestart1to1();
+                    }
+                }, 5000);
             } else if (state === 'failed') {
+                if (disconnectRecoveryTimer1to1) { clearTimeout(disconnectRecoveryTimer1to1); disconnectRecoveryTimer1to1 = null; }
                 if (statusEl) statusEl.textContent = '🔄 A tentar reconectar...';
                 attemptIceRestart1to1();
             } else if (state === 'connected') {
+                if (disconnectRecoveryTimer1to1) { clearTimeout(disconnectRecoveryTimer1to1); disconnectRecoveryTimer1to1 = null; }
                 if (statusEl && statusEl.textContent !== 'Conectado ✅') statusEl.textContent = 'Conectado ✅';
             }
         };
@@ -10509,6 +10523,7 @@
     // para evitar os dois lados criarem uma nova oferta ao mesmo tempo (glare).
     let iceRestartInFlight1to1 = false;
     let iceRestartAttempts1to1 = 0;
+    let disconnectRecoveryTimer1to1 = null;
     async function attemptIceRestart1to1() {
         if (!peerConnection || iceRestartInFlight1to1 || APP.callDirection !== 'outgoing') return;
         if (iceRestartAttempts1to1 >= 3) {
@@ -10858,7 +10873,7 @@
     // Funciona bem até ~6-8 participantes com câmara ligada (cada pessoa envia/recebe
     // vídeo de todas as outras diretamente, sem servidor central de vídeo). Com mais
     // gente que isso, o ideal a prazo é um servidor SFU — fica fora do alcance gratuito.
-    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {}, isOfferer: {} };
+    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {}, isOfferer: {}, disconnectTimers: {} };
 
     function joinGroupCall(type) {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
@@ -10869,6 +10884,8 @@
         GROUP_CALL.pendingIce = {};
         GROUP_CALL.names = {};
         GROUP_CALL.isOfferer = {};
+        Object.values(GROUP_CALL.disconnectTimers).forEach(clearTimeout);
+        GROUP_CALL.disconnectTimers = {};
         document.getElementById('callTitle').textContent = '🎥 ' + (chat?.name || 'Grupo');
         document.getElementById('callStatus').textContent = 'A entrar na chamada em grupo...';
         document.getElementById('callScreen').classList.add('active');
@@ -10943,8 +10960,24 @@
             // sozinho não faz nada sem um novo offer/answer trocado pela sinalização.
             // Só quem foi o ofertante ORIGINAL desta ligação (ver GROUP_CALL.isOfferer)
             // tenta renegociar, para os dois lados não criarem ofertas ao mesmo tempo.
-            if (pc.iceConnectionState === 'failed' && GROUP_CALL.isOfferer[remoteSocketId]) {
-                attemptIceRestartGroup(remoteSocketId);
+            const state = pc.iceConnectionState;
+            if (state === 'disconnected') {
+                // Tal como no 1-para-1: "disconnected" pode ficar preso durante muito
+                // tempo (ou nunca virar "failed") sem nunca tentar recuperar de
+                // verdade — dá alguns segundos (é normal recuperar sozinho) antes de
+                // forçar uma renegociação.
+                if (GROUP_CALL.disconnectTimers[remoteSocketId]) clearTimeout(GROUP_CALL.disconnectTimers[remoteSocketId]);
+                GROUP_CALL.disconnectTimers[remoteSocketId] = setTimeout(() => {
+                    const currentPc = GROUP_CALL.peers[remoteSocketId];
+                    if (currentPc === pc && currentPc.iceConnectionState === 'disconnected' && GROUP_CALL.isOfferer[remoteSocketId]) {
+                        attemptIceRestartGroup(remoteSocketId);
+                    }
+                }, 5000);
+            } else if (state === 'failed') {
+                if (GROUP_CALL.disconnectTimers[remoteSocketId]) { clearTimeout(GROUP_CALL.disconnectTimers[remoteSocketId]); delete GROUP_CALL.disconnectTimers[remoteSocketId]; }
+                if (GROUP_CALL.isOfferer[remoteSocketId]) attemptIceRestartGroup(remoteSocketId);
+            } else if (state === 'connected') {
+                if (GROUP_CALL.disconnectTimers[remoteSocketId]) { clearTimeout(GROUP_CALL.disconnectTimers[remoteSocketId]); delete GROUP_CALL.disconnectTimers[remoteSocketId]; }
             }
         };
         if (APP.callStream) APP.callStream.getTracks().forEach(track => pc.addTrack(track, APP.callStream));
@@ -11043,6 +11076,7 @@
         const pc = GROUP_CALL.peers[data.socketId];
         if (pc) { pc.close(); delete GROUP_CALL.peers[data.socketId]; }
         delete GROUP_CALL.pendingIce[data.socketId];
+        if (GROUP_CALL.disconnectTimers[data.socketId]) { clearTimeout(GROUP_CALL.disconnectTimers[data.socketId]); delete GROUP_CALL.disconnectTimers[data.socketId]; }
         removeGridTile(data.socketId);
     });
 
@@ -11052,6 +11086,8 @@
         GROUP_CALL.peers = {};
         GROUP_CALL.pendingIce = {};
         GROUP_CALL.names = {};
+        Object.values(GROUP_CALL.disconnectTimers).forEach(clearTimeout);
+        GROUP_CALL.disconnectTimers = {};
         GROUP_CALL.active = false;
         socket.emit('leave_call', { roomId: APP.currentChatId });
         document.getElementById('groupCallGrid').innerHTML = '';
@@ -11359,6 +11395,7 @@
         }
         APP._callWasConnected = false;
         callPeerPhone = null;
+        if (disconnectRecoveryTimer1to1) { clearTimeout(disconnectRecoveryTimer1to1); disconnectRecoveryTimer1to1 = null; }
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         pendingIceCandidates = [];
         if (GROUP_CALL.active) leaveGroupCall();
