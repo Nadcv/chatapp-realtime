@@ -1427,6 +1427,7 @@
                     </div>
                     <button id="pinnedBannerUnpinBtn" onclick="event.stopPropagation(); unpinBannerMessage();" style="background:none;border:none;color:var(--text-secondary);font-size:14px;cursor:pointer;">✖️</button>
                 </div>
+                <div id="topicChipsBar" style="display:none;padding:8px 10px;gap:6px;overflow-x:auto;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,0.08);"></div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="reply-preview-bar" id="replyPreviewBar" style="display:none;">
                     <div class="reply-preview-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
@@ -3042,6 +3043,7 @@
         chats: [],
         currentChatId: null,
         messages: {},
+        activeTopic: {}, // chatId -> nome do tópico selecionado num grupo (null = "Tudo")
         callStream: null,
         callActive: false, // evita loop de "end_call" indo e voltando entre os dois lados
         isMuted: false,
@@ -8760,11 +8762,17 @@
 
     function renderMessages() {
         const msgDiv = document.getElementById('chatMessages');
+        renderTopicChipsBar();
         if (!APP.currentChatId || !APP.messages[APP.currentChatId]) {
             msgDiv.innerHTML = '<p style="color:#8696a0;text-align:center;padding:40px;">Nenhuma mensagem ainda. Diga olá! 👋</p>';
             return;
         }
-        const msgs = APP.messages[APP.currentChatId];
+        const activeTopic = APP.activeTopic[APP.currentChatId] || null;
+        const msgs = activeTopic ? APP.messages[APP.currentChatId].filter(m => m.topic === activeTopic) : APP.messages[APP.currentChatId];
+        if (activeTopic && !msgs.length) {
+            msgDiv.innerHTML = `<p style="color:#8696a0;text-align:center;padding:40px;">Ainda não há mensagens no tópico "${escapeHtml(activeTopic)}".</p>`;
+            return;
+        }
         const replyCounts = {};
         msgs.forEach(m => { if (m.replyTo?.id) replyCounts[m.replyTo.id] = (replyCounts[m.replyTo.id] || 0) + 1; });
         let html = '', lastDate = '';
@@ -8782,6 +8790,7 @@
             const threadHtml = threadCount ? `<div style="font-size:11px;color:var(--blue);cursor:pointer;margin-top:2px;" onclick="openThread('${msg.id}')">🧵 ${threadCount} resposta${threadCount > 1 ? 's' : ''}</div>` : '';
             const isPinned = (APP.pinnedByChatId[APP.currentChatId] || []).some(p => p.messageId === msg.id);
             const pinnedLabel = isPinned ? '<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">📌 Fixada</div>' : '';
+            const topicLabel = (msg.topic && !activeTopic) ? `<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">🗂️ ${escapeHtml(msg.topic)}</div>` : '';
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
@@ -8792,6 +8801,7 @@
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
+                ${topicLabel}
                 ${replyHtml}
                 ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.expense ? renderExpense(msg) : (msg.shoppingList ? renderSharedShoppingList(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId))))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
@@ -8814,6 +8824,44 @@
         msgDiv.innerHTML = html;
         msgDiv.scrollTop = msgDiv.scrollHeight;
         renderCallChatMessages();
+    }
+
+    // ==================== CANAIS/TÓPICOS DENTRO DE UM GRUPO ====================
+    // Sub-conversas por assunto dentro do mesmo grupo, sem criar uma sala nova
+    // a sério — é só uma etiqueta (msg.topic) nas mensagens em si, derivada
+    // do histórico já carregado (tal como a galeria de mídia ou as
+    // estatísticas), por isso não precisa de nada novo no servidor. Ver
+    // README para o porquê de não ser uma sala/conversa à parte.
+    function getChatTopics(chatId) {
+        const topics = new Set();
+        (APP.messages[chatId] || []).forEach(m => { if (m.topic && !m.deleted) topics.add(m.topic); });
+        return [...topics];
+    }
+    function renderTopicChipsBar() {
+        const bar = document.getElementById('topicChipsBar');
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') { bar.style.display = 'none'; return; }
+        const topics = getChatTopics(APP.currentChatId);
+        const active = APP.activeTopic[APP.currentChatId] || null;
+        bar.style.display = 'flex';
+        const chipStyle = (isActive) => `display:inline-block;padding:5px 12px;border-radius:14px;font-size:12px;cursor:pointer;margin-right:6px;white-space:nowrap;${isActive ? 'background:var(--green);color:#fff;' : 'background:var(--bg-secondary);color:var(--text-primary);'}`;
+        bar.innerHTML = `
+            <span onclick="selectTopic(null)" style="${chipStyle(!active)}">🗂️ Tudo</span>
+            ${topics.map(t => `<span onclick="selectTopic('${encodeURIComponent(t)}')" style="${chipStyle(active === t)}">${escapeHtml(t)}</span>`).join('')}
+            <span onclick="promptNewTopic()" style="${chipStyle(false)}">➕ Novo tópico</span>
+        `;
+    }
+    function selectTopic(topicEncoded) {
+        if (!APP.currentChatId) return;
+        APP.activeTopic[APP.currentChatId] = topicEncoded ? decodeURIComponent(topicEncoded) : null;
+        renderMessages();
+    }
+    function promptNewTopic() {
+        if (!APP.currentChatId) return;
+        const name = prompt('Nome do novo tópico (ex.: Logística, Fotos, Ideias):');
+        if (!name || !name.trim()) return;
+        APP.activeTopic[APP.currentChatId] = name.trim().substring(0, 40);
+        renderMessages();
     }
 
     // Espelho simplificado do chat, mostrado ao lado durante a videochamada
@@ -9286,21 +9334,22 @@
         const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const replyTo = APP.replyingTo ? { id: APP.replyingTo.id, sender: APP.replyingTo.sender, text: APP.replyingTo.text } : null;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const topic = (chat?.type === 'group') ? (APP.activeTopic[APP.currentChatId] || null) : null;
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
-        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', replyTo, read: false });
+        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', replyTo, read: false, topic });
         input.value = '';
         cancelReply();
         hideMentionAutocomplete();
         renderMessages();
         renderChatList();
 
-        const chat = APP.chats.find(c => c.id === APP.currentChatId);
         if (!chat) return;
 
         if (chat.type === 'ai') {
             askGeminiAssistant(APP.currentChatId);
         } else {
-            let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo };
+            let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo, topic };
             if (chat.type === 'group') {
                 const mentions = extractMentionedPhones(text, APP.currentChatId);
                 if (mentions.length) outgoing.mentions = mentions;
@@ -9345,7 +9394,8 @@
                 expense: m.expense || null,
                 shoppingList: m.shoppingList || null,
                 viewOnce: !!m.viewOnce,
-                viewOnceOpened: !!m.viewOnceOpened
+                viewOnceOpened: !!m.viewOnceOpened,
+                topic: m.topic || null
             };
         }));
         // O servidor manda sempre o histórico COMPLETO desta sala (não só
@@ -9403,7 +9453,8 @@
             expense: data.expense || null,
             shoppingList: data.shoppingList || null,
             viewOnce: !!data.viewOnce,
-            viewOnceOpened: !!data.viewOnceOpened
+            viewOnceOpened: !!data.viewOnceOpened,
+            topic: data.topic || null
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();

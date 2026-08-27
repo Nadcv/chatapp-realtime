@@ -836,4 +836,10 @@ No menu "⋯ Mais desta conversa" há agora um botão "📅 Chamada agendada" pa
 
 **Não liga sozinha, de propósito**: ligar de verdade precisa de pedir câmara/microfone a partir de um toque genuíno da pessoa (é assim que os navegadores protegem contra chamadas automáticas silenciosas) — por isso a "chamada agendada" é só um lembrete bem posicionado para as duas pessoas, e o botão "Iniciar chamada" usa exatamente o mesmo fluxo de ligar de sempre.
 
+## 🗂️ Canais/tópicos dentro de um grupo
+
+Grupos grandes ganham uma barra de "tópicos" por cima das mensagens: "🗂️ Tudo" (vista normal, como sempre foi), um chip por cada tópico já usado, e "➕ Novo tópico" para criar um. Ao escolher um tópico específico, só se veem as mensagens marcadas com ele (e a mensagem seguinte que escreveres já sai marcada com esse tópico); em "Tudo" vê-se a conversa inteira, com uma pequena etiqueta 🗂️ a identificar de que tópico é cada mensagem marcada.
+
+**Não é uma conversa/sala à parte**: é só uma etiqueta nas mensagens do próprio grupo (guardada como qualquer outro campo da mensagem), derivada do histórico já carregado — por isso funciona sem nenhuma alteração no servidor, e todas as outras funcionalidades do grupo (chamadas, enquetes, despesas, etc.) continuam a valer para o grupo inteiro, não por tópico.
+
 
