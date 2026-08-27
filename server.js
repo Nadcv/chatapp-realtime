@@ -1962,7 +1962,16 @@ const MAX_SHOPPING_HISTORY = 30;
 // Ordem fixa = ordem sugerida de corredores no supermercado (mesma lista usada
 // no cliente, para agrupar a lista por categoria).
 const SHOPPING_CATEGORIES = ['frutas', 'padaria', 'laticinios', 'carnes', 'congelados', 'mercearia', 'bebidas', 'limpeza', 'higiene', 'outros'];
-let shoppingListByPhone = {}; // phone -> { items: [{id, name, qty, category, prices: [{id, store, price}], bought}], history: [{id, finalizedAt, items, total}] }
+// Unidades de quantidade — "kg"/"g"/"l"/"ml" permitem casas decimais (ex.:
+// 1,5 kg de carne), ao contrário de "un" (só faz sentido em número inteiro).
+const SHOPPING_UNITS = ['un', 'kg', 'g', 'l', 'ml'];
+function parseShoppingQty(rawQty, unit) {
+  const value = parseFloat(rawQty);
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const clamped = Math.min(999, value);
+  return unit === 'un' ? Math.max(1, Math.round(clamped)) : Math.round(clamped * 1000) / 1000;
+}
+let shoppingListByPhone = {}; // phone -> { items: [{id, name, qty, unit, category, prices: [{id, store, price}], bought}], history: [{id, finalizedAt, items, total}] }
 function loadShoppingListLocal() {
   try { if (fs.existsSync(SHOPPING_LIST_FILE)) shoppingListByPhone = JSON.parse(fs.readFileSync(SHOPPING_LIST_FILE, 'utf-8')); }
   catch (err) { console.error('Erro ao carregar lista de compras:', err.message); }
@@ -3230,9 +3239,10 @@ io.on('connection', (socket) => {
     if (!myPhone || !name) return;
     const list = getMyShoppingList(myPhone);
     if (list.items.length >= MAX_SHOPPING_ITEMS) return;
-    const qty = Math.min(999, Math.max(1, parseInt(data.qty) || 1));
+    const unit = SHOPPING_UNITS.includes(data?.unit) ? data.unit : 'un';
+    const qty = parseShoppingQty(data.qty, unit);
     const category = SHOPPING_CATEGORIES.includes(data?.category) ? data.category : 'outros';
-    list.items.push({ id: 'item' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name: name.substring(0, 100), qty, category, prices: [], bought: false });
+    list.items.push({ id: 'item' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name: name.substring(0, 100), qty, unit, category, prices: [], bought: false });
     saveShoppingListLocal();
     socket.emit('shopping_list_updated', list);
   });
@@ -3244,7 +3254,8 @@ io.on('connection', (socket) => {
     const item = list.items.find((i) => i.id === data.itemId);
     if (!item) return;
     item.name = name.substring(0, 100);
-    item.qty = Math.min(999, Math.max(1, parseInt(data.qty) || 1));
+    if (SHOPPING_UNITS.includes(data?.unit)) item.unit = data.unit;
+    item.qty = parseShoppingQty(data.qty, item.unit || 'un');
     if (SHOPPING_CATEGORIES.includes(data?.category)) item.category = data.category;
     saveShoppingListLocal();
     socket.emit('shopping_list_updated', list);

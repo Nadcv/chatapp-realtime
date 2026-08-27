@@ -790,3 +790,5 @@ Nova aba pessoal (menu "⋯ Mais funcionalidades") para preparar as compras: adi
 
 **Editar preços, também no histórico**: cada preço registado (✏️ ao lado do valor) pode ser corrigido sem apagar e voltar a adicionar. E isto funciona também dentro de uma lista **já finalizada** — tocar numa entrada do histórico expande-a e mostra os artigos com os preços registados nessa altura, para corrigir com o valor real do recibo, por exemplo. Corrigir um preço aí recalcula logo o total dessa lista arquivada (sem afetar a lista ativa nem outras entradas do histórico), e o botão "📄 PDF" gera o ficheiro já com os valores corrigidos.
 
+**Quantidade ou peso/volume**: ao adicionar (ou editar) um artigo, há agora um seletor de unidade ao lado da quantidade — "un" (unidades, sempre número inteiro) ou kg/g/L/ml (aceitam casas decimais, ex.: "1,5 kg" de carne). O total continua a ser preço mais barato × quantidade, por isso um preço "por kg" multiplicado por "1,5" dá logo o subtotal certo. A unidade aparece em todo o lado onde o artigo é mostrado — lista ativa, histórico, PDF e listas partilhadas numa conversa.
+
