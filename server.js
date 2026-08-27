@@ -370,6 +370,96 @@ app.post('/api/devices/remove', async (req, res) => {
   res.json({ success: true, devices: user.devices });
 });
 
+// ==================== OS MEUS DADOS (exportar / apagar conta) ====================
+// Junta num único ficheiro tudo o que esta conta guarda espalhado pelos vários
+// armazenamentos "por telefone" da app (perfil, contactos, lembretes, lista de
+// compras, etc.) e as mensagens que dizem respeito a esta pessoa. Nas
+// mensagens de GRUPO só entram as que a própria pessoa enviou — as de outras
+// pessoas num grupo aberto a todos não são "dados dela" para exportar, só as
+// de conversas 1-para-1 (onde é sempre uma das duas partes) e as próprias.
+// O conteúdo binário de anexos (fotos/áudio em base64) fica de fora para o
+// ficheiro não ficar gigante — mantém só os metadados (nome/tipo do ficheiro).
+app.get('/api/account/export', (req, res) => {
+  const token = req.headers['x-auth-token'] || req.query.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const mensagens = [];
+  Object.entries(messagesByRoom).forEach(([roomId, msgs]) => {
+    (msgs || []).forEach((m) => {
+      const sentByMe = m.senderPhone === phone;
+      const receivedByMeInDm = roomId.startsWith('dm_') && m.toPhone === phone;
+      if (!sentByMe && !receivedByMeInDm) return;
+      const { fileData, ...rest } = m;
+      mensagens.push({ chatId: roomId, ...rest, temAnexo: !!fileData });
+    });
+  });
+  const exportData = {
+    exportadoEm: new Date().toISOString(),
+    perfil: {
+      nome: user.name, telefone: user.phone, nomeDeUtilizador: user.username || null, pais: user.country,
+      email: user.email || null, aniversario: user.birthday || null, criadaEm: user.createdAt,
+      linguaPreferida: user.preferredLang || null, verificacaoEmDuasEtapas: !!user.twoFactorEnabled,
+      tempoTotalNaAppSegundos: user.totalTimeSpentSec || 0
+    },
+    dispositivosLigados: user.devices || [],
+    contactos: user.contacts || [],
+    mensagens,
+    lembretes: remindersByPhone[phone] || [],
+    listaDeCompras: shoppingListByPhone[phone] || null,
+    favoritosDeTurismo: tourismFavoritesByPhone[phone] || [],
+    historicoDeChamadas: callLogByPhone[phone] || [],
+    mensagensAgendadas: (scheduledMessages || []).filter((s) => s.senderPhone === phone)
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="os-meus-dados-chatapp.json"');
+  res.json(exportData);
+});
+
+// Apagar a conta é permanente — pede a senha outra vez (não basta estar
+// sessão iniciada) para não bastar alguém pegar num aparelho destrancado. As
+// mensagens já enviadas ficam como estão nas conversas de quem as recebeu
+// (tal como no WhatsApp: apagar a conta não apaga o que já chegou a outras
+// pessoas), só os dados PRÓPRIOS desta conta são removidos.
+app.post('/api/account/delete', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const { password } = req.body || {};
+  if (hashPassword(password || '', user.salt) !== user.passwordHash) {
+    return res.status(401).json({ error: 'Senha incorreta.' });
+  }
+  delete accounts[phone];
+  if (user.username) delete usernameIndex[user.username];
+  delete remindersByPhone[phone];
+  delete shoppingListByPhone[phone];
+  delete tourismFavoritesByPhone[phone];
+  delete callLogByPhone[phone];
+  delete pendingLoginCodes[phone];
+  scheduledMessages = (scheduledMessages || []).filter((s) => s.senderPhone !== phone);
+  Object.keys(sessions).forEach((t) => { if (sessions[t] === phone) delete sessions[t]; });
+  const activeSockets = phoneToSockets[phone];
+  if (activeSockets) {
+    activeSockets.forEach((sid) => {
+      io.to(sid).emit('account_deleted');
+      io.sockets.sockets.get(sid)?.disconnect(true);
+    });
+    delete phoneToSockets[phone];
+  }
+  if (isDbConnected) {
+    await AccountModel.deleteOne({ phone }).catch((e) => console.error('Erro Mongo (apagar conta):', e.message));
+  } else {
+    saveUsers();
+  }
+  saveRemindersLocal();
+  saveShoppingListLocal();
+  saveTourismFavoritesLocal();
+  saveCallLogLocal();
+  saveScheduledLocal();
+  log(`🗑️ Conta apagada: ${user.name} (${phone})`, 'AUTH');
+  res.json({ success: true });
+});
+
 // ==================== ASSOCIAR NOVO DISPOSITIVO POR CÓDIGO QR ====================
 // Tal como o WhatsApp Web: o dispositivo já ligado gera um código de uso
 // único que expira em 60 segundos, mostrado como QR (gerado aqui mesmo no

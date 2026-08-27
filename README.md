@@ -822,4 +822,12 @@ No perfil (👤 O meu perfil → "🔐 Segurança") há agora um campo de email 
 
 **Degrada-se sozinho em vez de bloquear alguém**: só é possível ativar com um email já definido, e mesmo com a opção ativada, se o envio de email não estiver configurado no servidor (variáveis `EMAIL_USER`/`EMAIL_PASS`, ver secção de incêndios acima) ou falhar por qualquer razão, o login segue em frente sem pedir código — nunca fica ninguém trancado fora da própria conta por falta de configuração de email. O código expira em 10 minutos, é de uso único, e é invalidado ao fim de 5 tentativas erradas (basta voltar a tentar entrar para receber um novo).
 
+## 🗑️ Apagar conta e 📥 exportar os meus dados
+
+Também no perfil, em "⚠️ Zona de perigo": um botão "📥 Exportar os meus dados" descarrega um ficheiro `.json` com tudo o que a tua conta guarda — perfil, contactos, dispositivos ligados, lembretes, lista de compras, favoritos de turismo, histórico de chamadas, mensagens agendadas e as mensagens que dizem respeito a ti (as que enviaste, e as de conversas 1-para-1 em que participas). **Mensagens de conversas 1-para-1 são encriptadas ponta-a-ponta** — o servidor nunca viu o texto, por isso o que sai no export é o mesmo conteúdo cifrado que ele guarda, não o texto legível (o teu aparelho é que o decifra ao mostrá-lo). O conteúdo de anexos (fotos/áudio) fica de fora para o ficheiro não ficar enorme, só o nome/tipo de cada um.
+
+"🗑️ Apagar conta" pede a tua senha outra vez (para não bastar alguém pegar num aparelho destrancado) e é permanente — apaga a conta, o perfil e todos os dados pessoais acima. Tal como no WhatsApp, mensagens que já enviaste continuam nas conversas de quem as recebeu (apagar a tua conta não reescreve o histórico de outras pessoas). Se tiveres outro dispositivo com sessão iniciada na mesma conta, é desligado automaticamente com um aviso.
+
+**Limitação conhecida**: como as conversas de grupo aqui são "abertas" (ver "Como funcionam os grupos" acima) e uma conversa 1-para-1 só existe enquanto ambas as contas existem, depois de apagares a conta a conversa contigo pode deixar de aparecer na lista de conversas de quem falava contigo (mesmo sem o histórico dessa pessoa ser apagado por baixo) — é um efeito secundário aceite do modelo simples de apagar a conta, não um passo extra que faltou fazer.
+
 
