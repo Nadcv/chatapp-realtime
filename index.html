@@ -2142,6 +2142,7 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openMediaGalleryModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🖼️<span style="font-size:11px;">Galeria</span></button>
+                    <button class="btn-small" id="groupStatsBtn" onclick="closeModal('modalChatMore');openGroupStatsModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📊<span style="font-size:11px;">Estatísticas</span></button>
                     <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
                 </div>
@@ -2168,6 +2169,18 @@
                     <button class="btn-small" onclick="navigateMediaGallery(-1)">⬅️</button>
                     <button class="btn-small" onclick="closeModal('modalMediaGalleryViewer')">Fechar</button>
                     <button class="btn-small" onclick="navigateMediaGallery(1)">➡️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ ESTATÍSTICAS DO GRUPO ============ -->
+        <div class="modal-overlay" id="modalGroupStats" style="z-index:200;">
+            <div class="modal" style="max-height:80vh;overflow-y:auto;">
+                <h3>📊 Estatísticas do grupo</h3>
+                <div id="groupStatsContent" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;"></div>
+                <div id="groupStatsRankings" style="margin-top:14px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalGroupStats')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -7197,6 +7210,69 @@
         document.getElementById('modalMyStats').classList.add('active');
     }
 
+    // ==================== ESTATÍSTICAS DO GRUPO ====================
+    // A versão "grupo" das estatísticas pessoais acima — mesma técnica (deriva
+    // tudo do histórico já carregado em APP.messages, sem pedir nada novo ao
+    // servidor), mas por PESSOA em vez de por conta própria, para responder a
+    // "quem manda mais mensagens/fotos" dentro deste grupo.
+    function computeGroupStats(chatId) {
+        const msgs = (APP.messages[chatId] || []).filter(m => !m.deleted);
+        const perSender = {}; // nome -> {sent, photos, videos, audios}
+        let totalPhotos = 0, totalVideos = 0, totalAudios = 0;
+        const hourTally = {};
+        const emojiTally = {};
+        msgs.forEach(msg => {
+            const name = msg.sender || 'Desconhecido';
+            if (!perSender[name]) perSender[name] = { sent: 0, photos: 0, videos: 0, audios: 0 };
+            perSender[name].sent++;
+            if (msg.fileData || msg.viewOnce) {
+                const t = msg.fileType || '';
+                if (t.startsWith('image/')) { perSender[name].photos++; totalPhotos++; }
+                else if (t.startsWith('video/')) { perSender[name].videos++; totalVideos++; }
+                else if (t.startsWith('audio/')) { perSender[name].audios++; totalAudios++; }
+            } else if (msg.text && !msg.encrypted) {
+                const emojis = msg.text.match(EMOJI_REGEX) || [];
+                emojis.forEach(e => { emojiTally[e] = (emojiTally[e] || 0) + 1; });
+            }
+            const hour = (msg.time || '').split(':')[0];
+            if (hour) hourTally[hour] = (hourTally[hour] || 0) + 1;
+        });
+        const ranking = Object.entries(perSender).sort((a, b) => b[1].sent - a[1].sent).map(([name, s]) => ({ name, ...s }));
+        const topHourEntry = Object.entries(hourTally).sort((a, b) => b[1] - a[1])[0];
+        const topEmojiEntry = Object.entries(emojiTally).sort((a, b) => b[1] - a[1])[0];
+        return {
+            totalMessages: msgs.length, totalPhotos, totalVideos, totalAudios,
+            memberCount: ranking.length, ranking,
+            topHour: topHourEntry ? topHourEntry[0] : null,
+            topEmoji: topEmojiEntry ? topEmojiEntry[0] : null
+        };
+    }
+    function openGroupStatsModal() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') return;
+        const s = computeGroupStats(APP.currentChatId);
+        const cards = [
+            statCard('💬', s.totalMessages, 'Mensagens no total'),
+            statCard('🧑‍🤝‍🧑', s.memberCount, 'Pessoas que já falaram'),
+            statCard('📷', s.totalPhotos, 'Fotos partilhadas'),
+            statCard('🎥', s.totalVideos, 'Vídeos partilhados'),
+            statCard('🎤', s.totalAudios, 'Áudios partilhados'),
+        ];
+        if (s.topHour) cards.push(statCard('🕐', `${s.topHour}h`, 'Hora mais movimentada'));
+        if (s.topEmoji) cards.push(statCard('⭐', s.topEmoji, 'Emoji mais usado'));
+        document.getElementById('groupStatsContent').innerHTML = cards.join('');
+        document.getElementById('groupStatsRankings').innerHTML = s.ranking.length ? `
+            <h4 style="margin:0 0 6px;font-size:13px;opacity:0.8;">🏆 Quem mais fala</h4>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                ${s.ranking.slice(0, 10).map((r, i) => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);border-radius:8px;padding:6px 10px;font-size:13px;">
+                        <span>${i + 1}. ${escapeHtml(r.name)}</span>
+                        <span style="opacity:0.75;">${r.sent} msg${r.photos ? ` · ${r.photos} 📷` : ''}${r.videos ? ` · ${r.videos} 🎥` : ''}</span>
+                    </div>`).join('')}
+            </div>` : '';
+        document.getElementById('modalGroupStats').classList.add('active');
+    }
+
     function jumpToSearchResult(chatId, messageId) {
         closeModal('modalGlobalSearch');
         openChat(chatId);
@@ -7221,6 +7297,7 @@
         document.getElementById('chatSubtitle').textContent = isAI ? 'Gemini (Google) · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('groupStatsBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('rsvpBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('gamesBtn').style.display = (chat.type === 'user' || chat.type === 'group') ? 'flex' : 'none';
