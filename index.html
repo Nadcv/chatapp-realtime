@@ -2292,8 +2292,27 @@
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <button class="btn-small" style="width:100%;" onclick="closeModal('modalProfile');openMyStatsModal()">📊 As minhas estatísticas</button>
                 </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#e74c3c;">⚠️ Zona de perigo</div>
+                    <button class="btn-small" style="width:100%;" onclick="exportMyData()">📥 Exportar os meus dados</button>
+                    <button class="btn-small" style="width:100%;margin-top:8px;background:#e74c3c;color:#fff;" onclick="closeModal('modalProfile');openDeleteAccountModal()">🗑️ Apagar conta</button>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ APAGAR CONTA (permanente) ============ -->
+        <div class="modal-overlay" id="modalDeleteAccount" style="z-index:200;">
+            <div class="modal">
+                <h3 style="color:#e74c3c;">🗑️ Apagar conta</h3>
+                <p style="font-size:13px;color:var(--text-secondary);">Isto é permanente e não pode ser desfeito. A tua conta, perfil, contactos e dados pessoais (lembretes, lista de compras, etc.) são apagados já. Mensagens que já enviaste continuam nas conversas de quem as recebeu, tal como no WhatsApp.</p>
+                <input type="password" id="deleteAccountPasswordInput" placeholder="Confirma a tua senha">
+                <div class="login-error" id="deleteAccountError"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalDeleteAccount')">Cancelar</button>
+                    <button class="btn-small" style="background:#e74c3c;color:#fff;" onclick="confirmDeleteAccount()">Apagar definitivamente</button>
                 </div>
             </div>
         </div>
@@ -4174,6 +4193,56 @@
         document.getElementById('twoFactorCheck').checked = APP.user.twoFactorEnabled;
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         if (data.error) alert(data.error);
+    });
+
+    // ==================== OS MEUS DADOS (exportar / apagar conta) ====================
+    async function exportMyData() {
+        if (!APP.token) return;
+        try {
+            const res = await fetch('/api/account/export', { headers: { 'x-auth-token': APP.token } });
+            if (!res.ok) { alert('Não foi possível exportar os teus dados agora.'); return; }
+            const data = await res.json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'os-meus-dados-chatapp.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Não foi possível ligar ao servidor.');
+        }
+    }
+    function openDeleteAccountModal() {
+        document.getElementById('deleteAccountPasswordInput').value = '';
+        document.getElementById('deleteAccountError').textContent = '';
+        document.getElementById('modalDeleteAccount').classList.add('active');
+    }
+    async function confirmDeleteAccount() {
+        const password = document.getElementById('deleteAccountPasswordInput').value;
+        const errEl = document.getElementById('deleteAccountError');
+        errEl.textContent = '';
+        if (!password) { errEl.textContent = 'Confirma a tua senha para continuar.'; return; }
+        if (!confirm('Tens mesmo a certeza? Isto é permanente e não pode ser desfeito.')) return;
+        try {
+            const res = await fetch('/api/account/delete', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token }, body: JSON.stringify({ password }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao apagar a conta.'; return; }
+            closeModal('modalDeleteAccount');
+            alert('A tua conta foi apagada.');
+            logout();
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+    // Chega às OUTRAS sessões/aparelhos desta conta quando alguém a apaga a
+    // partir de um deles — sem isto, esses aparelhos ficavam com um socket
+    // desligado e nenhuma explicação, parecendo só uma falha de rede.
+    socket.on('account_deleted', () => {
+        alert('Esta conta foi apagada (noutro dispositivo, ou agora mesmo).');
+        logout();
     });
     function savePrivacySettings() {
         if (!APP.user) return;
