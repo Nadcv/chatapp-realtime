@@ -1334,6 +1334,15 @@
             <button class="btn btn-primary" onclick="doRegister()">✅ Criar conta</button>
             <div class="login-switch" onclick="showAuthForm('login')">Já tem conta? Entrar</div>
         </div>
+
+        <!-- Verificação em duas etapas: dispositivo novo numa conta que a ativou -->
+        <div id="verifyCodeBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
+            <p style="color:#8696a0;text-align:center;font-size:13px;">🔐 Este é um dispositivo novo. Enviámos um código para <strong id="verifyCodeEmailLabel"></strong> — insere-o abaixo.</p>
+            <input type="text" id="verifyCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6">
+            <div class="login-error" id="verifyCodeError"></div>
+            <button class="btn btn-primary" onclick="doVerifyLoginCode()">✅ Confirmar</button>
+            <div class="login-switch" onclick="cancelLoginVerification()">Voltar</div>
+        </div>
     </div>
 
     <!-- Fora de #mainApp de propósito: usada a partir do ecrã de login, antes de
@@ -2248,6 +2257,15 @@
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🎂 Data de nascimento</label>
                     <input type="date" id="profileBirthdayInput" onchange="setBirthday(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">Os teus contactos veem um aviso quando fizeres anos. Fica visível só para quem te tem como contacto.</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🔐 Segurança</div>
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">Email</label>
+                    <input type="email" id="profileEmailInput" placeholder="teu@email.com" onchange="saveProfileEmail(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
+                    <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;margin-top:10px;">
+                        <input type="checkbox" id="twoFactorCheck" onchange="saveTwoFactorSetting()"> Verificação em duas etapas
+                    </label>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;" id="twoFactorHint">Ao entrar num dispositivo novo, além da senha pedimos um código enviado para o teu email. Os dispositivos onde já tens sessão iniciada continuam a funcionar normalmente, sem código nenhum.</p>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
@@ -3195,9 +3213,12 @@
     function showAuthForm(which) {
         document.getElementById('loginFormBox').style.display = which === 'login' ? 'flex' : 'none';
         document.getElementById('registerFormBox').style.display = which === 'register' ? 'flex' : 'none';
+        document.getElementById('verifyCodeBox').style.display = 'none';
         document.getElementById('loginError').textContent = '';
         document.getElementById('registerError').textContent = '';
     }
+
+    let pendingLoginPhone = null; // guardado só entre o pedido de login e a confirmação do código (ver 2FA)
 
     async function doLogin() {
         const phone = document.getElementById('loginPhone').value.trim();
@@ -3209,10 +3230,41 @@
             const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, password, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao entrar.'; return; }
+            if (data.needsVerification) {
+                pendingLoginPhone = phone;
+                document.getElementById('loginFormBox').style.display = 'none';
+                document.getElementById('verifyCodeBox').style.display = 'flex';
+                document.getElementById('verifyCodeEmailLabel').textContent = data.maskedEmail || 'o teu email';
+                document.getElementById('verifyCodeInput').value = '';
+                document.getElementById('verifyCodeError').textContent = '';
+                return;
+            }
             enterApp(data.user, data.token);
         } catch (err) {
             errEl.textContent = 'Não foi possível ligar ao servidor.';
         }
+    }
+
+    async function doVerifyLoginCode() {
+        const code = document.getElementById('verifyCodeInput').value.trim();
+        const errEl = document.getElementById('verifyCodeError');
+        errEl.textContent = '';
+        if (!pendingLoginPhone) return cancelLoginVerification();
+        if (!code) { errEl.textContent = 'Insere o código recebido por email.'; return; }
+        try {
+            const res = await fetch('/api/login/verify-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: pendingLoginPhone, code }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao verificar o código.'; return; }
+            pendingLoginPhone = null;
+            enterApp(data.user, data.token);
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+
+    function cancelLoginVerification() {
+        pendingLoginPhone = null;
+        showAuthForm('login');
     }
 
     async function doRegister() {
@@ -3383,7 +3435,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -4090,11 +4142,39 @@
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
         document.getElementById('profileBirthdayInput').value = APP.user.birthday || '';
+        document.getElementById('profileEmailInput').value = APP.user.email || '';
+        document.getElementById('twoFactorCheck').checked = !!APP.user.twoFactorEnabled;
         document.getElementById('hideOnlineStatusCheck').checked = !!APP.user.hideOnlineStatus;
         document.getElementById('hideReadReceiptsCheck').checked = !!APP.user.hideReadReceipts;
         loadDndSettingsIntoProfile();
         document.getElementById('modalProfile').classList.add('active');
     }
+    function saveProfileEmail(email) {
+        if (!APP.user) return;
+        socket.emit('set_email', { email: email.trim() });
+    }
+    socket.on('email_updated', (data) => {
+        if (!APP.user || !data) return;
+        if (data.error) { alert(data.error); document.getElementById('profileEmailInput').value = APP.user.email || ''; return; }
+        APP.user.email = data.email;
+        if (typeof data.twoFactorEnabled === 'boolean') {
+            APP.user.twoFactorEnabled = data.twoFactorEnabled;
+            document.getElementById('twoFactorCheck').checked = data.twoFactorEnabled;
+        }
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+    });
+    function saveTwoFactorSetting() {
+        if (!APP.user) return;
+        const enabled = document.getElementById('twoFactorCheck').checked;
+        socket.emit('set_two_factor', { enabled });
+    }
+    socket.on('two_factor_updated', (data) => {
+        if (!APP.user || !data) return;
+        APP.user.twoFactorEnabled = !!data.twoFactorEnabled;
+        document.getElementById('twoFactorCheck').checked = APP.user.twoFactorEnabled;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        if (data.error) alert(data.error);
+    });
     function savePrivacySettings() {
         if (!APP.user) return;
         const hideOnlineStatus = document.getElementById('hideOnlineStatusCheck').checked;
