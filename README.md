@@ -816,4 +816,10 @@ A versão "de grupo" de "📊 As minhas estatísticas": no menu "⋯ Mais desta 
 
 Tal como as estatísticas pessoais, é tudo calculado a partir do histórico já carregado no aparelho — não pede nada novo ao servidor. Só aparece para grupos (não faz sentido num "ranking" de uma conversa 1-para-1).
 
+## 🔐 Verificação em duas etapas
+
+No perfil (👤 O meu perfil → "🔐 Segurança") há agora um campo de email (podes definir/corrigir o teu a qualquer momento, não só no registo) e um interruptor "Verificação em duas etapas". Quando ativado, entrar num **dispositivo novo** passa a pedir, além da senha, um código de 6 dígitos enviado para esse email — os dispositivos onde já tens sessão iniciada continuam a entrar normalmente, sem código nenhum.
+
+**Degrada-se sozinho em vez de bloquear alguém**: só é possível ativar com um email já definido, e mesmo com a opção ativada, se o envio de email não estiver configurado no servidor (variáveis `EMAIL_USER`/`EMAIL_PASS`, ver secção de incêndios acima) ou falhar por qualquer razão, o login segue em frente sem pedir código — nunca fica ninguém trancado fora da própria conta por falta de configuração de email. O código expira em 10 minutos, é de uso único, e é invalidado ao fim de 5 tentativas erradas (basta voltar a tentar entrar para receber um novo).
+
 

@@ -58,7 +58,8 @@ const accountSchema = new mongoose.Schema({
   birthday: String, // 'YYYY-MM-DD', opcional — mostrado aos contactos para lembrete de aniversário
   devices: { type: [Object], default: [] }, // [{id, name, lastSeenAt}] — máximo 2 por conta, ver /api/login
   hideOnlineStatus: { type: Boolean, default: false }, // esconde "online"/última vez dos contactos (sempre aparece offline)
-  hideReadReceipts: { type: Boolean, default: false } // não envia confirmação de leitura (✓✓ azul) às mensagens que eu recebo
+  hideReadReceipts: { type: Boolean, default: false }, // não envia confirmação de leitura (✓✓ azul) às mensagens que eu recebo
+  twoFactorEnabled: { type: Boolean, default: false } // pede um código por email ao entrar num dispositivo novo (ver /api/login)
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -248,7 +249,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -308,23 +309,39 @@ app.post('/api/login', async (req, res) => {
   if (!deviceId) return res.status(400).json({ error: 'Pedido inválido (falta identificador do dispositivo).' });
   if (!user.devices) user.devices = [];
   const existing = user.devices.find((d) => d.id === deviceId);
-  if (existing) {
-    existing.name = deviceName;
-    existing.lastSeenAt = new Date().toISOString();
-  } else if (user.devices.length >= 2) {
+  if (!existing && user.devices.length >= 2) {
     return res.status(403).json({ error: 'Esta conta já está a ser usada em 2 dispositivos (o máximo permitido). Remove um em "Dispositivos ligados" (menu ⋯ Mais funcionalidades) para poderes entrar aqui.' });
-  } else {
-    user.devices.push({ id: deviceId, name: deviceName, lastSeenAt: new Date().toISOString() });
   }
-  if (isDbConnected) {
-    await AccountModel.updateOne({ phone }, { devices: user.devices }).catch((e) => console.error('Erro Mongo (dispositivos):', e.message));
-  } else {
-    saveUsers();
+  // Verificação em duas etapas: só entra em ação para um dispositivo NOVO,
+  // numa conta que a ativou e que tem email guardado — ver comentário acima.
+  if (!existing && user.twoFactorEnabled && user.email && getMailTransporter()) {
+    const code = generateLoginCode();
+    pendingLoginCodes[phone] = { code, deviceId, deviceName, attempts: 0, expiresAt: Date.now() + TWOFA_CODE_TTL_MS };
+    const sent = await sendLoginCodeEmail(user, code);
+    if (sent) {
+      log(`🔐 Código de verificação enviado para ${user.name} (dispositivo novo)`, 'AUTH');
+      return res.json({ needsVerification: true, maskedEmail: maskEmail(user.email) });
+    }
+    delete pendingLoginCodes[phone]; // falha ao enviar — não bloqueia o dono legítimo da conta
   }
-  const token = makeToken();
-  sessions[token] = phone;
-  log(`✅ Login: ${user.name} (${phone})`, 'AUTH');
-  res.json({ success: true, user: publicUser(user), token });
+  await completeLogin(user, existing, deviceId, deviceName, res);
+});
+
+app.post('/api/login/verify-code', async (req, res) => {
+  const { phone, code } = req.body || {};
+  const user = accounts[phone];
+  const pending = pendingLoginCodes[phone];
+  if (!user || !pending) return res.status(400).json({ error: 'Não há nenhum código pendente para este telefone. Volta a tentar entrar.' });
+  if (Date.now() > pending.expiresAt) { delete pendingLoginCodes[phone]; return res.status(400).json({ error: 'O código expirou. Volta a tentar entrar para receberes um novo.' }); }
+  if (pending.attempts >= 5) { delete pendingLoginCodes[phone]; return res.status(429).json({ error: 'Demasiadas tentativas erradas. Volta a tentar entrar para receberes um novo código.' }); }
+  if (String(code || '').trim() !== pending.code) {
+    pending.attempts++;
+    return res.status(401).json({ error: 'Código incorreto.' });
+  }
+  delete pendingLoginCodes[phone];
+  if (!user.devices) user.devices = [];
+  const existing = user.devices.find((d) => d.id === pending.deviceId);
+  await completeLogin(user, existing, pending.deviceId, pending.deviceName, res);
 });
 
 app.get('/api/devices', (req, res) => {
@@ -650,6 +667,61 @@ function getMailTransporter() {
 }
 function escapeHtmlServer(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ==================== VERIFICAÇÃO EM DUAS ETAPAS (login em dispositivo novo) ====================
+// Opcional (a pessoa ativa no perfil) e só entra em ação quando: a conta tem
+// um email guardado E o servidor tem envio de email configurado (mesma
+// getMailTransporter() dos avisos de incêndio) E o dispositivo a tentar
+// entrar é mesmo NOVO — os dispositivos já ligados continuam a entrar
+// normalmente, sem código nenhum. Se o envio do email falhar por qualquer
+// razão (ex.: SMTP em baixo), o login segue em frente sem 2FA em vez de
+// bloquear para sempre o dono legítimo da conta.
+const pendingLoginCodes = {}; // phone -> {code, deviceId, deviceName, attempts, expiresAt}
+const TWOFA_CODE_TTL_MS = 10 * 60 * 1000;
+function generateLoginCode() {
+  return String(crypto.randomInt(100000, 1000000));
+}
+function maskEmail(email) {
+  const [user, domain] = String(email || '').split('@');
+  if (!domain) return email;
+  const visible = user.slice(0, 2);
+  return `${visible}${'*'.repeat(Math.max(user.length - visible.length, 1))}@${domain}`;
+}
+async function sendLoginCodeEmail(user, code) {
+  const transporter = getMailTransporter();
+  if (!transporter) return false;
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: '🔐 Código de verificação — ChatApp',
+      text: `O teu código de verificação é: ${code}\n\nVálido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.`,
+      html: `<p>O teu código de verificação é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.</p>`
+    });
+    return true;
+  } catch (err) {
+    console.error('Erro ao enviar código de verificação:', err.message);
+    return false;
+  }
+}
+async function completeLogin(user, existingDevice, deviceId, deviceName, res) {
+  if (existingDevice) {
+    existingDevice.name = deviceName;
+    existingDevice.lastSeenAt = new Date().toISOString();
+  } else {
+    if (!user.devices) user.devices = [];
+    user.devices.push({ id: deviceId, name: deviceName, lastSeenAt: new Date().toISOString() });
+  }
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone: user.phone }, { devices: user.devices }).catch((e) => console.error('Erro Mongo (dispositivos):', e.message));
+  } else {
+    saveUsers();
+  }
+  const token = makeToken();
+  sessions[token] = user.phone;
+  log(`✅ Login: ${user.name} (${user.phone})`, 'AUTH');
+  res.json({ success: true, user: publicUser(user), token });
 }
 app.post('/api/fires/send-email', async (req, res) => {
   const transporter = getMailTransporter();
@@ -2337,6 +2409,30 @@ io.on('connection', (socket) => {
     socket.emit('birthday_updated', { birthday: data.birthday });
   });
 
+  socket.on('set_email', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const account = accounts[myPhone];
+    if (!myPhone || !account) return;
+    const email = String(data?.email || '').trim();
+    // Validação simples de formato — não confirma que a caixa existe de
+    // verdade (isso exigiria enviar e esperar um clique de confirmação, fora
+    // do âmbito aqui), só evita valores obviamente inválidos.
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      socket.emit('email_updated', { email: account.email || '', error: 'Esse email não parece válido.' });
+      return;
+    }
+    // Apagar o email desliga a verificação em duas etapas — sem email não há
+    // para onde mandar o código, não faz sentido ficar "ativa" sem efeito.
+    if (!email) account.twoFactorEnabled = false;
+    account.email = email;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { email, twoFactorEnabled: account.twoFactorEnabled }).catch(e => console.error('Erro Mongo (email):', e.message));
+    } else {
+      saveUsers();
+    }
+    socket.emit('email_updated', { email, twoFactorEnabled: account.twoFactorEnabled });
+  });
+
   // Guarda a cor de destaque escolhida na personalização da app, para
   // acompanhar a pessoa em qualquer aparelho onde faça login (não é
   // partilhada com contactos, é só uma preferência pessoal de aparência).
@@ -2924,6 +3020,24 @@ io.on('connection', (socket) => {
     }
     notifyContactsOfStatusChange(myPhone);
     socket.emit('privacy_updated', { hideOnlineStatus, hideReadReceipts });
+  });
+
+  socket.on('set_two_factor', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const account = accounts[myPhone];
+    if (!myPhone || !account) return;
+    const enabled = !!data?.enabled;
+    if (enabled && !account.email) {
+      socket.emit('two_factor_updated', { twoFactorEnabled: false, error: 'Define um email no teu perfil antes de ativares isto — é para lá que o código de verificação é enviado.' });
+      return;
+    }
+    account.twoFactorEnabled = enabled;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { twoFactorEnabled: enabled }).catch(e => console.error('Erro Mongo (2FA):', e.message));
+    } else {
+      saveUsers();
+    }
+    socket.emit('two_factor_updated', { twoFactorEnabled: enabled });
   });
 
   // Chamadas 1-para-1: entregues diretamente ao(s) socket(s) do telefone-alvo
