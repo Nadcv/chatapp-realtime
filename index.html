@@ -1795,6 +1795,7 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalExpenses')">Fechar</button>
                     <button class="btn-small" onclick="openRecurringExpensesModal()">🔁 Fixas</button>
+                    <button class="btn-small" onclick="openExpensesChartModal()">📈 Gráfico</button>
                     <button class="btn-small btn-accept" onclick="openAddExpenseForm()">➕ Nova despesa</button>
                 </div>
             </div>
@@ -1827,6 +1828,16 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalAddRecurringExpense');openRecurringExpensesModal()">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="submitRecurringExpense()">Adicionar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalExpensesChart" style="z-index:200;">
+            <div class="modal" style="max-width:95vw;">
+                <h3>📈 Despesas ao longo do tempo</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:-6px;">Total em euros, por mês.</p>
+                <div id="expensesChartBars" style="display:flex;align-items:flex-end;gap:6px;margin-top:14px;overflow-x:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalExpensesChart');openExpensesModal()">Voltar</button>
                 </div>
             </div>
         </div>
@@ -9830,6 +9841,43 @@
     function getChatExpenses(chatId) {
         return (APP.messages[chatId] || []).filter(m => m.expense).map(m => m.expense);
     }
+    // ==================== GRÁFICO DE DESPESAS AO LONGO DO TEMPO ====================
+    // Agrupa as despesas (avulsas + fixas recorrentes) por mês, usando o
+    // "createdAt" (data real, ver submitExpense/servidor) — despesas antigas
+    // criadas antes desta funcionalidade não têm essa data e ficam de fora do
+    // gráfico (não há como saber quando foram criadas, só a hora do dia).
+    function computeExpensesOverTime(chatId) {
+        const byMonth = {};
+        getChatExpenses(chatId).forEach(exp => {
+            if (!exp.createdAt) return;
+            const d = new Date(exp.createdAt);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            byMonth[key] = (byMonth[key] || 0) + exp.amountEUR;
+        });
+        return Object.keys(byMonth).sort().slice(-12).map(key => ({ key, total: byMonth[key] }));
+    }
+    function openExpensesChartModal() {
+        if (!APP.currentChatId) return;
+        const data = computeExpensesOverTime(APP.currentChatId);
+        const container = document.getElementById('expensesChartBars');
+        if (!data.length) {
+            container.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não há despesas com data suficiente para mostrar um gráfico (só entram despesas criadas depois desta funcionalidade existir).</p>';
+        } else {
+            const maxVal = Math.max(1, ...data.map(d => d.total));
+            container.innerHTML = data.map(d => {
+                const heightPct = Math.max(4, Math.round((d.total / maxVal) * 100));
+                const [y, m] = d.key.split('-');
+                const label = new Date(y, m - 1, 1).toLocaleDateString('pt-PT', { month: 'short', year: '2-digit' });
+                return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 44px;height:180px;">
+                    <div style="font-size:10px;opacity:0.8;margin-bottom:3px;">${d.total.toFixed(0)}€</div>
+                    <div style="width:70%;background:var(--green);border-radius:4px 4px 0 0;height:${heightPct}%;"></div>
+                    <div style="font-size:10px;opacity:0.7;margin-top:4px;white-space:nowrap;">${label}</div>
+                </div>`;
+            }).join('');
+        }
+        closeModal('modalExpenses');
+        document.getElementById('modalExpensesChart').classList.add('active');
+    }
     function openExpensesModal() {
         if (!APP.currentChatId) return;
         renderExpensesModal();
@@ -9909,7 +9957,7 @@
         if (!chat) return;
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        const expense = { description, amount, currency, amountEUR, paidBy, participants };
+        const expense = { description, amount, currency, amountEUR, paidBy, participants, createdAt: Date.now() };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', expense, read: false });
         renderMessages();
