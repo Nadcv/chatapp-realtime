@@ -852,4 +852,10 @@ Dentro de "💰 Despesas" há agora um botão "📈 Gráfico" com um gráfico de
 
 **Só entram despesas com data**: a partir de agora, cada despesa criada guarda o momento exato em que foi criada (`createdAt`) — despesas criadas antes desta funcionalidade existir não têm essa data (só tinham a hora do dia, não o dia em si) e por isso não entram no gráfico; continuam a aparecer normalmente na lista/balanços de sempre.
 
+## 😀 Biblioteca de emojis
+
+O seletor de emojis (😊 junto ao campo de mensagem, e o mesmo dentro do chat da chamada) passou de uma lista fixa de 30 para uma biblioteca organizada em categorias — Sorrisos, Pessoas, Animais, Comida, Atividades, Viagens, Objetos, Símbolos e Bandeiras — com um separador por cima para trocar de categoria, e uma aba "🕐 Recentes" com os últimos emojis usados (guardados só neste aparelho).
+
+Continua sem precisar de nenhuma biblioteca externa nem CDN — são só carateres unicode normais, tal como antes, só que muito mais completos e organizados.
+
 
