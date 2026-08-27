@@ -792,3 +792,15 @@ Nova aba pessoal (menu "⋯ Mais funcionalidades") para preparar as compras: adi
 
 **Quantidade ou peso/volume**: ao adicionar (ou editar) um artigo, há agora um seletor de unidade ao lado da quantidade — "un" (unidades, sempre número inteiro) ou kg/g/L/ml (aceitam casas decimais, ex.: "1,5 kg" de carne). O total continua a ser preço mais barato × quantidade, por isso um preço "por kg" multiplicado por "1,5" dá logo o subtotal certo. A unidade aparece em todo o lado onde o artigo é mostrado — lista ativa, histórico, PDF e listas partilhadas numa conversa.
 
+## 🖼️ Galeria de mídia por conversa
+
+No menu "⋮ Mais" de qualquer conversa há agora um botão "🖼️ Galeria" que junta todas as fotos e vídeos já trocados ali num só sítio, em grelha — sem ter de percorrer a conversa mensagem a mensagem à procura de uma foto antiga. Tocar numa miniatura abre-a em tamanho grande, com setas para navegar para a foto/vídeo anterior ou seguinte sem fechar e reabrir.
+
+**O que fica de fora, de propósito**: mensagens apagadas, ficheiros que não sejam foto/vídeo (documentos, áudios), e — o mais importante — mensagens "ver uma vez" nunca aparecem aqui, mesmo antes de serem abertas. Mostrá-las numa galeria para reler mais tarde ia contra o próprio objetivo dessa funcionalidade (só se veem uma vez, e depois desaparecem mesmo).
+
+## 🔔 Lembretes pessoais
+
+Nova aba pessoal (menu "⋯ Mais funcionalidades") para lembretes do tipo "lembra-me disto às 18h" — diferente das mensagens agendadas (que são para enviar a outra pessoa numa conversa), isto é só para ti. Escreve o que queres que te lembre, escolhe a data/hora (ou usa um atalho: daqui a 1h/3h, esta noite às 20h, ou amanhã de manhã às 9h) e é tudo.
+
+**Funciona mesmo com a app fechada**: reaproveita a mesma notificação push já usada para mensagens novas — não é preciso estar com a app aberta no telemóvel para receber o aviso à hora marcada (desde que as notificações push já estejam ativadas). Se estiveres com a app aberta nesse momento, aparece também um aviso instantâneo, sem esperar por nenhuma notificação do sistema.
+

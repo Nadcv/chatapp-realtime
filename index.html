@@ -2041,6 +2041,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTourismScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗺️<span style="font-size:11px;">Turismo</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openShoppingScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛒<span style="font-size:11px;">Compras</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRemindersScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔔<span style="font-size:11px;">Lembretes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDriveListenScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚗<span style="font-size:11px;">Conduzir e Ouvir</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openWeatherScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌦️<span style="font-size:11px;">Meteorologia</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openActivitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏃<span style="font-size:11px;">Atividades</span></button>
@@ -2108,11 +2109,33 @@
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openMediaGalleryModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🖼️<span style="font-size:11px;">Galeria</span></button>
                     <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalChatMore')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ GALERIA DE MÍDIA DA CONVERSA ============ -->
+        <div class="modal-overlay" id="modalMediaGallery">
+            <div class="modal" style="max-height:85vh;overflow-y:auto;">
+                <h3>🖼️ Galeria de mídia</h3>
+                <div id="mediaGalleryGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalMediaGallery')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalMediaGalleryViewer" style="z-index:200;">
+            <div class="modal" style="max-width:95vw;background:#000;text-align:center;padding:10px;">
+                <div id="mediaGalleryViewerContent" style="max-height:75vh;overflow:hidden;display:flex;align-items:center;justify-content:center;"></div>
+                <div class="modal-actions" style="justify-content:space-between;">
+                    <button class="btn-small" onclick="navigateMediaGallery(-1)">⬅️</button>
+                    <button class="btn-small" onclick="closeModal('modalMediaGalleryViewer')">Fechar</button>
+                    <button class="btn-small" onclick="navigateMediaGallery(1)">➡️</button>
                 </div>
             </div>
         </div>
@@ -2575,6 +2598,26 @@
                     <button class="btn-small" onclick="closeModal('modalShoppingHistory')">Fechar</button>
                 </div>
             </div>
+        </div>
+
+        <!-- ============ LEMBRETES PESSOAIS ============ -->
+        <div class="location-screen" id="remindersScreen">
+            <div class="location-header">
+                <strong>🔔 Lembretes</strong>
+                <button onclick="closeRemindersScreen()">✖️</button>
+            </div>
+            <div style="padding:10px 14px;">
+                <input type="text" id="reminderTextInput" placeholder="Lembrar-me de..." style="width:100%;">
+                <input type="datetime-local" id="reminderDatetimeInput" style="margin-top:8px;width:100%;">
+                <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+                    <button class="btn-small" onclick="quickPickReminderTime(1)">Daqui a 1h</button>
+                    <button class="btn-small" onclick="quickPickReminderTime(3)">Daqui a 3h</button>
+                    <button class="btn-small" onclick="quickPickReminderTonight()">Esta noite (20h)</button>
+                    <button class="btn-small" onclick="quickPickReminderTomorrow()">Amanhã de manhã (9h)</button>
+                </div>
+                <button class="btn-small btn-accept" style="margin-top:8px;width:100%;" onclick="addReminder()">➕ Adicionar lembrete</button>
+            </div>
+            <div id="remindersList" style="flex:1;overflow-y:auto;padding:0 14px;"></div>
         </div>
 
         <!-- ============ NOTÍCIAS ============ -->
@@ -5705,6 +5748,79 @@
         }
     }
 
+    // ==================== LEMBRETES PESSOAIS ====================
+    // Avisa mesmo com a app fechada (notificação push, se ativada) — e também
+    // em tempo real se estiveres ligado nesse momento (ver o alert() abaixo).
+    // 'initialized' evita um problema real: sem isto, o PRIMEIRO 'reminders_list'
+    // que chega ao entrar (que já pode trazer lembretes antigos já notificados
+    // de sessões passadas) seria interpretado como "acabaram de disparar agora",
+    // mostrando um alerta por cada um logo ao abrir a app.
+    const REMINDERS = { items: [], initialized: false };
+    socket.on('reminders_list', (list) => {
+        if (!REMINDERS.initialized) {
+            REMINDERS.items = list || [];
+            REMINDERS.initialized = true;
+            if (document.getElementById('remindersScreen').classList.contains('active')) renderReminders();
+            return;
+        }
+        const prevNotifiedIds = new Set(REMINDERS.items.filter((r) => r.notified).map((r) => r.id));
+        const newlyNotified = (list || []).filter((r) => r.notified && !prevNotifiedIds.has(r.id));
+        REMINDERS.items = list || [];
+        if (document.getElementById('remindersScreen').classList.contains('active')) renderReminders();
+        newlyNotified.forEach((r) => alert(`🔔 Lembrete: ${r.text}`));
+    });
+    function openRemindersScreen() {
+        document.getElementById('remindersScreen').classList.add('active');
+        renderReminders();
+    }
+    function closeRemindersScreen() { document.getElementById('remindersScreen').classList.remove('active'); }
+    function setReminderDatetimeInput(d) {
+        const pad = (n) => String(n).padStart(2, '0');
+        document.getElementById('reminderDatetimeInput').value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function quickPickReminderTime(hours) {
+        setReminderDatetimeInput(new Date(Date.now() + hours * 60 * 60 * 1000));
+    }
+    function quickPickReminderTonight() {
+        const d = new Date();
+        d.setHours(20, 0, 0, 0);
+        if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1); // já passou das 20h — é amanhã à noite
+        setReminderDatetimeInput(d);
+    }
+    function quickPickReminderTomorrow() {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(9, 0, 0, 0);
+        setReminderDatetimeInput(d);
+    }
+    function addReminder() {
+        const textInput = document.getElementById('reminderTextInput');
+        const text = textInput.value.trim();
+        const datetimeStr = document.getElementById('reminderDatetimeInput').value;
+        if (!text) return alert('Escreve o que queres que te lembre.');
+        if (!datetimeStr) return alert('Escolhe quando queres ser lembrado.');
+        const remindAt = new Date(datetimeStr).getTime();
+        if (!Number.isFinite(remindAt) || remindAt <= Date.now()) return alert('Escolhe uma data/hora no futuro.');
+        socket.emit('add_reminder', { text, remindAt });
+        textInput.value = '';
+        document.getElementById('reminderDatetimeInput').value = '';
+    }
+    function deleteReminder(id) { socket.emit('delete_reminder', { id }); }
+    function renderReminders() {
+        const el = document.getElementById('remindersList');
+        const sorted = [...REMINDERS.items].sort((a, b) => a.remindAt - b.remindAt);
+        el.innerHTML = sorted.length ? sorted.map((r) => {
+            const dateStr = new Date(r.remindAt).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            return `<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:10px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;opacity:${r.notified ? 0.6 : 1};">
+                <div>
+                    <div style="font-weight:600;">${escapeHtml(r.text)}</div>
+                    <div style="font-size:11px;opacity:0.7;">${dateStr}${r.notified ? ' · 🔔 já notificado' : ''}</div>
+                </div>
+                <button onclick="deleteReminder('${r.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">🗑️</button>
+            </div>`;
+        }).join('') : '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não tens lembretes. Adiciona um acima.</p>';
+    }
+
     // ==================== NOTÍCIAS ====================
     const NEWS = { items: [], tab: 'portugal', loaded: false, articleLink: null };
     async function openNewsArticle(link, source) {
@@ -8705,6 +8821,47 @@
         if (!msg || !msg.fileData) return;
         const win = window.open();
         if (win) win.document.write(`<title>Foto</title><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${msg.fileData}" style="max-width:100%;max-height:100%;"></body>`);
+    }
+
+    // ==================== GALERIA DE MÍDIA DA CONVERSA ====================
+    // Junta todas as fotos/vídeos já trocados nesta conversa num só sítio —
+    // nunca inclui mensagens "ver uma vez" (mesmo antes de abertas), porque
+    // mostrá-las numa galeria para reler quando se quiser contraria o próprio
+    // propósito dessa funcionalidade (só se veem uma vez, nunca mais).
+    const MEDIA_GALLERY = { items: [], index: 0 };
+    function openMediaGalleryModal() {
+        if (!APP.currentChatId) return;
+        const msgs = APP.messages[APP.currentChatId] || [];
+        MEDIA_GALLERY.items = msgs.filter((m) => !m.deleted && !m.viewOnce && m.fileData && m.fileType && (m.fileType.startsWith('image/') || m.fileType.startsWith('video/')));
+        const grid = document.getElementById('mediaGalleryGrid');
+        grid.innerHTML = MEDIA_GALLERY.items.length ? MEDIA_GALLERY.items.map((m, i) => {
+            const isVideo = m.fileType.startsWith('video/');
+            return `<div onclick="openMediaGalleryViewer(${i})" style="cursor:pointer;aspect-ratio:1;overflow:hidden;border-radius:6px;position:relative;background:#000;">
+                ${isVideo
+                    ? `<video src="${m.fileData}" style="width:100%;height:100%;object-fit:cover;"></video><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px;text-shadow:0 0 6px rgba(0,0,0,0.8);">▶️</div>`
+                    : `<img src="${m.fileData}" style="width:100%;height:100%;object-fit:cover;">`}
+            </div>`;
+        }).join('') : '<p style="grid-column:1/-1;color:#8696a0;text-align:center;padding:20px;">Ainda não há fotos ou vídeos nesta conversa.</p>';
+        document.getElementById('modalMediaGallery').classList.add('active');
+    }
+    function openMediaGalleryViewer(index) {
+        MEDIA_GALLERY.index = index;
+        renderMediaGalleryViewer();
+        document.getElementById('modalMediaGalleryViewer').classList.add('active');
+    }
+    function renderMediaGalleryViewer() {
+        const msg = MEDIA_GALLERY.items[MEDIA_GALLERY.index];
+        if (!msg) return;
+        const isVideo = msg.fileType.startsWith('video/');
+        document.getElementById('mediaGalleryViewerContent').innerHTML = isVideo
+            ? `<video src="${msg.fileData}" controls autoplay style="max-width:100%;max-height:75vh;"></video>`
+            : `<img src="${msg.fileData}" style="max-width:100%;max-height:75vh;">`;
+    }
+    function navigateMediaGallery(delta) {
+        const newIndex = MEDIA_GALLERY.index + delta;
+        if (newIndex < 0 || newIndex >= MEDIA_GALLERY.items.length) return;
+        MEDIA_GALLERY.index = newIndex;
+        renderMediaGalleryViewer();
     }
 
     // Gravação de mensagens de voz (MediaRecorder) — funciona em qualquer navegador
