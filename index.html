@@ -2539,7 +2539,8 @@
             </div>
             <div style="padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;">
                 <input type="text" id="shoppingItemNameInput" placeholder="Nome do artigo (ex.: Leite)" style="flex:1;min-width:120px;" onkeypress="if(event.key==='Enter')addShoppingItem()">
-                <input type="number" id="shoppingItemQtyInput" placeholder="Qtd" min="1" value="1" style="width:60px;">
+                <input type="number" id="shoppingItemQtyInput" placeholder="Qtd" min="0.001" step="any" value="1" style="width:55px;">
+                <select id="shoppingItemUnitInput" style="flex:0 0 auto;"></select>
                 <select id="shoppingItemCategoryInput" style="flex:0 0 auto;"></select>
                 <button class="btn-small btn-accept" onclick="addShoppingItem()">➕</button>
             </div>
@@ -5368,6 +5369,7 @@
         higiene: '🧴 Higiene e Beleza',
         outros: '📦 Outros'
     };
+    const SHOPPING_UNITS = { un: 'un', kg: 'kg', g: 'g', l: 'L', ml: 'ml' };
     const SHOPPING = { items: [], history: [] };
     let EDITING_SHOPPING_ITEM_ID = null;
     let EDITING_SHOPPING_PRICE = null; // { itemId, priceId } | null
@@ -5382,9 +5384,16 @@
     function populateShoppingCategorySelect(selectEl, selected) {
         selectEl.innerHTML = Object.entries(SHOPPING_CATEGORIES).map(([key, label]) => `<option value="${key}" ${key === selected ? 'selected' : ''}>${label}</option>`).join('');
     }
+    function populateShoppingUnitSelect(selectEl, selected) {
+        selectEl.innerHTML = Object.entries(SHOPPING_UNITS).map(([key, label]) => `<option value="${key}" ${key === selected ? 'selected' : ''}>${label}</option>`).join('');
+    }
+    function formatShoppingQty(qty, unit) {
+        return (unit || 'un') === 'un' ? `x${qty}` : `${qty} ${SHOPPING_UNITS[unit] || unit}`;
+    }
     function openShoppingScreen() {
         document.getElementById('shoppingScreen').classList.add('active');
         populateShoppingCategorySelect(document.getElementById('shoppingItemCategoryInput'), 'outros');
+        populateShoppingUnitSelect(document.getElementById('shoppingItemUnitInput'), 'un');
         EDITING_SHOPPING_ITEM_ID = null;
         renderShoppingList();
     }
@@ -5401,10 +5410,11 @@
     function addShoppingItem() {
         const nameInput = document.getElementById('shoppingItemNameInput');
         const name = nameInput.value.trim();
-        const qty = parseInt(document.getElementById('shoppingItemQtyInput').value) || 1;
+        const qty = parseFloat(document.getElementById('shoppingItemQtyInput').value) || 1;
+        const unit = document.getElementById('shoppingItemUnitInput').value || 'un';
         const category = document.getElementById('shoppingItemCategoryInput').value || 'outros';
         if (!name) return;
-        socket.emit('add_shopping_item', { name, qty, category });
+        socket.emit('add_shopping_item', { name, qty, unit, category });
         nameInput.value = '';
         document.getElementById('shoppingItemQtyInput').value = '1';
         nameInput.focus();
@@ -5421,10 +5431,11 @@
     }
     function saveEditShoppingItem(itemId) {
         const name = document.getElementById(`shoppingEditName_${itemId}`).value.trim();
-        const qty = parseInt(document.getElementById(`shoppingEditQty_${itemId}`).value) || 1;
+        const qty = parseFloat(document.getElementById(`shoppingEditQty_${itemId}`).value) || 1;
+        const unit = document.getElementById(`shoppingEditUnit_${itemId}`).value;
         const category = document.getElementById(`shoppingEditCategory_${itemId}`).value;
         if (!name) return alert('O nome não pode ficar vazio.');
-        socket.emit('edit_shopping_item', { itemId, name, qty, category });
+        socket.emit('edit_shopping_item', { itemId, name, qty, unit, category });
         EDITING_SHOPPING_ITEM_ID = null;
     }
     function addShoppingPrice(itemId) {
@@ -5458,7 +5469,8 @@
             return `<div style="background:rgba(255,255,255,0.08);border-radius:8px;padding:10px;margin:8px 0;border:1px solid var(--green);">
                 <div style="display:flex;flex-wrap:wrap;gap:6px;">
                     <input type="text" id="shoppingEditName_${item.id}" value="${escapeHtml(item.name)}" style="flex:1;min-width:100px;font-size:13px;padding:5px 8px;">
-                    <input type="number" id="shoppingEditQty_${item.id}" value="${item.qty}" min="1" style="width:55px;font-size:13px;padding:5px 8px;">
+                    <input type="number" id="shoppingEditQty_${item.id}" value="${item.qty}" min="0.001" step="any" style="width:55px;font-size:13px;padding:5px 8px;">
+                    <select id="shoppingEditUnit_${item.id}" style="font-size:12px;"></select>
                     <select id="shoppingEditCategory_${item.id}" style="font-size:12px;"></select>
                 </div>
                 <div class="modal-actions" style="margin-top:8px;">
@@ -5488,7 +5500,7 @@
         return `<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:10px;margin:8px 0;">
             <div style="display:flex;align-items:center;gap:8px;">
                 <input type="checkbox" ${item.bought ? 'checked' : ''} onchange="toggleShoppingItem('${item.id}')">
-                <div style="flex:1;font-weight:600;text-decoration:${item.bought ? 'line-through' : 'none'};opacity:${item.bought ? 0.6 : 1};">${escapeHtml(item.name)} <span style="font-size:11px;opacity:0.7;font-weight:400;">x${item.qty}</span></div>
+                <div style="flex:1;font-weight:600;text-decoration:${item.bought ? 'line-through' : 'none'};opacity:${item.bought ? 0.6 : 1};">${escapeHtml(item.name)} <span style="font-size:11px;opacity:0.7;font-weight:400;">${formatShoppingQty(item.qty, item.unit)}</span></div>
                 <button onclick="startEditShoppingItem('${item.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">✏️</button>
                 <button onclick="deleteShoppingItem('${item.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">🗑️</button>
             </div>
@@ -5518,8 +5530,10 @@
             // dinâmico dentro do template de forma simples com o valor certo já ativo).
             if (EDITING_SHOPPING_ITEM_ID) {
                 const editingItem = SHOPPING.items.find((i) => i.id === EDITING_SHOPPING_ITEM_ID);
-                const sel = document.getElementById(`shoppingEditCategory_${EDITING_SHOPPING_ITEM_ID}`);
-                if (editingItem && sel) populateShoppingCategorySelect(sel, editingItem.category || 'outros');
+                const catSel = document.getElementById(`shoppingEditCategory_${EDITING_SHOPPING_ITEM_ID}`);
+                const unitSel = document.getElementById(`shoppingEditUnit_${EDITING_SHOPPING_ITEM_ID}`);
+                if (editingItem && catSel) populateShoppingCategorySelect(catSel, editingItem.category || 'outros');
+                if (editingItem && unitSel) populateShoppingUnitSelect(unitSel, editingItem.unit || 'un');
             }
         }
         document.getElementById('shoppingListTotal').textContent = formatEuro(computeShoppingTotal(SHOPPING.items));
@@ -5541,7 +5555,7 @@
         closeModal('modalShoppingShare');
         const items = SHOPPING.items.map((item) => {
             const cheapest = item.prices.length ? item.prices.reduce((a, b) => (a.price < b.price ? a : b)) : null;
-            return { name: item.name, qty: item.qty, store: cheapest ? cheapest.store : null, price: cheapest ? cheapest.price : null };
+            return { name: item.name, qty: item.qty, unit: item.unit || 'un', store: cheapest ? cheapest.store : null, price: cheapest ? cheapest.price : null };
         });
         const shoppingList = { items, total: computeShoppingTotal(SHOPPING.items) };
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -5556,7 +5570,7 @@
         const sl = msg.shoppingList;
         const itemsHtml = sl.items.map((item) => `
             <div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:12px;">
-                <span>${escapeHtml(item.name)} <span style="opacity:0.7;">x${item.qty}</span></span>
+                <span>${escapeHtml(item.name)} <span style="opacity:0.7;">${formatShoppingQty(item.qty, item.unit)}</span></span>
                 <span style="flex-shrink:0;">${item.price != null ? `${escapeHtml(item.store)}: ${item.price.toFixed(2)}€` : '—'}</span>
             </div>`).join('');
         return `<div style="min-width:220px;">
@@ -5624,7 +5638,7 @@
             </span>`;
         }).join('') : '<span style="font-size:11px;opacity:0.6;">sem preço registado</span>';
         return `<div style="padding:4px 0;">
-            <div style="font-size:12px;">${escapeHtml(item.name)} <span style="opacity:0.7;">x${item.qty}</span></div>
+            <div style="font-size:12px;">${escapeHtml(item.name)} <span style="opacity:0.7;">${formatShoppingQty(item.qty, item.unit)}</span></div>
             <div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:5px;">${pricesHtml}</div>
         </div>`;
     }
@@ -5676,7 +5690,7 @@
             doc.setFontSize(11);
             items.forEach((item) => {
                 const cheapest = item.prices.length ? item.prices.reduce((a, b) => (a.price < b.price ? a : b)) : null;
-                const line = `${item.name} x${item.qty}` + (cheapest ? ` — ${cheapest.store}: ${cheapest.price.toFixed(2)}€ (subtotal ${(cheapest.price * item.qty).toFixed(2)}€)` : ' — sem preço registado');
+                const line = `${item.name} ${formatShoppingQty(item.qty, item.unit)}` + (cheapest ? ` — ${cheapest.store}: ${cheapest.price.toFixed(2)}€ (subtotal ${(cheapest.price * item.qty).toFixed(2)}€)` : ' — sem preço registado');
                 doc.text(line, 14, y);
                 y += 8;
                 if (y > 280) { doc.addPage(); y = 20; }
