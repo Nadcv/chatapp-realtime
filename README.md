@@ -830,4 +830,10 @@ Também no perfil, em "⚠️ Zona de perigo": um botão "📥 Exportar os meus 
 
 **Limitação conhecida**: como as conversas de grupo aqui são "abertas" (ver "Como funcionam os grupos" acima) e uma conversa 1-para-1 só existe enquanto ambas as contas existem, depois de apagares a conta a conversa contigo pode deixar de aparecer na lista de conversas de quem falava contigo (mesmo sem o histórico dessa pessoa ser apagado por baixo) — é um efeito secundário aceite do modelo simples de apagar a conta, não um passo extra que faltou fazer.
 
+## 📅 Chamada agendada
+
+No menu "⋯ Mais desta conversa" há agora um botão "📅 Chamada agendada" para marcar uma chamada de voz ou vídeo para mais tarde, nessa conversa. Na hora marcada, as duas partes recebem um aviso — por notificação push (se a app estiver fechada) e, se estiverem ligadas nesse momento, também um ecrã com um botão "📞 Iniciar chamada".
+
+**Não liga sozinha, de propósito**: ligar de verdade precisa de pedir câmara/microfone a partir de um toque genuíno da pessoa (é assim que os navegadores protegem contra chamadas automáticas silenciosas) — por isso a "chamada agendada" é só um lembrete bem posicionado para as duas pessoas, e o botão "Iniciar chamada" usa exatamente o mesmo fluxo de ligar de sempre.
+
 
