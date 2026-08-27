@@ -782,3 +782,9 @@ Nova aba pessoal (menu "⋯ Mais funcionalidades") para preparar as compras: adi
 
 **PDF gerado no próprio telemóvel/computador**: usa a biblioteca gratuita jsPDF (carregada só quando o botão "Finalizar" ou "PDF" do histórico é mesmo usado pela primeira vez, para não pesar no carregamento normal da app) — o ficheiro é montado e descarregado localmente, sem passar pelo servidor.
 
+**Categorias/corredores**: cada artigo tem uma categoria (Frutas e Legumes, Padaria, Laticínios, Carnes/Peixe, Congelados, Mercearia, Bebidas, Limpeza, Higiene, Outros) escolhida ao adicionar. A lista agrupa automaticamente por categoria, sempre pela mesma ordem sugerida de corredores do supermercado — só aparecem secções que já têm algum artigo.
+
+**Editar artigo**: o botão ✏️ em cada artigo abre uma edição rápida (nome, quantidade, categoria) sem precisar de apagar e recriar — os preços já registados e o estado de "comprado" mantêm-se.
+
+**Partilhar lista numa conversa**: o botão 📤 no cabeçalho envia um resumo da lista atual (artigo, quantidade, e o preço mais barato encontrado) como mensagem para um contacto ou grupo — aparece na conversa como uma mensagem normal, com o total no fim. É um instantâneo do momento em que é partilhada (como as despesas de viagem), não fica ligada à tua lista pessoal depois de enviada.
+
