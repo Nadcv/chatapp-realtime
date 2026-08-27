@@ -10141,6 +10141,7 @@
                     document.getElementById('callUnlockOverlay').style.display = 'flex';
                 }
             }, 1000);
+            watchForFrozenRemoteVideo();
         };
         // Deteta quando a ligação "conecta" na sinalização mas depois cai (ex: TURN
         // sobrecarregado) — sem isto, o ecrã ficava preso em "Conectado" para sempre
@@ -10153,12 +10154,77 @@
                 if (statusEl) statusEl.textContent = '⚠️ Ligação instável — a tentar recuperar...';
             } else if (state === 'failed') {
                 if (statusEl) statusEl.textContent = '🔄 A tentar reconectar...';
-                try { peerConnection.restartIce(); } catch (e) { console.warn('restartIce falhou:', e.message); }
+                attemptIceRestart1to1();
             } else if (state === 'connected') {
                 if (statusEl && statusEl.textContent !== 'Conectado ✅') statusEl.textContent = 'Conectado ✅';
             }
         };
         return peerConnection;
+    }
+
+    // "pc.restartIce()" sozinho NÃO faz nada de útil: só marca internamente que
+    // uma nova oferta precisa de ICE novo e dispara um evento "negotiationneeded"
+    // — sem ninguém a ouvir esse evento e a mandar essa nova oferta pela
+    // sinalização (Socket.IO), o restart nunca chega a acontecer de verdade. Isto
+    // explicava chamadas presas em "Conectado"/"A tentar reconectar..." para
+    // sempre depois de um problema breve de rede, sem nunca recuperar de facto —
+    // e explicava melhor ainda porque é sempre o mesmo lado (quem LIGA) a ficar
+    // sem imagem: só o lado que criou a oferta original tenta renegociar aqui,
+    // para evitar os dois lados criarem uma nova oferta ao mesmo tempo (glare).
+    let iceRestartInFlight1to1 = false;
+    let iceRestartAttempts1to1 = 0;
+    async function attemptIceRestart1to1() {
+        if (!peerConnection || iceRestartInFlight1to1 || APP.callDirection !== 'outgoing') return;
+        if (iceRestartAttempts1to1 >= 3) {
+            document.getElementById('callStatus').textContent = '❌ Não foi possível recuperar a ligação';
+            return;
+        }
+        iceRestartInFlight1to1 = true;
+        iceRestartAttempts1to1++;
+        try {
+            const offer = await peerConnection.createOffer({ iceRestart: true });
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('renegotiate_offer', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone, offer: peerConnection.localDescription });
+        } catch (err) {
+            console.warn('Falha ao tentar reiniciar a ligação:', err.message);
+        } finally {
+            iceRestartInFlight1to1 = false;
+        }
+    }
+    socket.on('renegotiate_offer_received', async (data) => {
+        if (!peerConnection) return;
+        try {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            flushPendingIce(peerConnection);
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('renegotiate_answer', { targetRoomId: APP.currentChatId, targetPhone: callPeerPhone, answer: peerConnection.localDescription });
+        } catch (err) { console.warn('Falha ao responder à renegociação da chamada:', err.message); }
+    });
+    socket.on('renegotiate_answer_received', async (data) => {
+        if (!peerConnection) return;
+        try {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            flushPendingIce(peerConnection);
+            iceRestartAttempts1to1 = 0; // recuperou — a próxima falha volta a ter direito às 3 tentativas
+        } catch (err) { console.warn('Resposta de renegociação ignorada:', err.message); }
+    });
+
+    // Segunda rede de segurança: mesmo quando o ICE "diz" que está tudo bem
+    // (nunca passa por 'disconnected'/'failed'), o vídeo remoto pode ficar
+    // preso a zero frames — o sintoma real de "não consigo ver a outra
+    // pessoa" mesmo com a chamada "Conectada". Confirma outra vez alguns
+    // segundos depois de conectar e, se continuar sem imagem nenhuma, tenta
+    // a mesma renegociação (força um pedido de keyframe novo, na prática).
+    function watchForFrozenRemoteVideo() {
+        setTimeout(() => {
+            if (!APP.callActive || !peerConnection || APP.callType !== 'video') return;
+            const mainVideo = document.getElementById('mainVideo');
+            const track = mainVideo.srcObject?.getVideoTracks?.()[0];
+            if (track && track.readyState === 'live' && mainVideo.videoWidth === 0) {
+                attemptIceRestart1to1();
+            }
+        }, 6000);
     }
 
     function startCall(type) {
@@ -10171,6 +10237,7 @@
         APP.callDirection = 'outgoing';
         APP._callWasConnected = false;
         pendingIceCandidates = [];
+        iceRestartAttempts1to1 = 0;
         callPeerPhone = chat?.phone || null;
         document.getElementById('callTitle').textContent = chat?.name || 'Chamada';
         document.getElementById('callStatus').textContent = type === 'video' ? 'Chamando...' : 'Chamada de voz...';
@@ -10437,7 +10504,7 @@
     // Funciona bem até ~6-8 participantes com câmara ligada (cada pessoa envia/recebe
     // vídeo de todas as outras diretamente, sem servidor central de vídeo). Com mais
     // gente que isso, o ideal a prazo é um servidor SFU — fica fora do alcance gratuito.
-    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {} };
+    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {}, isOfferer: {} };
 
     function joinGroupCall(type) {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
@@ -10447,6 +10514,7 @@
         GROUP_CALL.peers = {};
         GROUP_CALL.pendingIce = {};
         GROUP_CALL.names = {};
+        GROUP_CALL.isOfferer = {};
         document.getElementById('callTitle').textContent = '🎥 ' + (chat?.name || 'Grupo');
         document.getElementById('callStatus').textContent = 'A entrar na chamada em grupo...';
         document.getElementById('callScreen').classList.add('active');
@@ -10489,6 +10557,20 @@
         if (tile) tile.remove();
     }
 
+    // Mesma rede de segurança do 1-para-1: o ICE pode "dizer" que está tudo bem
+    // e mesmo assim o vídeo remoto ficar preso a zero frames. Só quem foi
+    // ofertante original desta ligação tenta renegociar (evita glare).
+    function watchForFrozenGroupTile(remoteSocketId) {
+        setTimeout(() => {
+            if (!GROUP_CALL.active || !GROUP_CALL.peers[remoteSocketId]) return;
+            const tile = document.getElementById('tile_' + remoteSocketId);
+            const video = tile?.querySelector('video');
+            if (video && video.srcObject?.getVideoTracks?.()[0]?.readyState === 'live' && video.videoWidth === 0 && GROUP_CALL.isOfferer[remoteSocketId]) {
+                attemptIceRestartGroup(remoteSocketId);
+            }
+        }, 6000);
+    }
+
     async function createGroupPeerConnection(remoteSocketId, remoteName) {
         const iceServers = await getIceServers();
         const pc = new RTCPeerConnection(iceServers);
@@ -10498,9 +10580,18 @@
         pc.onicecandidate = (e) => {
             if (e.candidate) socket.emit('call_ice', { roomId: APP.currentChatId, toSocketId: remoteSocketId, candidate: e.candidate });
         };
-        pc.ontrack = (e) => addGridTile(remoteSocketId, remoteName, e.streams[0], false);
+        pc.ontrack = (e) => {
+            addGridTile(remoteSocketId, remoteName, e.streams[0], false);
+            watchForFrozenGroupTile(remoteSocketId);
+        };
         pc.oniceconnectionstatechange = () => {
-            if (pc.iceConnectionState === 'failed') { try { pc.restartIce(); } catch (e) {} }
+            // Igual ao problema já corrigido nas chamadas 1-para-1: "pc.restartIce()"
+            // sozinho não faz nada sem um novo offer/answer trocado pela sinalização.
+            // Só quem foi o ofertante ORIGINAL desta ligação (ver GROUP_CALL.isOfferer)
+            // tenta renegociar, para os dois lados não criarem ofertas ao mesmo tempo.
+            if (pc.iceConnectionState === 'failed' && GROUP_CALL.isOfferer[remoteSocketId]) {
+                attemptIceRestartGroup(remoteSocketId);
+            }
         };
         if (APP.callStream) APP.callStream.getTracks().forEach(track => pc.addTrack(track, APP.callStream));
         // Se entrar alguém a meio de uma partilha de vídeo/música já em curso,
@@ -10524,11 +10615,32 @@
     socket.on('existing_call_participants', (data) => {
         (data.participants || []).forEach(async (p) => {
             const pc = await createGroupPeerConnection(p.socketId, p.name);
+            GROUP_CALL.isOfferer[p.socketId] = true;
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
                 socket.emit('call_offer', { roomId: APP.currentChatId, toSocketId: p.socketId, offer: pc.localDescription });
             });
         });
     });
+
+    // Tal como em attemptIceRestart1to1: "pc.restartIce()" não faz nada por si
+    // só, é preciso criar e enviar mesmo um novo offer com iceRestart. Reaproveita
+    // o mesmo evento "call_offer" já existente — do outro lado, "call_offer_received"
+    // já trata bem receber um offer novo para uma ligação que já existe.
+    const iceRestartInFlightGroup = {};
+    async function attemptIceRestartGroup(remoteSocketId) {
+        const pc = GROUP_CALL.peers[remoteSocketId];
+        if (!pc || iceRestartInFlightGroup[remoteSocketId]) return;
+        iceRestartInFlightGroup[remoteSocketId] = true;
+        try {
+            const offer = await pc.createOffer({ iceRestart: true });
+            await pc.setLocalDescription(offer);
+            socket.emit('call_offer', { roomId: APP.currentChatId, toSocketId: remoteSocketId, offer: pc.localDescription });
+        } catch (err) {
+            console.warn('Falha ao tentar reiniciar a ligação de grupo:', err.message);
+        } finally {
+            iceRestartInFlightGroup[remoteSocketId] = false;
+        }
+    }
 
     socket.on('peer_joined_call', (data) => {
         GROUP_CALL.names[data.socketId] = data.name; // guarda o nome já, caso a oferta chegue depois
@@ -10543,7 +10655,10 @@
     socket.on('call_offer_received', async (data) => {
         if (!GROUP_CALL.active) return;
         let pc = GROUP_CALL.peers[data.fromSocketId];
-        if (!pc) pc = await createGroupPeerConnection(data.fromSocketId, data.fromName);
+        if (!pc) {
+            pc = await createGroupPeerConnection(data.fromSocketId, data.fromName);
+            GROUP_CALL.isOfferer[data.fromSocketId] = false;
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         (GROUP_CALL.pendingIce[data.fromSocketId] || []).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
         GROUP_CALL.pendingIce[data.fromSocketId] = [];
