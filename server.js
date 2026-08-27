@@ -2954,6 +2954,20 @@ io.on('connection', (socket) => {
     if (data.targetPhone) deliverToPhone(data.targetPhone, 'ice_candidate_received', data, socket.id);
     else socket.to(data.targetRoomId).emit('ice_candidate_received', data);
   });
+  // Renegociação (ICE restart) de uma chamada 1-para-1 já em curso — ver o
+  // comentário em "renegotiate_offer" do lado do cliente para o porquê disto
+  // existir: sem isto, "pc.restartIce()" não fazia mesmo nada (só marca a
+  // necessidade internamente; sem um novo offer/answer trocado por aqui,
+  // nunca chega a acontecer de verdade), e uma chamada que sofresse um
+  // problema de rede breve ficava presa "ligada" para sempre sem imagem/som.
+  socket.on('renegotiate_offer', (data) => {
+    if (data.targetPhone) deliverToPhone(data.targetPhone, 'renegotiate_offer_received', data, socket.id);
+    else socket.to(data.targetRoomId).emit('renegotiate_offer_received', data);
+  });
+  socket.on('renegotiate_answer', (data) => {
+    if (data.targetPhone) deliverToPhone(data.targetPhone, 'renegotiate_answer_received', data, socket.id);
+    else socket.to(data.targetRoomId).emit('renegotiate_answer_received', data);
+  });
   socket.on('end_call', (data) => {
     if (data.targetPhone) deliverToPhone(data.targetPhone, 'call_ended', data, socket.id);
     else socket.to(data.targetRoomId).emit('call_ended', data);
