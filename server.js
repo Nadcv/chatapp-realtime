@@ -164,7 +164,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1984,6 +1984,21 @@ function getMyShoppingList(phone) {
   return shoppingListByPhone[phone];
 }
 
+// ==================== LEMBRETES PESSOAIS ====================
+// Pessoais (por conta), com aviso mesmo que a app esteja fechada — reaproveita
+// a mesma notificação push já usada para mensagens (sendPushToPhone), em vez
+// de criar um mecanismo novo. Um "setInterval" próprio (como o das mensagens
+// agendadas) verifica periodicamente quais já venceram.
+const REMINDERS_FILE = path.join(__dirname, 'reminders.json');
+let remindersByPhone = {}; // phone -> [{id, text, remindAt (epoch ms), notified}]
+function loadRemindersLocal() {
+  try { if (fs.existsSync(REMINDERS_FILE)) remindersByPhone = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar lembretes:', err.message); }
+}
+function saveRemindersLocal() {
+  fs.writeFile(REMINDERS_FILE, JSON.stringify(remindersByPhone), (err) => { if (err) console.error('Erro ao salvar lembretes:', err.message); });
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -2233,6 +2248,7 @@ io.on('connection', (socket) => {
       socket.emit('folders_list', foldersByPhone[myPhone] || []);
       socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone] || []);
       socket.emit('shopping_list_updated', getMyShoppingList(myPhone));
+      socket.emit('reminders_list', remindersByPhone[myPhone] || []);
       socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
@@ -3356,6 +3372,26 @@ io.on('connection', (socket) => {
     socket.emit('shopping_list_updated', list);
   });
 
+  // ==================== LEMBRETES PESSOAIS ====================
+  socket.on('add_reminder', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const text = (data?.text || '').trim();
+    const remindAt = parseInt(data?.remindAt);
+    if (!myPhone || !text || !Number.isFinite(remindAt)) return;
+    if (!remindersByPhone[myPhone]) remindersByPhone[myPhone] = [];
+    if (remindersByPhone[myPhone].length >= 100) return; // limite razoável
+    remindersByPhone[myPhone].push({ id: 'rem' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), text: text.substring(0, 200), remindAt, notified: false });
+    saveRemindersLocal();
+    socket.emit('reminders_list', remindersByPhone[myPhone]);
+  });
+  socket.on('delete_reminder', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.id || !remindersByPhone[myPhone]) return;
+    remindersByPhone[myPhone] = remindersByPhone[myPhone].filter((r) => r.id !== data.id);
+    saveRemindersLocal();
+    socket.emit('reminders_list', remindersByPhone[myPhone]);
+  });
+
   // ==================== "NÃO INCOMODAR" AGENDADO ====================
   socket.on('set_dnd_active', (data) => {
     const myPhone = users[socket.id]?.phone;
@@ -3779,6 +3815,26 @@ connectDatabase().then(async () => {
         }
       }
     }
+  }, 20 * 1000);
+
+  // Lembretes pessoais: dispara os que já chegaram à hora marcada — avisa por
+  // notificação push (funciona mesmo com a app fechada/em segundo plano) e,
+  // se a pessoa estiver ligada nesse momento, também por um evento em tempo
+  // real, para o ecrã de lembretes atualizar sozinho sem precisar de recarregar.
+  setInterval(() => {
+    const now = Date.now();
+    let anyDue = false;
+    Object.entries(remindersByPhone).forEach(([phone, reminders]) => {
+      const due = reminders.filter((r) => !r.notified && r.remindAt <= now);
+      if (!due.length) return;
+      anyDue = true;
+      due.forEach((r) => {
+        r.notified = true;
+        sendPushToPhone(phone, { title: '🔔 Lembrete', body: r.text }).catch(() => {});
+      });
+      deliverToPhone(phone, 'reminders_list', reminders, null);
+    });
+    if (anyDue) saveRemindersLocal();
   }, 20 * 1000);
 
   server.listen(PORT, '0.0.0.0', () => {
