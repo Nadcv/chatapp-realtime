@@ -164,7 +164,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1999,6 +1999,29 @@ function saveRemindersLocal() {
   fs.writeFile(REMINDERS_FILE, JSON.stringify(remindersByPhone), (err) => { if (err) console.error('Erro ao salvar lembretes:', err.message); });
 }
 
+// ==================== DESPESAS FIXAS MENSAIS (RECORRENTES) ====================
+// Cada conversa pode ter "modelos" de despesa fixa (ex.: renda, Netflix) que,
+// todos os meses, lançam sozinhos uma despesa a sério nessa conversa (ver a
+// verificação periódica mais abaixo) — tal como se alguém a tivesse criado à
+// mão, reaproveitando o mesmo campo msg.expense da despesa avulsa já
+// existente. "dayOfMonth" é limitado ao último dia real do mês em curso (ex.:
+// dia 31 num mês de 30 dias cai no dia 30), e "lastPostedKey" (ano-mês, ex.:
+// "2026-08") impede lançar a mesma despesa duas vezes no mesmo mês.
+const RECURRING_EXPENSES_FILE = path.join(__dirname, 'recurring-expenses.json');
+let recurringExpensesByChat = {}; // chatId -> [{id, description, amount, currency, paidBy, participants, dayOfMonth, createdBy, lastPostedKey}]
+function loadRecurringExpensesLocal() {
+  try { if (fs.existsSync(RECURRING_EXPENSES_FILE)) recurringExpensesByChat = JSON.parse(fs.readFileSync(RECURRING_EXPENSES_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar despesas fixas:', err.message); }
+}
+function saveRecurringExpensesLocal() {
+  fs.writeFile(RECURRING_EXPENSES_FILE, JSON.stringify(recurringExpensesByChat), (err) => { if (err) console.error('Erro ao salvar despesas fixas:', err.message); });
+}
+function getRoomParticipantPhones(chatId) {
+  const phones = new Set();
+  (messagesByRoom[chatId] || []).forEach((m) => { if (m.senderPhone) phones.add(m.senderPhone); });
+  return [...phones];
+}
+
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
 // O horário em si (ex.: 22h-7h) fica guardado no aparelho da pessoa (é a
 // única forma simples de respeitar o fuso horário local sem complicar o
@@ -2478,6 +2501,7 @@ io.on('connection', (socket) => {
     // não vem no histórico de mensagens: mensagem fixada e mensagens temporárias.
     if (pinnedByRoom[roomId]?.length) socket.emit('message_pinned_received', { chatId: roomId, pins: pinnedByRoom[roomId] });
     if (disappearingByRoom[roomId]) socket.emit('disappearing_updated', { chatId: roomId, seconds: disappearingByRoom[roomId] });
+    if (recurringExpensesByChat[roomId]?.length) socket.emit('recurring_expenses_list', { chatId: roomId, list: recurringExpensesByChat[roomId] });
   });
 
   socket.on('send_message', async (data) => {
@@ -3392,6 +3416,39 @@ io.on('connection', (socket) => {
     socket.emit('reminders_list', remindersByPhone[myPhone]);
   });
 
+  // ==================== DESPESAS FIXAS MENSAIS (RECORRENTES) ====================
+  socket.on('add_recurring_expense', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const chatId = data?.chatId;
+    const description = (data?.description || '').trim();
+    const amount = parseFloat(data?.amount);
+    const currency = (data?.currency || '').trim();
+    const paidBy = (data?.paidBy || '').trim();
+    const participants = Array.isArray(data?.participants) ? data.participants.filter((p) => typeof p === 'string' && p.trim()).slice(0, 50) : [];
+    const dayOfMonth = parseInt(data?.dayOfMonth);
+    if (!myPhone || !chatId || !description || !amount || amount <= 0 || !currency || !paidBy || !participants.length) return;
+    if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) return;
+    if (!isDmRoomAllowedForPhone(myPhone, chatId)) return;
+    if (!recurringExpensesByChat[chatId]) recurringExpensesByChat[chatId] = [];
+    if (recurringExpensesByChat[chatId].length >= 30) return; // limite razoável
+    recurringExpensesByChat[chatId].push({
+      id: 'rec' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      description: description.substring(0, 100), amount, currency, paidBy, participants, dayOfMonth,
+      createdBy: myPhone, lastPostedKey: null
+    });
+    saveRecurringExpensesLocal();
+    io.to(chatId).emit('recurring_expenses_list', { chatId, list: recurringExpensesByChat[chatId] });
+  });
+  socket.on('delete_recurring_expense', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const chatId = data?.chatId;
+    if (!myPhone || !chatId || !data?.id || !recurringExpensesByChat[chatId]) return;
+    if (!isDmRoomAllowedForPhone(myPhone, chatId)) return;
+    recurringExpensesByChat[chatId] = recurringExpensesByChat[chatId].filter((r) => r.id !== data.id);
+    saveRecurringExpensesLocal();
+    io.to(chatId).emit('recurring_expenses_list', { chatId, list: recurringExpensesByChat[chatId] });
+  });
+
   // ==================== "NÃO INCOMODAR" AGENDADO ====================
   socket.on('set_dnd_active', (data) => {
     const myPhone = users[socket.id]?.phone;
@@ -3836,6 +3893,53 @@ connectDatabase().then(async () => {
     });
     if (anyDue) saveRemindersLocal();
   }, 20 * 1000);
+
+  // Despesas fixas: uma vez por hora chega perfeitamente (granularidade de
+  // "dia do mês", ao contrário dos lembretes que precisam de precisão ao
+  // minuto) — lança as que caem hoje e ainda não foram lançadas este mês.
+  setInterval(async () => {
+    const now = new Date();
+    const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const todayDay = now.getDate();
+    let anyChanged = false;
+    for (const [chatId, templates] of Object.entries(recurringExpensesByChat)) {
+      for (const tpl of templates) {
+        const effectiveDay = Math.min(tpl.dayOfMonth, daysInMonth);
+        if (todayDay !== effectiveDay || tpl.lastPostedKey === yearMonthKey) continue;
+        tpl.lastPostedKey = yearMonthKey;
+        anyChanged = true;
+        let rate = null;
+        try {
+          const rateData = await cachedFetch('currency_EUR', 'https://open.er-api.com/v6/latest/EUR', 6 * 60 * 60 * 1000);
+          if (rateData?.result === 'success') rate = rateData.rates?.[tpl.currency];
+        } catch (e) { console.error('Erro ao obter câmbio para despesa fixa:', e.message); }
+        const amountEUR = rate ? tpl.amount / rate : tpl.amount;
+        const msgData = {
+          id: 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+          chatId, sender: '🔁 Despesa fixa', senderPhone: null, text: '',
+          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          expense: { description: tpl.description, amount: tpl.amount, currency: tpl.currency, amountEUR, paidBy: tpl.paidBy, participants: tpl.participants }
+        };
+        if (!messagesByRoom[chatId]) messagesByRoom[chatId] = [];
+        messagesByRoom[chatId].push(msgData);
+        if (messagesByRoom[chatId].length > MAX_HISTORY_PER_ROOM) messagesByRoom[chatId] = messagesByRoom[chatId].slice(-MAX_HISTORY_PER_ROOM);
+        if (isDbConnected) {
+          try { await MessageModel.create({ ...msgData }); } catch (e) { console.error('Erro ao guardar despesa fixa:', e.message); }
+        } else {
+          saveMessagesLocal();
+        }
+        io.to(chatId).emit('receive_message', msgData);
+        getRoomParticipantPhones(chatId).forEach((phone) => {
+          const muted = (mutedByPhone[phone] || []).includes(chatId);
+          const dnd = !!dndActiveByPhone[phone];
+          if (muted || dnd) return;
+          sendPushToPhone(phone, { title: '🔁 Despesa fixa', body: `${tpl.description} — ${tpl.amount.toLocaleString('pt-PT')} ${tpl.currency}`, chatId }).catch(() => {});
+        });
+      }
+    }
+    if (anyChanged) saveRecurringExpensesLocal();
+  }, 60 * 60 * 1000);
 
   server.listen(PORT, '0.0.0.0', () => {
     let ipAddress = 'localhost';

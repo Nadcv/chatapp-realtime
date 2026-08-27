@@ -1784,7 +1784,39 @@
                 <div id="expensesList" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalExpenses')">Fechar</button>
+                    <button class="btn-small" onclick="openRecurringExpensesModal()">🔁 Fixas</button>
                     <button class="btn-small btn-accept" onclick="openAddExpenseForm()">➕ Nova despesa</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalRecurringExpenses" style="z-index:200;">
+            <div class="modal">
+                <h3>🔁 Despesas fixas mensais</h3>
+                <p style="font-size:12px;opacity:0.75;margin-top:-6px;">Lançadas automaticamente todos os meses no dia escolhido (ex.: renda, Netflix).</p>
+                <div id="recurringExpensesList" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;margin-top:8px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalRecurringExpenses');openExpensesModal()">Voltar</button>
+                    <button class="btn-small btn-accept" onclick="openAddRecurringExpenseForm()">➕ Nova despesa fixa</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalAddRecurringExpense" style="z-index:200;">
+            <div class="modal">
+                <h3>➕ Nova despesa fixa</h3>
+                <input type="text" id="recurringExpenseDescription" placeholder="Descrição (ex.: Renda, Netflix...)">
+                <div style="display:flex;gap:8px;margin-top:8px;">
+                    <input type="number" id="recurringExpenseAmount" placeholder="Valor" min="0" step="0.01" style="flex:1;">
+                    <select id="recurringExpenseCurrency" style="flex:1;"></select>
+                </div>
+                <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Todos os meses no dia:</label>
+                <select id="recurringExpenseDayOfMonth" style="width:100%;margin-top:4px;"></select>
+                <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Quem paga:</label>
+                <select id="recurringExpensePaidBy" style="width:100%;margin-top:4px;"></select>
+                <label style="display:block;margin-top:10px;font-size:13px;opacity:0.8;">Dividir entre:</label>
+                <div id="recurringExpenseParticipants" style="display:flex;flex-direction:column;gap:4px;margin-top:4px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalAddRecurringExpense');openRecurringExpensesModal()">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="submitRecurringExpense()">Adicionar</button>
                 </div>
             </div>
         </div>
@@ -9462,8 +9494,8 @@
             </div>`).join('') : '';
         document.getElementById('expensesList').innerHTML = listHtml;
     }
-    function populateExpenseCurrencySelect() {
-        const sel = document.getElementById('expenseCurrency');
+    function populateExpenseCurrencySelect(selId = 'expenseCurrency') {
+        const sel = document.getElementById(selId);
         if (CURRENCY.rates) {
             const codes = Object.keys(CURRENCY.rates);
             const sorted = [...codes].sort((a, b) => {
@@ -9529,6 +9561,72 @@
             <div style="font-size:15px;">${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(exp.currency)}</div>
             <div style="font-size:11px;opacity:0.7;margin-top:4px;">Pago por ${escapeHtml(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
         </div>`;
+    }
+
+    // ==================== DESPESAS FIXAS MENSAIS (RECORRENTES) ====================
+    // "Modelos" por conversa que o servidor lança sozinho todos os meses (ver
+    // README) — este bloco só trata da parte de gerir/mostrar os modelos; a
+    // despesa lançada automaticamente chega como uma mensagem normal com
+    // msg.expense, tal como uma despesa avulsa criada por uma pessoa.
+    const RECURRING_EXPENSES = {}; // chatId -> lista de modelos
+    socket.on('recurring_expenses_list', (data) => {
+        if (!data?.chatId) return;
+        RECURRING_EXPENSES[data.chatId] = data.list || [];
+        if (APP.currentChatId === data.chatId && document.getElementById('modalRecurringExpenses').classList.contains('active')) renderRecurringExpensesModal();
+    });
+    function openRecurringExpensesModal() {
+        if (!APP.currentChatId) return;
+        closeModal('modalExpenses');
+        renderRecurringExpensesModal();
+        document.getElementById('modalRecurringExpenses').classList.add('active');
+    }
+    function renderRecurringExpensesModal() {
+        const list = RECURRING_EXPENSES[APP.currentChatId] || [];
+        document.getElementById('recurringExpensesList').innerHTML = list.length ? list.map(tpl => `
+            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <div>
+                    <div style="font-weight:600;">${escapeHtml(tpl.description)} — ${tpl.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(tpl.currency)}</div>
+                    <div style="opacity:0.75;">Todo dia ${tpl.dayOfMonth} · pago por ${escapeHtml(tpl.paidBy)} · dividido por ${tpl.participants.length} pessoa${tpl.participants.length !== 1 ? 's' : ''}</div>
+                </div>
+                <button onclick="deleteRecurringExpense('${tpl.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">🗑️</button>
+            </div>`).join('') : '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não há despesas fixas nesta conversa.</p>';
+    }
+    async function openAddRecurringExpenseForm() {
+        if (!APP.currentChatId) return;
+        document.getElementById('recurringExpenseDescription').value = '';
+        document.getElementById('recurringExpenseAmount').value = '';
+        if (!CURRENCY.loaded) await loadCurrencyRates();
+        populateExpenseCurrencySelect('recurringExpenseCurrency');
+        const daySel = document.getElementById('recurringExpenseDayOfMonth');
+        daySel.innerHTML = Array.from({ length: 31 }, (_, i) => i + 1).map(d => `<option value="${d}">${d}</option>`).join('');
+        const names = getChatParticipantNames(APP.currentChatId);
+        const paidBySel = document.getElementById('recurringExpensePaidBy');
+        paidBySel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        document.getElementById('recurringExpenseParticipants').innerHTML = names.map(n => `
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                <input type="checkbox" class="recurring-expense-participant-checkbox" value="${escapeHtml(n)}" checked>
+                ${escapeHtml(n)}
+            </label>`).join('');
+        closeModal('modalRecurringExpenses');
+        document.getElementById('modalAddRecurringExpense').classList.add('active');
+    }
+    function submitRecurringExpense() {
+        const description = document.getElementById('recurringExpenseDescription').value.trim();
+        const amount = parseFloat(document.getElementById('recurringExpenseAmount').value);
+        const currency = document.getElementById('recurringExpenseCurrency').value;
+        const dayOfMonth = parseInt(document.getElementById('recurringExpenseDayOfMonth').value);
+        const paidBy = document.getElementById('recurringExpensePaidBy').value;
+        const participants = [...document.querySelectorAll('.recurring-expense-participant-checkbox:checked')].map(el => el.value);
+        if (!description) return alert('Escreve uma descrição para a despesa fixa.');
+        if (!amount || amount <= 0) return alert('Indica um valor válido.');
+        if (!participants.length) return alert('Seleciona pelo menos uma pessoa para dividir.');
+        socket.emit('add_recurring_expense', { chatId: APP.currentChatId, description, amount, currency, paidBy, participants, dayOfMonth });
+        closeModal('modalAddRecurringExpense');
+        openRecurringExpensesModal();
+    }
+    function deleteRecurringExpense(id) {
+        if (!APP.currentChatId) return;
+        socket.emit('delete_recurring_expense', { chatId: APP.currentChatId, id });
     }
 
     // Leitura opcional de um recibo por foto: extrai um valor plausível para

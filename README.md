@@ -804,3 +804,10 @@ Nova aba pessoal (menu "⋯ Mais funcionalidades") para lembretes do tipo "lembr
 
 **Funciona mesmo com a app fechada**: reaproveita a mesma notificação push já usada para mensagens novas — não é preciso estar com a app aberta no telemóvel para receber o aviso à hora marcada (desde que as notificações push já estejam ativadas). Se estiveres com a app aberta nesse momento, aparece também um aviso instantâneo, sem esperar por nenhuma notificação do sistema.
 
+## 🔁 Despesas fixas mensais
+
+Dentro do menu de "💰 Despesas" de qualquer conversa há agora um botão "🔁 Fixas" para criar despesas que se repetem todos os meses sozinhas — renda, Netflix, ginásio, etc. — sem teres de as lançar à mão. Define a descrição, o valor, a moeda, quem paga, entre quem se divide e em que dia do mês, e a partir daí o próprio servidor lança uma despesa a sério nessa conversa nesse dia, exatamente como se alguém a tivesse criado manualmente.
+
+**Se o dia escolhido não existir nesse mês** (ex.: dia 31 em fevereiro ou abril), a despesa é lançada no último dia real desse mês, para nunca "saltar" um mês inteiro. E se em algum mês já foi lançada, não volta a ser lançada de novo nesse mesmo mês.
+
+
