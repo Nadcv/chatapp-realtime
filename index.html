@@ -2219,6 +2219,7 @@
                     <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
                     <button class="btn-small" id="pinChatBtn" onclick="closeModal('modalChatMore');togglePinChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📌<span style="font-size:11px;">Fixar</span></button>
+                    <button class="btn-small" id="lockChatBtn" onclick="closeModal('modalChatMore');toggleLockChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔒<span style="font-size:11px;">Bloquear</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openMediaGalleryModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🖼️<span style="font-size:11px;">Galeria</span></button>
@@ -3919,6 +3920,9 @@
     }
     function cancelPinFlow() {
         hidePinLockScreen();
+        // Cancelar ao tentar ver conversas bloqueadas só fecha o ecrã do PIN — as
+        // outras origens (criar/alterar/remover PIN) é que voltam às definições do PIN.
+        if (PIN_STATE.mode === 'verify-chat-lock') { APP.pendingChatIdAfterUnlock = null; return; }
         openPinSetupModal();
     }
     async function pinKeyPress(digit) {
@@ -3933,6 +3937,19 @@
             if (hash === localStorage.getItem('pinHash')) { hidePinLockScreen(); return; }
             return pinRejectEntry('PIN incorreto');
         }
+        if (PIN_STATE.mode === 'verify-chat-lock') {
+            if (hash !== localStorage.getItem('pinHash')) return pinRejectEntry('PIN incorreto');
+            hidePinLockScreen();
+            PIN_STATE.mode = null; // volta a neutro — senão o bloqueio ao voltar de segundo plano nunca mais disparava (ver visibilitychange)
+            APP.lockedChatsRevealed = true;
+            renderChatList();
+            if (APP.pendingChatIdAfterUnlock) {
+                const chatId = APP.pendingChatIdAfterUnlock;
+                APP.pendingChatIdAfterUnlock = null;
+                openChat(chatId);
+            }
+            return;
+        }
         if (PIN_STATE.mode === 'verify-old') {
             if (hash !== localStorage.getItem('pinHash')) return pinRejectEntry('PIN incorreto');
             PIN_STATE.mode = 'create-first';
@@ -3945,8 +3962,17 @@
         if (PIN_STATE.mode === 'verify-remove') {
             if (hash !== localStorage.getItem('pinHash')) return pinRejectEntry('PIN incorreto');
             localStorage.removeItem('pinHash');
+            // Sem PIN já não há como voltar a desbloquear conversas bloqueadas — desbloqueia
+            // todas agora, para não ficarem presas na lista para sempre.
+            if (APP.lockedChats.size) {
+                APP.lockedChats.clear();
+                localStorage.setItem('lockedChatsCache', '[]');
+                APP.lockedChatsRevealed = true;
+            }
             hidePinLockScreen();
+            PIN_STATE.mode = null; // idem — sem isto, o bloqueio ao voltar de segundo plano ficava preso neste modo para sempre
             openPinSetupModal();
+            renderChatList();
             return;
         }
         if (PIN_STATE.mode === 'create-first') {
@@ -3967,6 +3993,7 @@
             }
             localStorage.setItem('pinHash', hash);
             hidePinLockScreen();
+            PIN_STATE.mode = null; // idem — sem isto, o bloqueio ao voltar de segundo plano ficava preso neste modo para sempre
             openPinSetupModal();
         }
     }
@@ -4037,8 +4064,12 @@
     // estado em segundo plano (troca de app, ecrã bloqueado, etc.) — não só
     // ao abrir a app pela primeira vez.
     document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && APP.user && hasPinSet() && PIN_STATE.mode !== 'create-first' && PIN_STATE.mode !== 'create-confirm' && PIN_STATE.mode !== 'verify-old' && PIN_STATE.mode !== 'verify-remove') {
+        if (!document.hidden && APP.user && hasPinSet() && PIN_STATE.mode !== 'create-first' && PIN_STATE.mode !== 'create-confirm' && PIN_STATE.mode !== 'verify-old' && PIN_STATE.mode !== 'verify-remove' && PIN_STATE.mode !== 'verify-chat-lock') {
             showPinUnlockScreen();
+            // Reentrar no PIN da app volta a esconder as conversas bloqueadas também —
+            // quem as tinha revelado antes de a app ir para segundo plano tem de o
+            // fazer de novo, tal como o resto da app volta a pedir o PIN.
+            if (APP.lockedChatsRevealed) { APP.lockedChatsRevealed = false; renderChatList(); }
         }
     });
 
@@ -7115,6 +7146,54 @@
         btn.title = pinned ? 'Desafixar conversa' : 'Fixar conversa no topo';
         btn.classList.toggle('btn-accept', !!pinned);
     }
+
+    // ==================== BLOQUEAR UMA CONVERSA COM PIN ====================
+    // Ao contrário do bloqueio da app inteira (ver "BLOQUEIO POR PIN" acima), isto
+    // esconde só UMA conversa específica da lista — reaproveita o mesmo PIN já
+    // definido (não faz sentido ter dois PINs diferentes neste aparelho) em vez de
+    // criar um segundo mecanismo de bloqueio do zero. Só existe neste aparelho,
+    // tal como o PIN em si (nunca é sincronizado com o servidor nem outros aparelhos).
+    APP.lockedChats = new Set(JSON.parse(localStorage.getItem('lockedChatsCache') || '[]'));
+    APP.lockedChatsRevealed = false; // nunca persiste — cada vez que a app carrega, as conversas bloqueadas começam escondidas
+    function toggleLockChat() {
+        if (!APP.currentChatId) return;
+        if (APP.lockedChats.has(APP.currentChatId)) {
+            APP.lockedChats.delete(APP.currentChatId);
+            localStorage.setItem('lockedChatsCache', JSON.stringify([...APP.lockedChats]));
+            updateLockChatButton();
+            renderChatList();
+            return;
+        }
+        if (!hasPinSet()) {
+            alert('Precisas de definir um PIN primeiro — vai a "Mais funcionalidades" → "Bloqueio por PIN" e cria um antes de bloqueares uma conversa.');
+            return;
+        }
+        APP.lockedChats.add(APP.currentChatId);
+        localStorage.setItem('lockedChatsCache', JSON.stringify([...APP.lockedChats]));
+        updateLockChatButton();
+        closeChat(); // sai já da conversa — não faria sentido acabar de a bloquear e continuar a vê-la aberta
+        renderChatList();
+    }
+    function updateLockChatButton() {
+        const btn = document.getElementById('lockChatBtn');
+        if (!btn) return;
+        const locked = APP.currentChatId && APP.lockedChats.has(APP.currentChatId);
+        btn.title = locked ? 'Desbloquear conversa' : 'Bloquear conversa com PIN';
+        btn.classList.toggle('btn-accept', !!locked);
+    }
+    // Pede o PIN de novo antes de revelar as conversas bloqueadas na lista — mesmo já
+    // com a app desbloqueada, para quem só quer mostrar o telemóvel a alguém por um
+    // instante sem revelar essas conversas específicas.
+    function unlockLockedChatsSection() {
+        if (!hasPinSet()) { APP.lockedChatsRevealed = true; renderChatList(); return; } // não deveria acontecer (só se bloqueia com PIN já definido), mas nunca deixa preso
+        PIN_STATE.entered = '';
+        PIN_STATE.mode = 'verify-chat-lock';
+        setPinLockLabel('PIN para ver as conversas bloqueadas');
+        setPinBottomButton(true);
+        updatePinDots();
+        document.getElementById('pinError').textContent = '';
+        document.getElementById('pinLockScreen').style.display = 'flex';
+    }
     function openArchivedScreen() {
         document.getElementById('archivedScreen').classList.add('active');
         socket.emit('get_archived');
@@ -7444,11 +7523,17 @@
     function renderChatList(filter = '') {
         const list = document.getElementById('chatList');
         const activeFolder = APP.activeFolderId ? (APP.folders || []).find(f => f.id === APP.activeFolderId) : null;
-        const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id) && (!activeFolder || (activeFolder.chatIds || []).includes(c.id)));
+        let filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id) && (!activeFolder || (activeFolder.chatIds || []).includes(c.id)));
+        // Conversas bloqueadas por PIN ficam de fora da lista normal até seres
+        // autenticado nesta sessão (ver unlockLockedChatsSection) — a contagem usa
+        // sempre TODAS as conversas (não só as filtradas pela pesquisa/pasta), para o
+        // número não variar consoante o que se pesquisa e acabar por revelar pistas.
+        const lockedCount = APP.chats.filter(c => APP.lockedChats.has(c.id)).length;
+        if (!APP.lockedChatsRevealed) filtered = filtered.filter(c => !APP.lockedChats.has(c.id));
         // Fixadas sempre no topo, mantendo a ordem normal entre elas e entre
         // as restantes (sort é estável) — não depende da pesquisa/pasta ativa.
         filtered.sort((a, b) => (APP.pinnedChats.has(b.id) ? 1 : 0) - (APP.pinnedChats.has(a.id) ? 1 : 0));
-        list.innerHTML = filtered.map(chat => {
+        let html = filtered.map(chat => {
             const lastMsg = APP.messages[chat.id]?.slice(-1)[0];
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + escapeHtml(lastMsg.text || '') : 'Nenhuma mensagem';
             const isGroup = chat.type === 'group';
@@ -7462,7 +7547,7 @@
             <div class="chat-item ${APP.currentChatId === chat.id ? 'active' : ''}" onclick="openChat('${chat.id}')">
                 <div class="chat-item-avatar ${avatarClass}${statusRingClass}">${avatarContent}</div>
                 <div class="chat-item-info">
-                    <h4>${APP.pinnedChats.has(chat.id) ? '📌 ' : ''}${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
+                    <h4>${APP.pinnedChats.has(chat.id) ? '📌 ' : ''}${APP.lockedChats.has(chat.id) ? '🔒 ' : ''}${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
                     <p>${lastText}</p>
                 </div>
                 <div class="chat-item-meta">
@@ -7471,7 +7556,19 @@
                 </div>
             </div>`;
         }).join('');
-        if (filtered.length === 0) list.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Nenhuma conversa encontrada</p>';
+        if (!APP.lockedChatsRevealed && lockedCount > 0) {
+            html += `<div class="chat-item" style="cursor:pointer;" onclick="unlockLockedChatsSection()">
+                <div class="chat-item-avatar avatar-user">🔒</div>
+                <div class="chat-item-info">
+                    <h4>Conversas bloqueadas</h4>
+                    <p>${lockedCount} conversa${lockedCount !== 1 ? 's' : ''} — toca para desbloquear</p>
+                </div>
+            </div>`;
+        }
+        list.innerHTML = html;
+        if (filtered.length === 0 && !(!APP.lockedChatsRevealed && lockedCount > 0)) {
+            list.innerHTML = '<p style="color:#8696a0;text-align:center;padding:30px;">Nenhuma conversa encontrada</p>';
+        }
     }
 
     function filterChats(query) { renderChatList(query); }
@@ -7504,6 +7601,7 @@
         Object.entries(APP.messages).forEach(([chatId, msgs]) => {
             const chat = APP.chats.find(c => c.id === chatId);
             if (!chat) return; // conversa já não existe na lista (ex.: chat da IA usa outro fluxo)
+            if (APP.lockedChats.has(chatId) && !APP.lockedChatsRevealed) return; // bloqueada — não aparece na pesquisa enquanto não for desbloqueada
             (msgs || []).forEach(msg => {
                 if (msg.deleted || msg.encrypted) return; // "encrypted" aqui só sobra se não foi possível desencriptar
                 const textMatch = !!msg.text && msg.text.toLowerCase().includes(query);
@@ -7747,6 +7845,14 @@
     }
 
     function openChat(chatId) {
+        // Uma conversa bloqueada não pode ser aberta por atalho nenhum (ex.: um
+        // resultado da pesquisa global) sem passar pelo PIN primeiro — sem isto, o
+        // bloqueio da lista era só cosmético, dava para contornar na mesma.
+        if (APP.lockedChats.has(chatId) && !APP.lockedChatsRevealed) {
+            APP.pendingChatIdAfterUnlock = chatId;
+            unlockLockedChatsSection();
+            return;
+        }
         APP.currentChatId = chatId;
         const chat = APP.chats.find(c => c.id === chatId);
         if (!chat) return;
@@ -7779,6 +7885,7 @@
         updateAutoTranslateButton();
         updateArchiveButton();
         updatePinChatButton();
+        updateLockChatButton();
         updateBlockButton();
         document.getElementById('chatSearchBar').style.display = 'none';
         document.getElementById('chatSearchInput').value = '';
