@@ -613,6 +613,15 @@ Um PIN de 4 dígitos, guardado só neste aparelho (não é uma senha da conta, n
 
 Escolhido PIN em vez de WebAuthn/Face ID a sério: o objetivo real desta funcionalidade é impedir que alguém que pegue no telemóvel destrancado veja as conversas de imediato — um PIN simples resolve isso com uma fração da complexidade que um cerimonial completo de credenciais por dispositivo exigiria. Por ser só local, guarda-se apenas o hash SHA-256 do PIN (nunca o PIN em texto simples), mas continua a ser uma barreira de conveniência, não segurança a sério: alguém com acesso à consola do navegador consegue contorná-la. Se esqueceres o PIN, a única forma de recuperar é terminar a sessão neste aparelho (o próprio ecrã de bloqueio tem essa opção) e voltar a entrar para definir um PIN novo.
 
+### Bloquear uma conversa específica (em vez da app inteira)
+
+No menu "⋯" de uma conversa, "🔒 Bloquear" esconde só ESSA conversa da lista principal — reaproveita o mesmo PIN já criado acima (não faz sentido ter dois PINs diferentes neste aparelho). As conversas bloqueadas somem da lista e ficam resumidas numa única linha "Conversas bloqueadas · N", que pede o PIN de novo (mesmo já com a app destrancada) antes de as mostrar — útil para mostrares o telemóvel a alguém por um instante sem revelar essas conversas específicas.
+
+- Reforçado no lado do cliente para não ser só cosmético: abrir uma conversa bloqueada por qualquer atalho (ex.: um resultado da pesquisa global) pede o PIN em vez de a mostrar direto, e a própria pesquisa global não encontra mensagens dentro de conversas ainda bloqueadas
+- Voltar de segundo plano (trocar de app, ecrã bloqueado) esconde as conversas bloqueadas de novo, tal como o resto da app volta a pedir o PIN
+- Precisa de já teres um PIN criado — sem PIN, o botão avisa em vez de bloquear a conversa sem forma de a voltar a abrir
+- Remover o PIN por completo desbloqueia automaticamente qualquer conversa que ainda estivesse bloqueada, para nunca ficarem presas sem forma de as veres
+
 ## Correção: sessão restaurada podia rebentar com "Cannot read properties of undefined"
 
 Ao testar o bloqueio por PIN num recarregamento de página (sessão restaurada automaticamente), encontrei um bug real e já existente: várias propriedades de `APP` (`statusFeed`, usada para saber se alguém tem estados ativos; `archivedChats`, usada para filtrar a lista de conversas) só eram atribuídas mais abaixo no código, mas a sessão era restaurada de forma síncrona logo ao carregar a página — antes de o script chegar lá. Corrigido: `statusFeed` passou a nascer já dentro do objeto `APP` inicial, e a restauração da sessão passou a ser adiada (`setTimeout`) para só correr depois de todo o resto do script já ter sido processado.
