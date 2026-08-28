@@ -584,6 +584,15 @@ Ao lado do "Exportar" já existente (que gera um `.txt` simples), há agora "�
 - Mensagens apagadas aparecem como "(mensagem apagada)"; fotos, vídeos e documentos aparecem como "(anexo: nome-do-ficheiro)" — **não ficam embutidos como imagem no PDF**, só o texto da conversa é exportado, tal como já acontecia no `.txt`
 - Funciona também nas conversas 1-para-1 com encriptação ponta-a-ponta (exporta o texto já desencriptado neste aparelho)
 
+## 📅 Mensagens agendadas (com repetição)
+
+Em "⋯" → "Agendar", escreve-se (ou anexa-se foto/vídeo/áudio) uma mensagem e escolhe-se quando enviá-la — com atalhos rápidos ("+1 hora", "Amanhã 9h", etc.) ou uma data/hora à escolha. "📋 Ver agendadas" mostra tudo o que ainda está por enviar, com opção de cancelar.
+
+Além do envio único já existente, há agora "🔁 Repetir": Diariamente, Semanalmente ou Mensalmente (sempre à mesma hora e, nos dois últimos casos, no mesmo dia da semana/mês da primeira vez). Uma mensagem recorrente nunca desaparece da lista depois de enviada — fica lá com o próximo horário já calculado, até a cancelares (o que também para todas as ocorrências futuras, não só a seguinte).
+
+- **Se o servidor estiver em baixo à hora certa**, a mensagem recorrente é enviada assim que voltar (tal como já acontecia com uma mensagem de envio único) — mas nunca em "catch-up": se ficaram várias ocorrências por enviar durante esse tempo, só a mais recente é enviada, as anteriores são simplesmente saltadas, para nunca receberes uma rajada de mensagens atrasadas de uma só vez
+- Funciona em grupos e em conversas 1-para-1, com ou sem anexo
+
 ## 🃏 UNO (no mesmo botão 🎮, agora também em grupos)
 
 O botão 🎮 passou a aparecer também em grupos (não só em conversas 1-para-1), mas Jogo do Galo e Damas continuam escondidos aí — são jogos de 2 pessoas fixas e não fazem sentido com N pessoas num grupo. O UNO é o primeiro jogo desta app pensado para várias pessoas: numa DM já começa automaticamente entre as duas pessoas da conversa; num grupo, quem toca em "Começar jogo" escolhe entre 1 e 5 contactos para jogar (2 a 6 jogadores no total) — os restantes membros do grupo continuam a ver a mensagem do jogo, mas só como espetadores.

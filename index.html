@@ -2529,6 +2529,13 @@
                     <button class="btn-small" onclick="setScheduleQuickTime('days',7)">+1 semana</button>
                 </div>
                 <input type="datetime-local" id="scheduleMsgWhen">
+                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-top:10px;">🔁 Repetir</label>
+                <select id="scheduleRecurrenceSelect" style="width:100%;margin-top:4px;">
+                    <option value="">Não repetir</option>
+                    <option value="daily">Diariamente</option>
+                    <option value="weekly">Semanalmente (mesmo dia)</option>
+                    <option value="monthly">Mensalmente (mesmo dia)</option>
+                </select>
                 <div class="modal-actions" style="justify-content:space-between;">
                     <button class="btn-small" onclick="openScheduledList()">📋 Ver agendadas</button>
                     <div style="display:flex;gap:10px;">
@@ -4936,6 +4943,7 @@
         removeScheduleAttachment();
         const now = new Date(Date.now() + 5 * 60000);
         document.getElementById('scheduleMsgWhen').value = now.toISOString().slice(0, 16);
+        document.getElementById('scheduleRecurrenceSelect').value = '';
         document.getElementById('modalScheduleMessage').classList.add('active');
     }
 
@@ -5033,7 +5041,8 @@
         const sendAt = new Date(when).getTime();
         if (sendAt <= Date.now()) return alert('Escolhe uma data/hora no futuro.');
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        const payload = { chatId: APP.currentChatId, text, sendAt, toPhone: chat?.type === 'user' ? chat.phone : undefined };
+        const recurrence = document.getElementById('scheduleRecurrenceSelect').value || null;
+        const payload = { chatId: APP.currentChatId, text, sendAt, toPhone: chat?.type === 'user' ? chat.phone : undefined, recurrence };
         if (attachment) {
             let uploadedUrl = attachment.dataUrl;
             try {
@@ -5049,9 +5058,11 @@
         socket.emit('schedule_message', payload);
         closeModal('modalScheduleMessage');
     }
+    const RECURRENCE_LABELS = { daily: 'todos os dias', weekly: 'toda a semana', monthly: 'todo o mês' };
     socket.on('scheduled_message_saved', (entry) => {
         APP.scheduledMessages.push(entry);
-        alert('📅 Mensagem agendada para ' + new Date(entry.sendAt).toLocaleString('pt-BR'));
+        const recurrenceNote = entry.recurrence ? ` — repete ${RECURRENCE_LABELS[entry.recurrence]}` : '';
+        alert('📅 Mensagem agendada para ' + new Date(entry.sendAt).toLocaleString('pt-BR') + recurrenceNote);
     });
     socket.on('scheduled_message_cancelled', (data) => {
         APP.scheduledMessages = APP.scheduledMessages.filter(s => s.id !== data.id);
@@ -5074,9 +5085,11 @@
             el.innerHTML = APP.scheduledMessages.map(s => {
                 const chat = APP.chats.find(c => c.id === s.chatId);
                 const attachIcon = (s.fileType || '').startsWith('image/') ? '📷 ' : (s.fileType || '').startsWith('video/') ? '🎥 ' : (s.fileType || '').startsWith('audio/') ? '🎤 ' : (s.fileData ? '📎 ' : '');
+                const recurrenceLabel = s.recurrence ? `<div style="font-size:11px;color:var(--blue);">🔁 Repete ${RECURRENCE_LABELS[s.recurrence]}</div>` : '';
                 return `
                 <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
-                    <div style="font-size:13px;">${chat?.name || s.chatId}: ${attachIcon}${s.text || (s.fileData ? '(sem legenda)' : '')}</div>
+                    <div style="font-size:13px;">${escapeHtml(chat?.name || s.chatId)}: ${attachIcon}${escapeHtml(s.text || (s.fileData ? '(sem legenda)' : ''))}</div>
+                    ${recurrenceLabel}
                     <div style="font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;">
                         <span>${new Date(s.sendAt).toLocaleString('pt-BR')}</span>
                         <button class="btn-small btn-danger" style="padding:2px 8px;font-size:11px;" onclick="socket.emit('cancel_scheduled_message', {id:'${s.id}'})">Cancelar</button>
