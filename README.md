@@ -740,6 +740,19 @@ Barra de "filtros" por baixo da pesquisa (tal como no WhatsApp): começa só com
 
 Tal como o "número de segurança" do WhatsApp/Signal: tocando no 🔒 ao lado do nome da conversa (ou em "⋯ Mais desta conversa" → "🔐 Código de segurança"), aparece um código de 60 dígitos calculado a partir das duas chaves públicas ECDH da conversa (a tua e a do contacto) — sempre o mesmo código dos dois lados, não importa quem o vê. Comparando esse código com o que a outra pessoa vê no aparelho dela (por chamada, mensagem noutro sítio, ou pessoalmente), confirma-se que a encriptação desta conversa é mesmo direta entre os dois, sem mais ninguém a intercetar as chaves pelo meio. Só aparece em conversas 1-para-1 onde as duas partes já têm a chave pública trocada (o mesmo critério do cadeado 🔒 que já existia). Cálculo inteiramente no cliente (SHA-256 sobre as duas chaves, ordenadas para dar sempre o mesmo resultado nos dois lados) — o servidor nunca vê nem participa nesta verificação.
 
+## ✏️ Editar a foto antes de enviar
+
+Na mesma pré-visualização da foto (antes de enviar), um botão "✏️ Editar" abre um pequeno editor — tudo feito no browser, com um `<canvas>`:
+
+- **✂️ Cortar**: arrasta na imagem para escolher a área, depois "Aplicar corte"
+- **✏️ Desenhar**: traço livre, com cor e espessura à escolha
+- **🔤 Texto**: escreve algo e toca onde queres que apareça
+- **😀 Emoji**: escolhe um emoji e toca para o colar na imagem
+
+"↩️ Desfazer" volta atrás um passo de cada vez (incluindo cortes, repondo também o tamanho anterior do canvas); "🔄 Repor original" descarta tudo e volta à foto tal como foi escolhida. Ao gravar, a imagem editada substitui a original no que vai ser enviado — o resto do fluxo (pré-visualização, "ver uma vez", upload) não nota diferença nenhuma entre uma foto editada e uma que não foi.
+
+**Limitação conhecida**: o texto é colocado através de um simples pedido de escrita (`prompt`), não um campo de texto arrastável em cima da imagem — mais simples de implementar, mas não dá para mover o texto depois de colocado (só desfazer e tentar de novo).
+
 ## 👁️ Fotos "ver uma vez"
 
 Ao enviar uma foto, aparece uma pré-visualização com a opção "👁️ Ver uma vez" — se marcada, quem recebe só vê um aviso "Toca para ver" em vez da foto; ao tocar, a foto abre (numa janela nova, tal como já acontecia ao abrir qualquer foto) e imediatamente desaparece, ficando só "👁️ Foto vista" no lugar. A pessoa que enviou continua a ver a sua própria foto normalmente (é o ficheiro dela, não faz sentido escondê-lo de quem o enviou), mas passa a ver que já "foi vista" assim que a outra pessoa a abrir.
