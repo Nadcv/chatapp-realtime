@@ -577,6 +577,13 @@ Bug real, obrigado por reportares: o servidor manda sempre o **histórico comple
 
 O cabeçalho de dentro de uma conversa também já ia em 13+ ícones. Fica diretamente visível só o essencial — 📞 chamada de voz, 📹 videochamada — e tudo o resto passa a viver dentro de um botão único "⋯" ao lado das chamadas: Resumir (IA), Gerir grupo, Localização, Conferência, Sala VR, Pesquisar, Silenciar, Mensagens temporárias, Exportar, Agendar mensagem, Tradução automática, Arquivar e Bloquear/denunciar (os que só fazem sentido nalguns tipos de conversa continuam a aparecer só aí, exatamente como antes).
 
+## 📄 Exportar uma conversa para PDF
+
+Ao lado do "Exportar" já existente (que gera um `.txt` simples), há agora "📄 Exportar PDF" — a mesma transcrição da conversa, mas como um PDF paginado automaticamente (gerado com o jsPDF, carregado sob demanda, mesma biblioteca já usada na lista de compras), com o nome da conversa e a data de exportação no topo.
+
+- Mensagens apagadas aparecem como "(mensagem apagada)"; fotos, vídeos e documentos aparecem como "(anexo: nome-do-ficheiro)" — **não ficam embutidos como imagem no PDF**, só o texto da conversa é exportado, tal como já acontecia no `.txt`
+- Funciona também nas conversas 1-para-1 com encriptação ponta-a-ponta (exporta o texto já desencriptado neste aparelho)
+
 ## 🃏 UNO (no mesmo botão 🎮, agora também em grupos)
 
 O botão 🎮 passou a aparecer também em grupos (não só em conversas 1-para-1), mas Jogo do Galo e Damas continuam escondidos aí — são jogos de 2 pessoas fixas e não fazem sentido com N pessoas num grupo. O UNO é o primeiro jogo desta app pensado para várias pessoas: numa DM já começa automaticamente entre as duas pessoas da conversa; num grupo, quem toca em "Começar jogo" escolhe entre 1 e 5 contactos para jogar (2 a 6 jogadores no total) — os restantes membros do grupo continuam a ver a mensagem do jogo, mas só como espetadores.
