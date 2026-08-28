@@ -2025,7 +2025,7 @@
                 <p style="color:#8696a0;font-size:13px;">Visível apenas para o administrador.</p>
                 <div style="max-height:320px;overflow:auto;">
                     <table class="admin-table" id="adminUsersTable">
-                        <thead><tr><th>Nome</th><th>Telemóvel</th><th>País</th><th>Email</th></tr></thead>
+                        <thead><tr><th>Nome</th><th>Telemóvel</th><th>País</th><th>Email</th><th>Ações</th></tr></thead>
                         <tbody id="adminUsersBody"></tbody>
                     </table>
                 </div>
@@ -2762,6 +2762,11 @@
             <div style="padding:10px 14px;">
                 <input type="text" id="reminderTextInput" placeholder="Lembrar-me de..." style="width:100%;">
                 <input type="datetime-local" id="reminderDatetimeInput" style="margin-top:8px;width:100%;">
+                <label style="display:block;margin-top:8px;font-size:12px;color:var(--text-secondary);">⏰ Ou escolhe só uma hora (hoje, ou amanhã se já tiver passado):</label>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                    <input type="time" id="reminderTimeOnlyInput" style="flex:1;">
+                    <button class="btn-small" onclick="quickPickReminderTimeToday()">Definir</button>
+                </div>
                 <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
                     <button class="btn-small" onclick="quickPickReminderTime(1)">Daqui a 1h</button>
                     <button class="btn-small" onclick="quickPickReminderTime(3)">Daqui a 3h</button>
@@ -6073,6 +6078,18 @@
         d.setHours(9, 0, 0, 0);
         setReminderDatetimeInput(d);
     }
+    // Seletor de "qualquer hora": escolhe só a hora (input nativo type="time",
+    // o mais simples/rápido no telemóvel) e assume hoje — ou amanhã, se essa
+    // hora já tiver passado hoje, para nunca acabar a marcar uma hora no passado.
+    function quickPickReminderTimeToday() {
+        const timeStr = document.getElementById('reminderTimeOnlyInput').value;
+        if (!timeStr) return alert('Escolhe uma hora primeiro.');
+        const [h, m] = timeStr.split(':').map(Number);
+        const d = new Date();
+        d.setHours(h, m, 0, 0);
+        if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+        setReminderDatetimeInput(d);
+    }
     function addReminder() {
         const textInput = document.getElementById('reminderTextInput');
         const text = textInput.value.trim();
@@ -7259,14 +7276,35 @@
             const res = await fetch('/api/admin/users?token=' + encodeURIComponent(APP.token));
             const data = await res.json();
             const body = document.getElementById('adminUsersBody');
-            if (!res.ok) { body.innerHTML = `<tr><td colspan="4">${data.error || 'Erro ao carregar.'}</td></tr>`; }
+            if (!res.ok) { body.innerHTML = `<tr><td colspan="5">${escapeHtml(data.error || 'Erro ao carregar.')}</td></tr>`; }
             else {
-                body.innerHTML = (data.users || []).map(u => `<tr><td>${u.name}${u.isAdmin ? ' 👑' : ''}</td><td>${u.phone}</td><td>${u.country || ''}</td><td>${u.email || ''}</td></tr>`).join('') || '<tr><td colspan="4">Nenhum usuário cadastrado.</td></tr>';
+                body.innerHTML = (data.users || []).map(u => `<tr>
+                    <td>${escapeHtml(u.name)}${u.isAdmin ? ' 👑' : ''}</td>
+                    <td>${escapeHtml(u.phone)}</td>
+                    <td>${escapeHtml(u.country || '')}</td>
+                    <td>${escapeHtml(u.email || '')}</td>
+                    <td>${u.isAdmin ? '' : `<button class="btn-small" style="background:#e74c3c;color:#fff;padding:4px 8px;font-size:11px;" onclick="adminDeleteAccount('${u.phone}', '${escapeHtml(u.name).replace(/'/g, "\\'")}')">🗑️ Apagar</button>`}</td>
+                </tr>`).join('') || '<tr><td colspan="5">Nenhum usuário cadastrado.</td></tr>';
             }
         } catch (err) {
-            document.getElementById('adminUsersBody').innerHTML = '<tr><td colspan="4">Não foi possível ligar ao servidor.</td></tr>';
+            document.getElementById('adminUsersBody').innerHTML = '<tr><td colspan="5">Não foi possível ligar ao servidor.</td></tr>';
         }
         document.getElementById('modalAdmin').classList.add('active');
+    }
+    // Apagar em nome de outra pessoa: pensado para quem esqueceu a senha e
+    // não tem 2FA/email para recuperar o acesso de outra forma — como ainda
+    // não há redefinição de senha a sério, isto liberta o telefone/nome de
+    // utilizador para a pessoa se voltar a registar do zero.
+    async function adminDeleteAccount(phone, name) {
+        if (!confirm(`Apagar a conta de "${name}" (${phone})?\n\nIsto é permanente. Usa isto quando a pessoa esqueceu a senha e precisa de se registar de novo — não existe (ainda) forma de redefinir a senha.`)) return;
+        try {
+            const res = await fetch('/api/admin/delete-account', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token }, body: JSON.stringify({ phone }) });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || 'Erro ao apagar a conta.'); return; }
+            openAdminModal();
+        } catch (err) {
+            alert('Não foi possível ligar ao servidor.');
+        }
     }
 
     function initApp() {

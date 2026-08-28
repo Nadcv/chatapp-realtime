@@ -420,15 +420,13 @@ app.get('/api/account/export', (req, res) => {
 // mensagens já enviadas ficam como estão nas conversas de quem as recebeu
 // (tal como no WhatsApp: apagar a conta não apaga o que já chegou a outras
 // pessoas), só os dados PRÓPRIOS desta conta são removidos.
-app.post('/api/account/delete', async (req, res) => {
-  const token = req.headers['x-auth-token'] || req.body?.token;
-  const phone = sessions[token];
+// Partilhado entre "apagar a própria conta" e "o administrador apaga uma
+// conta" (ver mais abaixo) — a única diferença entre os dois é COMO se prova
+// que se tem o direito de apagar (a própria senha, ou ser administrador),
+// nunca o que é apagado.
+async function performAccountDeletion(phone) {
   const user = accounts[phone];
-  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
-  const { password } = req.body || {};
-  if (hashPassword(password || '', user.salt) !== user.passwordHash) {
-    return res.status(401).json({ error: 'Senha incorreta.' });
-  }
+  if (!user) return null;
   delete accounts[phone];
   if (user.username) delete usernameIndex[user.username];
   delete remindersByPhone[phone];
@@ -456,7 +454,39 @@ app.post('/api/account/delete', async (req, res) => {
   saveTourismFavoritesLocal();
   saveCallLogLocal();
   saveScheduledLocal();
-  log(`🗑️ Conta apagada: ${user.name} (${phone})`, 'AUTH');
+  return user;
+}
+
+app.post('/api/account/delete', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const { password } = req.body || {};
+  if (hashPassword(password || '', user.salt) !== user.passwordHash) {
+    return res.status(401).json({ error: 'Senha incorreta.' });
+  }
+  await performAccountDeletion(phone);
+  log(`🗑️ Conta apagada (pela própria pessoa): ${user.name} (${phone})`, 'AUTH');
+  res.json({ success: true });
+});
+
+// O administrador apaga a conta de outra pessoa — pensado para quem
+// esqueceu a senha e não tem 2FA/email configurado para recuperar o acesso
+// de outra forma: como não há (ainda) uma redefinição de senha a sério,
+// apagar a conta liberta o telefone/nome de utilizador para essa pessoa se
+// voltar a registar do zero. Não pede a senha da conta-alvo (é precisamente
+// o que falta), só que quem pede seja mesmo o administrador.
+app.post('/api/admin/delete-account', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const adminPhone = sessions[token];
+  if (!adminPhone || !isAdminPhone(adminPhone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
+  const targetPhone = (req.body?.phone || '').trim();
+  const user = accounts[targetPhone];
+  if (!user) return res.status(404).json({ error: 'Não existe nenhuma conta com esse telefone.' });
+  if (targetPhone === adminPhone) return res.status(400).json({ error: 'Não podes apagar a tua própria conta de administrador por aqui — usa "Apagar conta" no teu perfil.' });
+  await performAccountDeletion(targetPhone);
+  log(`🗑️ Conta apagada pelo administrador: ${user.name} (${targetPhone})`, 'AUTH');
   res.json({ success: true });
 });
 
