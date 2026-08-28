@@ -1339,6 +1339,7 @@
             <button class="btn btn-primary" onclick="doLogin()">🚀 Entrar</button>
             <button class="btn" onclick="openQrScanModal()" style="background:var(--bg-tertiary);">🔗 Associar por QR (já tenho conta noutro aparelho)</button>
             <div class="login-switch" onclick="showAuthForm('register')">Não tem conta? Criar conta</div>
+            <div class="login-switch" onclick="showAuthForm('forgotPassword')">Esqueceste a senha?</div>
         </div>
 
         <!-- Formulário de CRIAR CONTA -->
@@ -1373,6 +1374,25 @@
             <div class="login-error" id="verifyCodeError"></div>
             <button class="btn btn-primary" onclick="doVerifyLoginCode()">✅ Confirmar</button>
             <div class="login-switch" onclick="cancelLoginVerification()">Voltar</div>
+        </div>
+
+        <!-- Esqueci a senha: passo 1, pedir o código por email -->
+        <div id="forgotPasswordBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
+            <p style="color:#8696a0;text-align:center;font-size:13px;">Indica o teu número de telemóvel — enviamos um código por email para redefinires a senha.</p>
+            <input type="text" id="forgotPhoneInput" placeholder="Número de telemóvel">
+            <div class="login-error" id="forgotPasswordError"></div>
+            <button class="btn btn-primary" onclick="requestPasswordReset()">📧 Enviar código por email</button>
+            <div class="login-switch" onclick="showAuthForm('login')">Voltar</div>
+        </div>
+
+        <!-- Esqueci a senha: passo 2, código + nova senha -->
+        <div id="resetPasswordBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
+            <p style="color:#8696a0;text-align:center;font-size:13px;">Enviámos um código para <strong id="resetPasswordEmailLabel"></strong>.</p>
+            <input type="text" id="resetCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6">
+            <input type="password" id="resetNewPasswordInput" placeholder="Nova senha (mín. 8 caracteres, nada óbvio)">
+            <div class="login-error" id="resetPasswordError"></div>
+            <button class="btn btn-primary" onclick="confirmPasswordReset()">✅ Redefinir senha</button>
+            <div class="login-switch" onclick="showAuthForm('login')">Cancelar</div>
         </div>
     </div>
 
@@ -3324,8 +3344,53 @@
         document.getElementById('loginFormBox').style.display = which === 'login' ? 'flex' : 'none';
         document.getElementById('registerFormBox').style.display = which === 'register' ? 'flex' : 'none';
         document.getElementById('verifyCodeBox').style.display = 'none';
+        document.getElementById('forgotPasswordBox').style.display = which === 'forgotPassword' ? 'flex' : 'none';
+        document.getElementById('resetPasswordBox').style.display = 'none';
         document.getElementById('loginError').textContent = '';
         document.getElementById('registerError').textContent = '';
+        if (which === 'forgotPassword') document.getElementById('forgotPasswordError').textContent = '';
+    }
+
+    let pendingResetPhone = null; // guardado só entre pedir o código e confirmar a nova senha
+    async function requestPasswordReset() {
+        const phone = document.getElementById('forgotPhoneInput').value.trim();
+        const errEl = document.getElementById('forgotPasswordError');
+        errEl.textContent = '';
+        if (!phone) { errEl.textContent = 'Indica o teu número de telemóvel.'; return; }
+        try {
+            const res = await fetch('/api/password-reset/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao pedir o código.'; return; }
+            pendingResetPhone = phone;
+            document.getElementById('resetPasswordEmailLabel').textContent = data.maskedEmail || 'o teu email';
+            document.getElementById('resetCodeInput').value = '';
+            document.getElementById('resetNewPasswordInput').value = '';
+            document.getElementById('resetPasswordError').textContent = '';
+            document.getElementById('forgotPasswordBox').style.display = 'none';
+            document.getElementById('resetPasswordBox').style.display = 'flex';
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+    async function confirmPasswordReset() {
+        const code = document.getElementById('resetCodeInput').value.trim();
+        const newPassword = document.getElementById('resetNewPasswordInput').value;
+        const errEl = document.getElementById('resetPasswordError');
+        errEl.textContent = '';
+        if (!pendingResetPhone) { showAuthForm('login'); return; }
+        if (!code || !newPassword) { errEl.textContent = 'Preenche o código e a nova senha.'; return; }
+        try {
+            const res = await fetch('/api/password-reset/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: pendingResetPhone, code, newPassword }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao redefinir a senha.'; return; }
+            const resetPhone = pendingResetPhone;
+            pendingResetPhone = null;
+            alert('Senha redefinida com sucesso! Entra com a nova senha.');
+            showAuthForm('login');
+            document.getElementById('loginPhone').value = resetPhone;
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
     }
 
     let pendingLoginPhone = null; // guardado só entre o pedido de login e a confirmação do código (ver 2FA)
@@ -4333,6 +4398,10 @@
     // desligado e nenhuma explicação, parecendo só uma falha de rede.
     socket.on('account_deleted', () => {
         alert('Esta conta foi apagada (noutro dispositivo, ou agora mesmo).');
+        logout();
+    });
+    socket.on('password_was_reset', () => {
+        alert('A senha desta conta foi redefinida — por segurança, todas as sessões foram encerradas. Entra de novo com a nova senha.');
         logout();
     });
     function savePrivacySettings() {
