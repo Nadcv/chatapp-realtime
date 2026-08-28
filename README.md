@@ -820,6 +820,14 @@ A versão "de grupo" de "📊 As minhas estatísticas": no menu "⋯ Mais desta 
 
 Tal como as estatísticas pessoais, é tudo calculado a partir do histórico já carregado no aparelho — não pede nada novo ao servidor. Só aparece para grupos (não faz sentido num "ranking" de uma conversa 1-para-1).
 
+## 🔑 Redefinir senha (esqueci a senha)
+
+No ecrã de entrada há agora "Esqueceste a senha?": indicas o teu telemóvel, recebes um código de 6 dígitos por email (a mesma infraestrutura de email do 2FA/incêndios) e escolhes uma senha nova sem perderes a conta nem o histórico. O código expira em 10 minutos, é de uso único, e é invalidado ao fim de 5 tentativas erradas.
+
+Redefinir a senha encerra logo todas as sessões ativas dessa conta em qualquer dispositivo (por segurança — se alguém tinha acesso indevido, perde-o já), com um aviso claro em vez de parecer só uma falha de rede.
+
+**Precisa de um email guardado na conta e do servidor de email configurado** (variáveis `EMAIL_USER`/`EMAIL_PASS`, ver secção de incêndios acima) — sem isso, dá um erro claro a explicar que não há como enviar o código, e a alternativa continua a ser pedir a um administrador para apagar a conta (ver abaixo) e registares-te de novo.
+
 ## 🔐 Verificação em duas etapas
 
 No perfil (👤 O meu perfil → "🔐 Segurança") há agora um campo de email (podes definir/corrigir o teu a qualquer momento, não só no registo) e um interruptor "Verificação em duas etapas". Quando ativado, entrar num **dispositivo novo** passa a pedir, além da senha, um código de 6 dígitos enviado para esse email — os dispositivos onde já tens sessão iniciada continuam a entrar normalmente, sem código nenhum.

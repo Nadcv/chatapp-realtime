@@ -825,6 +825,82 @@ async function sendLoginCodeEmail(user, code) {
     return false;
   }
 }
+
+// ==================== REDEFINIR SENHA (esqueci a senha) ====================
+// Só funciona para contas com email guardado e com o servidor de email
+// configurado — sem isso, não há como provar que é mesmo o dono da conta a
+// pedir, e a única alternativa continua a ser o administrador apagar a
+// conta (ver /api/admin/delete-account) para a pessoa se registar de novo.
+const passwordResetCodes = {}; // phone -> {code, attempts, expiresAt}
+const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000;
+async function sendPasswordResetEmail(user, code) {
+  const transporter = getMailTransporter();
+  if (!transporter) return false;
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: '🔑 Redefinir senha — ChatApp',
+      text: `Pediste para redefinir a senha da tua conta. O código é: ${code}\n\nVálido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.`,
+      html: `<p>Pediste para redefinir a senha da tua conta. O código é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.</p>`
+    });
+    return true;
+  } catch (err) {
+    console.error('Erro ao enviar código de redefinição de senha:', err.message);
+    return false;
+  }
+}
+app.post('/api/password-reset/request', async (req, res) => {
+  const phone = (req.body?.phone || '').trim();
+  const user = accounts[phone];
+  if (!user) return res.status(404).json({ error: 'Não existe nenhuma conta com esse telefone.' });
+  if (!user.email) return res.status(400).json({ error: 'Esta conta não tem email guardado — não há para onde enviar o código. Pede a um administrador para apagar a conta e regista-te de novo.' });
+  if (!getMailTransporter()) return res.status(503).json({ error: 'O envio de email não está configurado neste servidor agora. Pede a um administrador para apagar a conta e regista-te de novo.' });
+  const code = generateLoginCode();
+  passwordResetCodes[phone] = { code, attempts: 0, expiresAt: Date.now() + PASSWORD_RESET_TTL_MS };
+  const sent = await sendPasswordResetEmail(user, code);
+  if (!sent) { delete passwordResetCodes[phone]; return res.status(502).json({ error: 'Não foi possível enviar o email agora. Tenta novamente daqui a pouco.' }); }
+  log(`🔑 Código de redefinição de senha enviado para ${user.name}`, 'AUTH');
+  res.json({ success: true, maskedEmail: maskEmail(user.email) });
+});
+app.post('/api/password-reset/confirm', async (req, res) => {
+  const phone = (req.body?.phone || '').trim();
+  const { code, newPassword } = req.body || {};
+  const user = accounts[phone];
+  const pending = passwordResetCodes[phone];
+  if (!user || !pending) return res.status(400).json({ error: 'Não há nenhum pedido de redefinição pendente para este telefone. Pede um novo código.' });
+  if (Date.now() > pending.expiresAt) { delete passwordResetCodes[phone]; return res.status(400).json({ error: 'O código expirou. Pede um novo.' }); }
+  if (pending.attempts >= 5) { delete passwordResetCodes[phone]; return res.status(429).json({ error: 'Demasiadas tentativas erradas. Pede um novo código.' }); }
+  if (String(code || '').trim() !== pending.code) {
+    pending.attempts++;
+    return res.status(401).json({ error: 'Código incorreto.' });
+  }
+  if (String(newPassword || '').length < 8) return res.status(400).json({ error: 'A nova senha deve ter pelo menos 8 caracteres.' });
+  if (isWeakPassword(newPassword)) return res.status(400).json({ error: 'Essa senha é demasiado comum/fácil de adivinhar (ex.: sequências ou senhas muito usadas). Escolhe uma diferente.' });
+  delete passwordResetCodes[phone];
+  const salt = crypto.randomBytes(16).toString('hex');
+  user.salt = salt;
+  user.passwordHash = hashPassword(newPassword, salt);
+  // Redefinir a senha invalida logo todas as sessões ativas desta conta —
+  // se alguém tinha acesso indevido (era precisamente por isso que a pessoa
+  // veio redefinir), perde-o já em vez de continuar ligado.
+  Object.keys(sessions).forEach((t) => { if (sessions[t] === phone) delete sessions[t]; });
+  const activeSockets = phoneToSockets[phone];
+  if (activeSockets) {
+    activeSockets.forEach((sid) => {
+      io.to(sid).emit('password_was_reset');
+      io.sockets.sockets.get(sid)?.disconnect(true);
+    });
+    delete phoneToSockets[phone];
+  }
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { salt: user.salt, passwordHash: user.passwordHash }).catch((e) => console.error('Erro Mongo (redefinir senha):', e.message));
+  } else {
+    saveUsers();
+  }
+  log(`🔑 Senha redefinida: ${user.name} (${phone})`, 'AUTH');
+  res.json({ success: true });
+});
 async function completeLogin(user, existingDevice, deviceId, deviceName, res) {
   if (existingDevice) {
     existingDevice.name = deviceName;
