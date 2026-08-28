@@ -162,6 +162,16 @@ Quem cria um grupo torna-se automaticamente administrador (👑, botão no cabe�
 
 Moderadores podem silenciar/reativar, mas só administradores podem promover ou remover pessoas. O criador do grupo nunca pode ser removido.
 
+## 🔒 Grupos privados (só por convite, com link/QR)
+
+Por padrão, um grupo continua **aberto** — visível automaticamente a todos os utilizadores cadastrados, sem precisar de convidar ninguém (comportamento original, sem alterações). Agora, ao criar um grupo, há uma opção "🔒 Grupo privado" que inverte isto: o grupo fica **fechado**, só visível a quem já é membro (quem o criou, mais quem entrar por convite) — tal como um grupo normal do WhatsApp.
+
+- Em "Gerir grupo" (só para administradores), aparece um link de convite + um QR code (gerado no nosso próprio servidor, nunca por um serviço externo — mesma ideia já usada no pareamento de dispositivo por QR). Quem abrir o link ou ler o QR entra automaticamente no grupo, mesmo que já tenha sessão iniciada noutra conversa da app.
+- Um administrador pode gerar um **novo link a qualquer momento** — isso invalida logo o anterior, útil se o link tiver sido partilhado com quem não devia.
+- Quem é removido (🚫) de um grupo privado perde o acesso imediatamente — o grupo desaparece da lista de conversas dele ao vivo, e teria de ser convidado de novo para voltar a entrar.
+- A gestão de cargos/silenciar/remover num grupo privado passa a listar os membros reais do grupo (incluindo quem entrou por convite e não é teu contacto), em vez da lista de contactos usada nos grupos abertos.
+- **Limitação conhecida**: só quem já é administrador pode ver/gerar o link de convite — não há (ainda) forma de um membro comum partilhar o convite diretamente pela app.
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.
