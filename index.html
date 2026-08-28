@@ -2211,6 +2211,7 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Agendar</span></button>
                     <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
+                    <button class="btn-small" id="pinChatBtn" onclick="closeModal('modalChatMore');togglePinChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📌<span style="font-size:11px;">Fixar</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openMediaGalleryModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🖼️<span style="font-size:11px;">Galeria</span></button>
@@ -7062,6 +7063,35 @@
         btn.title = archived ? 'Desarquivar conversa' : 'Arquivar conversa';
         btn.classList.toggle('btn-accept', !!archived);
     }
+
+    // ==================== CONVERSAS FIXADAS NO TOPO ====================
+    // Mesmo modelo das arquivadas (lista de chatIds por conta), para o efeito
+    // oposto: destacar uma conversa sempre no topo da lista, em vez de a
+    // esconder. Limite de 5 fixadas, como no WhatsApp.
+    APP.pinnedChats = new Set(JSON.parse(localStorage.getItem('pinnedChatsCache') || '[]'));
+    socket.on('pinned_chats_list', (list) => {
+        APP.pinnedChats = new Set(list || []);
+        localStorage.setItem('pinnedChatsCache', JSON.stringify([...APP.pinnedChats]));
+        renderChatList();
+        updatePinChatButton();
+    });
+    function togglePinChat() {
+        if (!APP.currentChatId) return;
+        const willPin = !APP.pinnedChats.has(APP.currentChatId);
+        if (willPin && APP.pinnedChats.size >= 5) { alert('Só podes fixar até 5 conversas. Desafixa uma primeiro.'); return; }
+        if (willPin) APP.pinnedChats.add(APP.currentChatId); else APP.pinnedChats.delete(APP.currentChatId);
+        socket.emit('set_pinned_chat', { chatId: APP.currentChatId, pinned: willPin });
+        localStorage.setItem('pinnedChatsCache', JSON.stringify([...APP.pinnedChats]));
+        updatePinChatButton();
+        renderChatList();
+    }
+    function updatePinChatButton() {
+        const btn = document.getElementById('pinChatBtn');
+        if (!btn) return;
+        const pinned = APP.currentChatId && APP.pinnedChats.has(APP.currentChatId);
+        btn.title = pinned ? 'Desafixar conversa' : 'Fixar conversa no topo';
+        btn.classList.toggle('btn-accept', !!pinned);
+    }
     function openArchivedScreen() {
         document.getElementById('archivedScreen').classList.add('active');
         socket.emit('get_archived');
@@ -7392,6 +7422,9 @@
         const list = document.getElementById('chatList');
         const activeFolder = APP.activeFolderId ? (APP.folders || []).find(f => f.id === APP.activeFolderId) : null;
         const filtered = APP.chats.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) && !APP.archivedChats.has(c.id) && (!activeFolder || (activeFolder.chatIds || []).includes(c.id)));
+        // Fixadas sempre no topo, mantendo a ordem normal entre elas e entre
+        // as restantes (sort é estável) — não depende da pesquisa/pasta ativa.
+        filtered.sort((a, b) => (APP.pinnedChats.has(b.id) ? 1 : 0) - (APP.pinnedChats.has(a.id) ? 1 : 0));
         list.innerHTML = filtered.map(chat => {
             const lastMsg = APP.messages[chat.id]?.slice(-1)[0];
             const lastText = lastMsg ? (lastMsg.sender === 'Você' ? 'Você: ' : '') + escapeHtml(lastMsg.text || '') : 'Nenhuma mensagem';
@@ -7406,7 +7439,7 @@
             <div class="chat-item ${APP.currentChatId === chat.id ? 'active' : ''}" onclick="openChat('${chat.id}')">
                 <div class="chat-item-avatar ${avatarClass}${statusRingClass}">${avatarContent}</div>
                 <div class="chat-item-info">
-                    <h4>${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
+                    <h4>${APP.pinnedChats.has(chat.id) ? '📌 ' : ''}${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
                     <p>${lastText}</p>
                 </div>
                 <div class="chat-item-meta">
@@ -7714,6 +7747,7 @@
         updateMuteButton();
         updateAutoTranslateButton();
         updateArchiveButton();
+        updatePinChatButton();
         updateBlockButton();
         document.getElementById('chatSearchBar').style.display = 'none';
         document.getElementById('chatSearchInput').value = '';

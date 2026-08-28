@@ -165,7 +165,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -2164,6 +2164,21 @@ function saveArchivedLocal() {
   fs.writeFile(ARCHIVED_FILE, JSON.stringify(archivedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas arquivadas:', err.message); });
 }
 
+// ==================== CONVERSAS FIXADAS NO TOPO ====================
+// Igual a arquivadas (mesmo modelo: uma lista de chatIds por conta), só que
+// para o efeito oposto — destacar uma conversa no topo da lista em vez de a
+// esconder. Uma conta pode fixar até 5 conversas (limite razoável, como no
+// WhatsApp), mantendo a ordem em que foram fixadas.
+const PINNED_CHATS_FILE = path.join(__dirname, 'pinned-chats.json');
+let pinnedChatsByPhone = {}; // phone -> [chatId, ...]
+function loadPinnedChatsLocal() {
+  try { if (fs.existsSync(PINNED_CHATS_FILE)) pinnedChatsByPhone = JSON.parse(fs.readFileSync(PINNED_CHATS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar conversas fixadas:', err.message); }
+}
+function savePinnedChatsLocal() {
+  fs.writeFile(PINNED_CHATS_FILE, JSON.stringify(pinnedChatsByPhone), (err) => { if (err) console.error('Erro ao salvar conversas fixadas:', err.message); });
+}
+
 // ==================== UTILIZADORES BLOQUEADOS ====================
 const BLOCKED_FILE = path.join(__dirname, 'blocked.json');
 let blockedByPhone = {}; // phone -> [phone bloqueado, ...]
@@ -2559,6 +2574,7 @@ io.on('connection', (socket) => {
       socket.emit('tourism_favorites_list', tourismFavoritesByPhone[myPhone] || []);
       socket.emit('shopping_list_updated', getMyShoppingList(myPhone));
       socket.emit('reminders_list', remindersByPhone[myPhone] || []);
+      socket.emit('pinned_chats_list', pinnedChatsByPhone[myPhone] || []);
       socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
@@ -3481,6 +3497,29 @@ io.on('connection', (socket) => {
   socket.on('get_archived', () => {
     const myPhone = users[socket.id]?.phone;
     socket.emit('archived_list', archivedByPhone[myPhone] || []);
+  });
+
+  // ==================== CONVERSAS FIXADAS NO TOPO ====================
+  socket.on('set_pinned_chat', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const { chatId, pinned } = data || {};
+    if (!myPhone || !chatId) return;
+    if (!pinnedChatsByPhone[myPhone]) pinnedChatsByPhone[myPhone] = [];
+    if (pinned) {
+      // Limite de 5 — o cliente já evita chegar aqui nesse caso (mostra o
+      // aviso antes de perguntar ao servidor), isto é só a rede de segurança.
+      if (!pinnedChatsByPhone[myPhone].includes(chatId) && pinnedChatsByPhone[myPhone].length < 5) {
+        pinnedChatsByPhone[myPhone].push(chatId);
+      }
+    } else {
+      pinnedChatsByPhone[myPhone] = pinnedChatsByPhone[myPhone].filter((c) => c !== chatId);
+    }
+    savePinnedChatsLocal();
+    socket.emit('pinned_chats_list', pinnedChatsByPhone[myPhone]);
+  });
+  socket.on('get_pinned_chats', () => {
+    const myPhone = users[socket.id]?.phone;
+    socket.emit('pinned_chats_list', pinnedChatsByPhone[myPhone] || []);
   });
 
   // ==================== BLOQUEAR/DENUNCIAR UTILIZADOR ====================

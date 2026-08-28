@@ -854,6 +854,10 @@ Grupos grandes ganham uma barra de "tópicos" por cima das mensagens: "🗂️ T
 
 **Não é uma conversa/sala à parte**: é só uma etiqueta nas mensagens do próprio grupo (guardada como qualquer outro campo da mensagem), derivada do histórico já carregado — por isso funciona sem nenhuma alteração no servidor, e todas as outras funcionalidades do grupo (chamadas, enquetes, despesas, etc.) continuam a valer para o grupo inteiro, não por tópico.
 
+## 📌 Fixar conversa no topo
+
+No menu "⋯ Mais desta conversa" há agora um botão "📌 Fixar" para destacar qualquer conversa ou grupo sempre no topo da lista, independente das pastas — a conversa ganha uma etiqueta 📌 e sobe acima de todas as outras (as fixadas mantêm-se ordenadas entre si pela ordem em que foram fixadas). Até 5 conversas fixadas por conta, tal como no WhatsApp.
+
 ## 📈 Gráfico de despesas ao longo do tempo
 
 Dentro de "💰 Despesas" há agora um botão "📈 Gráfico" com um gráfico de barras simples do total gasto por mês (em euros), juntando despesas avulsas e as lançadas automaticamente pelas despesas fixas recorrentes.
