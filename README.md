@@ -536,6 +536,15 @@ Botão 📊 na barra de escrever mensagens, visível só em conversas de grupo: 
 - Os votos atualizam ao vivo em todos os ecrãs abertos do grupo (sem precisar de recarregar)
 - A enquete é guardada como uma mensagem normal (persiste no histórico da conversa, tal como qualquer outra mensagem)
 
+### 🙈 Esconder resultados até votar
+
+Ao criar uma enquete, há uma opção "🙈 Esconder resultados até eu votar". Com ela ativada, ninguém vê percentagens, contagens de votos ou quem votou em quê antes de votar também — em vez disso só aparece "🙈 Os resultados aparecem depois de votares". Assim que a pessoa vota, os resultados completos ficam visíveis para ela imediatamente.
+
+- **Aplicado no servidor, não só escondido na tela**: quem ainda não votou nunca recebe os votos reais nem sequer no histórico da conversa — não dá para ver os resultados abrindo as ferramentas de developer do navegador
+- Quem criou a enquete também não vê os resultados enquanto não votar (a criação em si não conta como voto)
+- Quando a votação encerra (se tiver prazo definido), os resultados deixam de ficar escondidos — esconder já não faz sentido depois de a votação acabar
+- **Limitação conhecida**: se ainda não votaste quando a enquete expira, os resultados só ficam visíveis a partir da próxima vez que abrires essa conversa (não aparecem sozinhos em tempo real só por a contagem do tempo chegar a zero)
+
 ## 🎮 Jogos (numa conversa 1-para-1): Jogo do Galo e Damas
 
 Botão 🎮 na barra de escrever, visível em conversas 1-para-1 (Jogo do Galo, Damas ou UNO) e também em grupos (só UNO — ver secção própria mais abaixo). Ao tocar numa DM, escolhes entre 🎯 Jogo do Galo, ♟️ Damas ou 🃏 UNO. No Galo/Damas, quem começa o jogo é sempre X (🔴 nas damas); a outra pessoa da conversa é sempre O (⚪) — não é preciso convidar ninguém, o jogo já aparece pronto a jogar dentro da própria mensagem.
