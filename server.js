@@ -72,7 +72,10 @@ const groupSchema = new mongoose.Schema({
   admins: [String],
   moderators: [String],
   mutedPhones: [String],
-  bannedPhones: [String]
+  bannedPhones: [String],
+  private: Boolean, // grupo fechado (só por convite) em vez do padrão aberto a todos
+  memberPhones: [String], // só usado quando 'private' — quem já entrou (por convite ou por tê-lo criado)
+  inviteToken: String // token do link/QR de convite atual deste grupo (só existe em grupos privados)
 });
 const GroupModel = mongoose.model('Group', groupSchema);
 
@@ -572,6 +575,65 @@ app.post('/api/device-pairing/redeem', async (req, res) => {
   sessions[token] = pairing.phone;
   log(`🔗 Novo dispositivo associado por QR: ${cleanDeviceName} (${user.name})`, 'AUTH');
   res.json({ success: true, user: publicUser(user), token });
+});
+
+// ==================== CONVITE PARA GRUPO PRIVADO POR LINK/QR ====================
+// Um grupo "privado" (ver campo 'private' no create_group) só é visível a quem
+// está em 'memberPhones' — em vez de aberto a todos, como o resto dos grupos
+// desta app (ver README). Este link/QR é a forma de outra pessoa lá entrar:
+// abre o URL do próprio ChatApp com ?joinGroup=<token>, tal como o pareamento de
+// dispositivo por QR já faz com ?pair=<token>. O QR é sempre gerado aqui no
+// nosso servidor (nunca por um serviço externo), mesmo padrão do pareamento.
+app.post('/api/group-invite/get', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  if (!phone) return res.status(403).json({ error: 'Sessão inválida — faz login de novo.' });
+  const { groupId, regenerate, origin } = req.body || {};
+  const group = groups[groupId];
+  if (!group || !group.private) return res.status(404).json({ error: 'Grupo privado não encontrado.' });
+  if (!isGroupMember(group, phone)) return res.status(403).json({ error: 'Não és membro deste grupo.' });
+  if (regenerate) {
+    if (!group.admins?.includes(phone)) return res.status(403).json({ error: 'Só administradores do grupo podem gerar um novo link (o anterior deixa de funcionar).' });
+    group.inviteToken = crypto.randomBytes(12).toString('hex');
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: groupId }, { inviteToken: group.inviteToken }).catch(e => console.error('Erro Mongo (convite do grupo):', e.message));
+    } else {
+      saveGroupsLocal();
+    }
+  }
+  if (!group.inviteToken) return res.status(404).json({ error: 'Ainda não há nenhum link de convite gerado para este grupo.' });
+  const cleanOrigin = (origin || '').replace(/\/$/, '');
+  if (!cleanOrigin) return res.status(400).json({ error: 'Pedido inválido.' });
+  try {
+    const inviteUrl = `${cleanOrigin}/?joinGroup=${group.inviteToken}`;
+    const qrDataUrl = await QRCode.toDataURL(inviteUrl, { width: 220, margin: 1 });
+    res.json({ success: true, inviteUrl, qrDataUrl });
+  } catch (err) {
+    console.error('Erro ao gerar QR de convite de grupo:', err.message);
+    res.status(500).json({ error: 'Não foi possível gerar o código.' });
+  }
+});
+
+app.post('/api/group-invite/redeem', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  if (!phone) return res.status(401).json({ error: 'Precisas de ter sessão iniciada para entrar por um link de convite.' });
+  const { inviteToken } = req.body || {};
+  if (!inviteToken) return res.status(400).json({ error: 'Pedido inválido.' });
+  const group = Object.values(groups).find((g) => g.private && g.inviteToken === inviteToken);
+  if (!group) return res.status(404).json({ error: 'Este link de convite é inválido, ou o grupo já não existe.' });
+  if (group.bannedPhones?.includes(phone)) return res.status(403).json({ error: 'Foste removido deste grupo e não podes voltar a entrar por convite.' });
+  if (!group.memberPhones.includes(phone)) {
+    group.memberPhones.push(phone);
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: group.id }, { memberPhones: group.memberPhones }).catch(e => console.error('Erro Mongo (entrar por convite):', e.message));
+    } else {
+      saveGroupsLocal();
+    }
+    broadcastGroupsUpdate();
+    log(`🔗 ${accounts[phone]?.name || phone} entrou no grupo privado "${group.name}" por convite`, 'GROUP');
+  }
+  res.json({ success: true, groupId: group.id, groupName: group.name });
 });
 
 app.get('/api/admin/users', (req, res) => {
@@ -1962,6 +2024,29 @@ function isDmRoomAllowedForPhone(myPhone, roomId) {
   return contacts.some((cp) => dmRoomId(myPhone, cp) === roomId);
 }
 
+// Grupos são abertos a todos por padrão (ver README) — 'private' é a exceção:
+// só quem está em 'memberPhones' (criador + quem entrou por convite) o vê.
+function isGroupMember(group, phone) {
+  return !group?.private || (group.memberPhones || []).includes(phone);
+}
+function visibleGroupsForPhone(phone) {
+  return Object.values(groups)
+    .filter((g) => isGroupMember(g, phone))
+    // Um grupo privado pode ter membros que não são contactos de quem o gere (ex.:
+    // entraram por convite) — sem isto, "Gerir grupo" não tinha como mostrar sequer o
+    // nome de quem convidar não é já um contacto seu, quanto mais geri-lo.
+    .map((g) => (g.private ? { ...g, memberNames: (g.memberPhones || []).map((p) => ({ phone: p, name: accounts[p]?.name || p })) } : g));
+}
+// Sempre que a lista de grupos muda, cada socket ligado recebe de novo só os grupos que lhe
+// dizem respeito — os privados ficam de fora de quem não é membro, tal como um grupo do
+// WhatsApp normal nunca aparece a quem nunca foi convidado.
+function broadcastGroupsUpdate() {
+  io.sockets.sockets.forEach((sock) => {
+    const phone = users[sock.id]?.phone;
+    sock.emit('groups_update', visibleGroupsForPhone(phone));
+  });
+}
+
 // ==================== PERSISTÊNCIA DE MENSAGENS ====================
 const DATA_FILE = path.join(__dirname, 'messages.json');
 let messagesByRoom = {};
@@ -2566,8 +2651,10 @@ const log = (msg, type = 'INFO') =>
 io.on('connection', (socket) => {
   log(`Novo utilizador conectado: ${socket.id}`, 'SOCKET');
   users[socket.id] = { name: 'Anônimo', phone: null, rooms: new Set() };
-  // Os grupos continuam visíveis a todos assim que conectas; os contactos só chegam depois do login
-  socket.emit('groups_update', Object.values(groups));
+  // Os grupos abertos continuam visíveis a todos assim que conectas (os privados só depois do
+  // login, quando já sabemos o telefone — ver o novo emit em 'user_login'); os contactos só
+  // chegam depois do login.
+  socket.emit('groups_update', visibleGroupsForPhone(null));
 
   socket.on('user_login', (userData) => {
     users[socket.id].name = userData?.name || 'Anônimo';
@@ -2592,6 +2679,7 @@ io.on('connection', (socket) => {
       socket.emit('shopping_list_updated', getMyShoppingList(myPhone));
       socket.emit('reminders_list', remindersByPhone[myPhone] || []);
       socket.emit('pinned_chats_list', pinnedChatsByPhone[myPhone] || []);
+      socket.emit('groups_update', visibleGroupsForPhone(myPhone)); // agora já sabemos o telefone — inclui os grupos privados de que é membro
       socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
       socket.emit('statuses_update', buildStatusFeed());
@@ -2721,9 +2809,13 @@ io.on('connection', (socket) => {
     const creatorPhone = users[socket.id]?.phone;
     if (!name || !creatorPhone) return;
     const id = 'group_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const isPrivate = !!data?.private;
     const newGroup = {
       id, name, createdBy: users[socket.id]?.name || 'Alguém', createdByPhone: creatorPhone, createdAt: new Date().toISOString(),
-      admins: [creatorPhone], moderators: [], mutedPhones: [], bannedPhones: []
+      admins: [creatorPhone], moderators: [], mutedPhones: [], bannedPhones: [],
+      private: isPrivate,
+      memberPhones: isPrivate ? [creatorPhone] : undefined,
+      inviteToken: isPrivate ? crypto.randomBytes(12).toString('hex') : undefined
     };
     groups[id] = newGroup;
 
@@ -2733,7 +2825,7 @@ io.on('connection', (socket) => {
       saveGroupsLocal();
     }
 
-    io.emit('groups_update', Object.values(groups));
+    broadcastGroupsUpdate();
   });
 
   function isGroupAdmin(group, phone) { return group?.admins?.includes(phone); }
@@ -2754,7 +2846,7 @@ io.on('connection', (socket) => {
     } else {
       saveGroupsLocal();
     }
-    io.emit('groups_update', Object.values(groups));
+    broadcastGroupsUpdate();
   });
 
   socket.on('group_mute', async (data) => {
@@ -2770,7 +2862,7 @@ io.on('connection', (socket) => {
     } else {
       saveGroupsLocal();
     }
-    io.emit('groups_update', Object.values(groups));
+    broadcastGroupsUpdate();
   });
 
   socket.on('group_kick', async (data) => {
@@ -2781,13 +2873,14 @@ io.on('connection', (socket) => {
     if (!group.bannedPhones.includes(targetPhone)) group.bannedPhones.push(targetPhone);
     group.admins = group.admins.filter(p => p !== targetPhone);
     group.moderators = group.moderators.filter(p => p !== targetPhone);
+    if (group.memberPhones) group.memberPhones = group.memberPhones.filter(p => p !== targetPhone); // grupo privado — perde o acesso já
 
     if (isDbConnected) {
-      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones, admins: group.admins, moderators: group.moderators }).catch(e => console.error('Erro Mongo (remover do grupo):', e.message));
+      await GroupModel.updateOne({ id: groupId }, { bannedPhones: group.bannedPhones, admins: group.admins, moderators: group.moderators, memberPhones: group.memberPhones }).catch(e => console.error('Erro Mongo (remover do grupo):', e.message));
     } else {
       saveGroupsLocal();
     }
-    io.emit('groups_update', Object.values(groups));
+    broadcastGroupsUpdate();
   });
 
   socket.on('group_unban', async (data) => {
@@ -2802,7 +2895,7 @@ io.on('connection', (socket) => {
     } else {
       saveGroupsLocal();
     }
-    io.emit('groups_update', Object.values(groups));
+    broadcastGroupsUpdate();
   });
 
   // Apagar o grupo por completo — só quem o criou pode fazer isto (não basta
@@ -2822,7 +2915,7 @@ io.on('connection', (socket) => {
       saveGroupsLocal();
       saveMessagesLocal();
     }
-    io.emit('groups_update', Object.values(groups));
+    broadcastGroupsUpdate();
     io.emit('group_deleted', { groupId });
     log(`🗑️ Grupo "${group.name}" apagado por ${users[socket.id]?.name || myPhone}`, 'GROUP');
   });
@@ -2834,6 +2927,10 @@ io.on('connection', (socket) => {
     // Conversa 1-para-1: só entra quem é de facto um dos dois participantes
     // (verificado pelos contactos guardados no servidor — ver isDmRoomAllowedForPhone).
     if (!isDmRoomAllowedForPhone(user.phone, roomId)) return;
+    // Grupo privado (só por convite): só entra quem já é membro — mesma ideia da
+    // verificação acima, mas para grupos fechados em vez de conversas 1-para-1.
+    const roomGroup = groups[roomId];
+    if (roomGroup && !isGroupMember(roomGroup, user.phone)) return;
     socket.join(roomId);
     user.rooms.add(roomId);
     // Mensagens de UNO guardam a mão de cada jogador — nunca podem ir tal e
@@ -2867,6 +2964,7 @@ io.on('connection', (socket) => {
     // primeira mensagem legítima.
     if (!group && !isDmRoomAllowedForPhone(myPhone, data.chatId)) return;
     if (group && myPhone) {
+      if (!isGroupMember(group, myPhone)) return; // grupo privado — só quem já é membro escreve lá
       if (group.bannedPhones?.includes(myPhone)) return;
       if (group.mutedPhones?.includes(myPhone)) {
         socket.emit('message_rejected', { chatId: data.chatId, reason: 'Foste silenciado neste grupo.' });

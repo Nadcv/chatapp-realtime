@@ -1807,7 +1807,10 @@
             <div class="modal">
                 <h3>👥 Criar Novo Grupo</h3>
                 <input type="text" id="groupName" placeholder="Nome do grupo">
-                <p class="member-count">ℹ️ Este grupo aparecerá automaticamente para <strong>todos os utilizadores cadastrados</strong> — não é preciso convidar ninguém.</p>
+                <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:12px;">
+                    <input type="checkbox" id="groupPrivateInput" onchange="updateCreateGroupInfoText()"> 🔒 Grupo privado (só entra quem for convidado por link/QR)
+                </label>
+                <p class="member-count" id="createGroupInfoText">ℹ️ Este grupo aparecerá automaticamente para <strong>todos os utilizadores cadastrados</strong> — não é preciso convidar ninguém.</p>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalCreateGroup')">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="createGroup()">Criar Grupo</button>
@@ -2024,6 +2027,7 @@
                 <h3>👑 Gerir grupo</h3>
                 <p style="color:#8696a0;font-size:13px;">Silenciar impede a pessoa de escrever; remover tira-a do grupo (pode ser desconvidado depois).</p>
                 <div style="max-height:340px;overflow:auto;" id="manageGroupList"></div>
+                <div id="groupInviteBox" style="display:none;"></div>
                 <div class="modal-actions">
                     <button class="btn-small btn-danger" id="deleteGroupBtn" style="display:none;" onclick="deleteCurrentGroup()">🗑️ Apagar grupo</button>
                     <button class="btn-small" onclick="closeModal('modalManageGroup')">Fechar</button>
@@ -3219,9 +3223,10 @@
         const groupChats = APP.groupsList
             .filter(g => !g.bannedPhones?.includes(APP.user.phone))
             .map(g => ({
-                id: g.id, name: g.name, phone: '', avatar: '👥', type: 'group',
+                id: g.id, name: g.name, phone: '', avatar: g.private ? '🔒' : '👥', type: 'group',
                 memberCount: APP.onlineContacts.length, createdBy: g.createdBy, createdByPhone: g.createdByPhone,
-                admins: g.admins || [], moderators: g.moderators || [], mutedPhones: g.mutedPhones || [], bannedPhones: g.bannedPhones || []
+                admins: g.admins || [], moderators: g.moderators || [], mutedPhones: g.mutedPhones || [], bannedPhones: g.bannedPhones || [],
+                private: !!g.private, memberPhones: g.memberPhones || [], memberNames: g.memberNames || [], inviteToken: g.inviteToken || null
             }));
         const aiChats = DEFAULT_CONTACTS;
         APP.chats = [...aiChats, ...groupChats, ...contactChats];
@@ -3644,6 +3649,11 @@
         startTimeSpentTracking();
         checkBirthdaysToday();
         loadQuoteOfDay();
+        if (APP.pendingGroupInviteToken) {
+            const inviteToken = APP.pendingGroupInviteToken;
+            APP.pendingGroupInviteToken = null;
+            redeemGroupInvite(inviteToken);
+        }
     }
 
     // ==================== FRASE DO DIA ====================
@@ -3751,6 +3761,16 @@
     // cabeçalho/lista de conversas; sem este adiamento, uma sessão restaurada
     // rebentava com "Cannot read properties of undefined" nelas.
     setTimeout(function restoreSession() {
+        // Abriu o URL de um convite de grupo privado (?joinGroup=...) — ao contrário do
+        // pareamento de dispositivo, isto faz sentido mesmo já com sessão iniciada (é o
+        // caso mais comum: alguém já tem a app e só quer entrar num grupo novo), por isso
+        // fica guardado para ser resgatado dentro de enterApp(), depois do login em
+        // qualquer um dos dois casos (sessão restaurada aqui, ou login/registo manual).
+        const joinGroupToken = new URLSearchParams(location.search).get('joinGroup');
+        if (joinGroupToken) {
+            history.replaceState(null, '', location.pathname);
+            APP.pendingGroupInviteToken = joinGroupToken;
+        }
         const token = localStorage.getItem('authToken');
         const userRaw = localStorage.getItem('authUser');
         if (token && userRaw) {
@@ -8104,14 +8124,20 @@
         const isAdmin = chat.admins?.includes(myPhone);
         if (!isAdmin) return alert('Só administradores do grupo podem geri-lo.');
         const list = document.getElementById('manageGroupList');
-        list.innerHTML = APP.onlineContacts.map(c => {
-            if (c.phone === myPhone) return '';
+        // Grupos privados só têm mesmo os membros reais como candidatos a gerir — podem
+        // incluir gente que entrou por convite e não é contacto de quem administra, por
+        // isso usam a lista de nomes que o servidor já manda (ver memberNames). Grupos
+        // abertos continuam a usar a lista de contactos, exatamente como sempre foi.
+        const roster = chat.private
+            ? (chat.memberNames || []).filter(m => m.phone !== myPhone)
+            : APP.onlineContacts.filter(c => c.phone !== myPhone).map(c => ({ phone: c.phone, name: c.name }));
+        list.innerHTML = roster.map(c => {
             const role = chat.admins?.includes(c.phone) ? 'admin' : (chat.moderators?.includes(c.phone) ? 'moderator' : 'member');
             const isMuted = chat.mutedPhones?.includes(c.phone);
             return `
             <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <div style="flex:1;">
-                    <div style="color:var(--text-primary);font-size:14px;">${c.name} ${role === 'admin' ? '👑' : (role === 'moderator' ? '🛡️' : '')}</div>
+                    <div style="color:var(--text-primary);font-size:14px;">${escapeHtml(c.name)} ${role === 'admin' ? '👑' : (role === 'moderator' ? '🛡️' : '')}</div>
                     <div style="font-size:11px;color:#8696a0;">${isMuted ? 'Silenciado' : role}</div>
                 </div>
                 <select onchange="setGroupRole('${c.phone}', this.value)" style="background:var(--bg-tertiary);color:#fff;border:none;border-radius:6px;padding:4px;font-size:11px;">
@@ -8122,9 +8148,78 @@
                 <button class="btn-small" onclick="toggleGroupMute('${c.phone}', ${!isMuted})" title="Silenciar/reativar">${isMuted ? '🔊' : '🔇'}</button>
                 <button class="btn-small btn-danger" onclick="kickFromGroup('${c.phone}', '${c.name.replace(/'/g, '')}')" title="Remover do grupo">🚫</button>
             </div>`;
-        }).join('') || '<p style="color:#8696a0;">Sem outros utilizadores cadastrados.</p>';
+        }).join('') || `<p style="color:#8696a0;">${chat.private ? 'Ainda sem outros membros.' : 'Sem outros utilizadores cadastrados.'}</p>`;
         document.getElementById('deleteGroupBtn').style.display = chat.createdByPhone === myPhone ? 'inline-flex' : 'none';
+        renderGroupInviteBox(chat);
         document.getElementById('modalManageGroup').classList.add('active');
+    }
+
+    // ==================== CONVITE PARA GRUPO PRIVADO (link/QR) ====================
+    // Só existe para grupos "privados" (ver checkbox ao criar) — os grupos abertos
+    // continuam sem precisar de convite nenhum, como sempre foi.
+    function renderGroupInviteBox(chat) {
+        const box = document.getElementById('groupInviteBox');
+        if (!chat.private) { box.style.display = 'none'; box.innerHTML = ''; return; }
+        box.style.display = 'block';
+        box.innerHTML = `
+            <div style="font-weight:600;font-size:13px;margin-top:14px;">🔗 Convite (grupo privado)</div>
+            <p style="color:var(--text-secondary);font-size:12px;margin:4px 0 8px;">Quem abrir este link ou ler este QR entra automaticamente no grupo.</p>
+            <div id="groupInviteContent"><p style="color:var(--text-secondary);font-size:12px;">A carregar…</p></div>
+        `;
+        fetchGroupInvite(chat.id, false);
+    }
+    async function fetchGroupInvite(groupId, regenerate) {
+        const content = document.getElementById('groupInviteContent');
+        try {
+            const res = await fetch('/api/group-invite/get', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token },
+                body: JSON.stringify({ token: APP.token, groupId, regenerate, origin: location.origin })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                content.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;">${escapeHtml(data.error || 'Ainda sem link de convite.')}</p>` +
+                    `<button class="btn-small" style="margin-top:6px;" onclick="fetchGroupInvite('${groupId}', true)">🔗 Gerar link de convite</button>`;
+                return;
+            }
+            APP.lastGroupInviteUrl = data.inviteUrl;
+            content.innerHTML = `
+                <div style="display:flex;gap:6px;">
+                    <input type="text" readonly value="${escapeHtml(data.inviteUrl)}" style="flex:1;font-size:11px;" onclick="this.select()">
+                    <button class="btn-small" onclick="copyGroupInviteLink()">📋 Copiar</button>
+                </div>
+                <img src="${data.qrDataUrl}" style="width:150px;height:150px;margin-top:8px;border-radius:8px;" alt="QR de convite do grupo">
+                <button class="btn-small" style="margin-top:8px;display:block;" onclick="fetchGroupInvite('${groupId}', true)">🔄 Gerar novo link (invalida o anterior)</button>
+            `;
+        } catch (e) {
+            content.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">⚠️ Não foi possível ligar ao servidor.</p>';
+        }
+    }
+    function copyGroupInviteLink() {
+        if (!APP.lastGroupInviteUrl) return;
+        navigator.clipboard?.writeText(APP.lastGroupInviteUrl).then(
+            () => alert('✅ Link copiado!'),
+            () => alert('⚠️ Não foi possível copiar — seleciona o texto manualmente.')
+        );
+    }
+    // Chamado quando este aparelho abriu um link de convite (?joinGroup=...) — troca o
+    // token pela entrada real no grupo, tal como o pareamento de dispositivo troca o seu
+    // próprio token por uma sessão (ver redeemDevicePairing).
+    async function redeemGroupInvite(inviteToken) {
+        try {
+            const res = await fetch('/api/group-invite/redeem', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token },
+                body: JSON.stringify({ token: APP.token, inviteToken })
+            });
+            const data = await res.json();
+            if (!res.ok) { alert('⚠️ ' + (data.error || 'Não foi possível entrar neste grupo.')); return; }
+            // O 'groups_update' com o grupo novo chega a seguir (o servidor já nos
+            // acrescentou como membro) — dá-lhe um instante antes de abrir a conversa.
+            setTimeout(() => {
+                if (APP.chats.some(c => c.id === data.groupId)) openChat(data.groupId);
+            }, 700);
+        } catch (e) {
+            alert('⚠️ Não foi possível ligar ao servidor para entrar neste grupo.');
+        }
     }
 
     function deleteCurrentGroup() {
@@ -9956,15 +10051,25 @@
     function openCreateGroupModal() {
         document.getElementById('modalCreateGroup').classList.add('active');
         document.getElementById('groupName').value = '';
+        document.getElementById('groupPrivateInput').checked = false;
+        updateCreateGroupInfoText();
+    }
+    function updateCreateGroupInfoText() {
+        const isPrivate = document.getElementById('groupPrivateInput').checked;
+        document.getElementById('createGroupInfoText').innerHTML = isPrivate
+            ? 'ℹ️ Este grupo fica <strong>fechado</strong> — só entra quem tu convidares (link ou QR gerado depois, em "Gerir grupo").'
+            : 'ℹ️ Este grupo aparecerá automaticamente para <strong>todos os utilizadores cadastrados</strong> — não é preciso convidar ninguém.';
     }
 
     function createGroup() {
         const name = document.getElementById('groupName').value.trim();
         if (!name) return alert('Digite o nome do grupo!');
-        socket.emit('create_group', { name });
+        const isPrivate = document.getElementById('groupPrivateInput').checked;
+        socket.emit('create_group', { name, private: isPrivate });
         closeModal('modalCreateGroup');
         // A lista de conversas é atualizada assim que o servidor confirmar via 'groups_update'
-        // (chega para todos os usuários cadastrados, não só para quem criou).
+        // (chega para todos os usuários cadastrados, não só para quem criou — exceto grupos
+        // privados, que só chegam a quem já é membro).
     }
 
     // ==================== ENQUETES EM GRUPO ====================
