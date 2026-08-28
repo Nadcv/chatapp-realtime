@@ -746,12 +746,14 @@ Na mesma pré-visualização da foto (antes de enviar), um botão "✏️ Editar
 
 - **✂️ Cortar**: arrasta na imagem para escolher a área, depois "Aplicar corte"
 - **✏️ Desenhar**: traço livre, com cor e espessura à escolha
-- **🔤 Texto**: escreve algo e toca onde queres que apareça
+- **🔤 Texto**: toca onde queres escrever — aparece um campo de texto normal nesse ponto (não uma caixa de diálogo do sistema), dá para reler/corrigir antes de confirmar com Enter, ou cancelar com Esc/tocando fora
 - **😀 Emoji**: escolhe um emoji e toca para o colar na imagem
 
 "↩️ Desfazer" volta atrás um passo de cada vez (incluindo cortes, repondo também o tamanho anterior do canvas); "🔄 Repor original" descarta tudo e volta à foto tal como foi escolhida. Ao gravar, a imagem editada substitui a original no que vai ser enviado — o resto do fluxo (pré-visualização, "ver uma vez", upload) não nota diferença nenhuma entre uma foto editada e uma que não foi.
 
-**Limitação conhecida**: o texto é colocado através de um simples pedido de escrita (`prompt`), não um campo de texto arrastável em cima da imagem — mais simples de implementar, mas não dá para mover o texto depois de colocado (só desfazer e tentar de novo).
+**Limitação conhecida**: depois de confirmado, o texto fica "cozido" na imagem — não dá para o voltar a mover ou reescrever (só desfazer e tentar de novo).
+
+**Correção**: a primeira versão usava um `prompt()` do navegador para o texto, que em alguns telemóveis competia pelo foco com o toque no canvas e nunca chegava a aparecer — trocado por um campo de texto normal, dentro da própria página. De caminho, corrigido também: o ecrã do editor não tinha scroll, por isso em ecrãs pequenos os botões "Cancelar"/"Guardar" podiam ficar fora da vista sem forma de lá chegar; e a tecla Esc para cancelar o texto estava a propagar-se e a fechar o editor inteiro (e a própria conversa), em vez de só cancelar o que se estava a escrever.
 
 ## 👁️ Fotos "ver uma vez"
 

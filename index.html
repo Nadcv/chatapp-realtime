@@ -2341,7 +2341,7 @@
 
         <!-- ============ EDITOR DE FOTO (cortar/desenhar/texto/emoji antes de enviar) ============ -->
         <div class="modal-overlay" id="modalPhotoEditor" style="z-index:300;">
-            <div class="modal" style="max-width:480px;">
+            <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto;">
                 <h3>✏️ Editar foto</h3>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
                     <button class="btn-small" id="peToolCrop" onclick="setPhotoEditorTool('crop')">✂️ Cortar</button>
@@ -2372,6 +2372,13 @@
                 <div style="max-width:100%;overflow:auto;text-align:center;background:#111;border-radius:8px;">
                     <canvas id="photoEditorCanvas" style="max-width:100%;touch-action:none;cursor:crosshair;"></canvas>
                 </div>
+                <!-- Campo de texto normal em cima da imagem (em vez de um prompt() do navegador) — dá
+                     para corrigir o que se escreveu antes de confirmar, e sente-se parte da app em vez
+                     de uma caixa de diálogo à parte. -->
+                <input type="text" id="peTextOverlayInput" placeholder="Escreve e prime Enter..."
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();event.stopPropagation();commitPhotoEditorTextInput();}else if(event.key==='Escape'){event.stopPropagation();cancelPhotoEditorTextInput();}"
+                    onblur="commitPhotoEditorTextInput()"
+                    style="position:fixed;display:none;z-index:400;padding:6px 10px;border-radius:6px;border:2px solid var(--green,#00a884);font-size:16px;max-width:220px;background:#fff;color:#000;">
                 <div class="modal-actions" style="justify-content:space-between;">
                     <div style="display:flex;gap:6px;">
                         <button class="btn-small" onclick="undoPhotoEdit()">↩️ Desfazer</button>
@@ -9448,6 +9455,7 @@
         PHOTO_EDITOR.history = [];
         PHOTO_EDITOR.cropRect = null;
         setPhotoEditorTool(null);
+        cancelPhotoEditorTextInput(); // segurança: garante que não fica um campo de texto órfão aberto de uma sessão anterior
         document.getElementById('modalPhotoEditor').classList.add('active');
         loadImageIntoPhotoEditor(pending.dataUrl);
         if (!PHOTO_EDITOR.eventsInitialized) { initPhotoEditorCanvasEvents(); PHOTO_EDITOR.eventsInitialized = true; }
@@ -9478,6 +9486,35 @@
         document.getElementById('peCropOptions').style.display = tool === 'crop' ? 'block' : 'none';
     }
     function selectPhotoEditorEmoji(emoji) { PHOTO_EDITOR.selectedEmoji = emoji; }
+    // Campo de texto de verdade em cima da imagem (position:fixed, no ponto onde se tocou) em
+    // vez de prompt() — dá para reler/corrigir o que se escreveu antes de confirmar (Enter) ou
+    // desistir (Escape/tocar fora), sem o aspeto de caixa de diálogo do sistema.
+    let PE_TEXT_PENDING_POS = null;
+    function showPhotoEditorTextInput(canvasPos, clientX, clientY) {
+        PE_TEXT_PENDING_POS = canvasPos;
+        const input = document.getElementById('peTextOverlayInput');
+        input.value = '';
+        input.style.left = clientX + 'px';
+        input.style.top = clientY + 'px';
+        input.style.display = 'block';
+        input.focus();
+    }
+    function commitPhotoEditorTextInput() {
+        const input = document.getElementById('peTextOverlayInput');
+        const text = input.value.trim();
+        input.style.display = 'none';
+        if (text && PE_TEXT_PENDING_POS) {
+            pushPhotoEditorHistory();
+            PHOTO_EDITOR.ctx.fillStyle = document.getElementById('peColor').value;
+            PHOTO_EDITOR.ctx.font = '28px sans-serif';
+            PHOTO_EDITOR.ctx.fillText(text, PE_TEXT_PENDING_POS.x, PE_TEXT_PENDING_POS.y);
+        }
+        PE_TEXT_PENDING_POS = null;
+    }
+    function cancelPhotoEditorTextInput() {
+        document.getElementById('peTextOverlayInput').style.display = 'none';
+        PE_TEXT_PENDING_POS = null;
+    }
     // Guarda um "antes" (como imagem, não só pixels) para o desfazer conseguir repor também
     // as dimensões do canvas — importante depois de um corte, que muda o tamanho da tela.
     function pushPhotoEditorHistory() {
@@ -9514,6 +9551,7 @@
         const canvas = document.getElementById('photoEditorCanvas');
         canvas.addEventListener('pointerdown', (e) => {
             if (!PHOTO_EDITOR.tool) return;
+            e.preventDefault(); // sem isto, o foco que a ferramenta "texto" dá ao campo de texto era imediatamente roubado de volta pelo comportamento por omissão do toque/clique no canvas
             const pos = photoEditorCanvasPos(e);
             if (PHOTO_EDITOR.tool === 'draw') {
                 pushPhotoEditorHistory();
@@ -9524,13 +9562,7 @@
                 PHOTO_EDITOR.cropStart = pos;
                 PHOTO_EDITOR.cropSnapshot = PHOTO_EDITOR.ctx.getImageData(0, 0, PHOTO_EDITOR.canvas.width, PHOTO_EDITOR.canvas.height);
             } else if (PHOTO_EDITOR.tool === 'text') {
-                const text = prompt('Escreve o texto:');
-                if (text) {
-                    pushPhotoEditorHistory();
-                    PHOTO_EDITOR.ctx.fillStyle = document.getElementById('peColor').value;
-                    PHOTO_EDITOR.ctx.font = '28px sans-serif';
-                    PHOTO_EDITOR.ctx.fillText(text, pos.x, pos.y);
-                }
+                showPhotoEditorTextInput(pos, e.clientX, e.clientY);
             } else if (PHOTO_EDITOR.tool === 'emoji' && PHOTO_EDITOR.selectedEmoji) {
                 pushPhotoEditorHistory();
                 PHOTO_EDITOR.ctx.font = '48px sans-serif';
