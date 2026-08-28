@@ -677,6 +677,14 @@ Quando uma mensagem tem um URL, aparece por baixo um cartão com título, descri
 
 Novo botão 🔎 ao lado da pesquisa de conversas na barra lateral abre uma pesquisa que varre TODAS as conversas de uma vez (não só a que está aberta), mostrando o nome da conversa, um trecho do texto com o termo destacado, e a hora. Clicar num resultado abre essa conversa e faz scroll direto até à mensagem, com um flash a destacá-la (o mesmo efeito já usado para ir a uma mensagem fixada). Mensagens apagadas e mensagens cifradas ponta-a-ponta (que o servidor nunca vê em claro) são sempre excluídas da pesquisa. É tudo feito no browser, sem pedido novo ao servidor — o histórico de todas as conversas já fica todo carregado em memória ao entrar na app (necessário para as conversas abrirem instantaneamente), por isso a pesquisa é imediata.
 
+### 📄 Pesquisa dentro do conteúdo de anexos (PDF/.txt)
+
+A pesquisa global agora também encontra termos que só existem **dentro** de um PDF ou ficheiro `.txt` enviado no chat, não só no nome do ficheiro. Ao enviar um destes anexos, o texto é extraído localmente no browser (biblioteca pdf.js, carregada só quando é mesmo preciso, tal como o gerador de PDF da lista de compras) e guardado junto da mensagem, para poder ser pesquisado mais tarde sem ter de reabrir o ficheiro. Um resultado que só bateu certo no conteúdo do anexo (e não no texto da própria mensagem) aparece com uma etiqueta "📎 nome-do-ficheiro:" antes do trecho encontrado, para ficar claro de onde veio.
+
+- Funciona para **PDF** e **.txt** — Word/`.docx` ainda não têm extração de texto (precisava de outra biblioteca só para isso), continuam pesquisáveis só pelo nome do ficheiro, como já era antes
+- Só o texto do documento é guardado (até um limite generoso de carateres, e até 30 páginas por PDF) — nunca o ficheiro inteiro outra vez
+- Fotos "ver uma vez" nunca geram texto pesquisável, mesmo que fossem na prática uma imagem de um documento
+
 ## Correção de segurança: conversas privadas (1-para-1) podiam ser lidas/escritas por qualquer conta
 
 Encontrado ao testar a pesquisa global: o id de uma conversa 1-para-1 é sempre calculado da mesma forma, a partir dos dois números de telefone (`dm_<telefoneA>_<telefoneB>`, ordenados). O servidor aceitava entrar em **qualquer** sala (`join_room`) e enviar mensagem para **qualquer** sala (`send_message`) só com base nesse id, sem confirmar que quem estava a fazer o pedido era mesmo um dos dois participantes. Na prática, isto significava que qualquer conta autenticada que soubesse (ou descobrisse, ex. pela pesquisa de utilizador) os números de telefone de duas outras pessoas conseguia calcular o id da conversa delas e:
