@@ -2495,7 +2495,10 @@
             <div class="modal">
                 <h3>🟢 Novo estado</h3>
                 <p style="color:#8696a0;font-size:13px;">Fica visível 24 horas.</p>
-                <div id="newStatusPhotoPreview" style="display:none;width:100%;max-height:200px;overflow:hidden;border-radius:10px;margin-bottom:10px;"><img id="newStatusPhotoImg" style="width:100%;object-fit:cover;"></div>
+                <div id="newStatusPhotoPreview" style="display:none;position:relative;width:100%;max-height:200px;overflow:hidden;border-radius:10px;margin-bottom:10px;">
+                    <img id="newStatusPhotoImg" style="width:100%;object-fit:cover;">
+                    <button class="btn-small" onclick="editStatusPhoto()" style="position:absolute;top:6px;right:6px;">✏️ Editar</button>
+                </div>
                 <input type="file" id="statusPhotoInput" accept="image/*" style="display:none;" onchange="handleStatusPhotoSelected(this)">
                 <textarea id="newStatusText" placeholder="No que estás a pensar?" maxlength="300"></textarea>
                 <div class="modal-actions" style="justify-content:space-between;">
@@ -4714,6 +4717,27 @@
         if (!text && !APP.pendingStatusPhotoUrl) return alert('Escreve algo ou escolhe uma foto.');
         socket.emit('post_status', { text, photoData: APP.pendingStatusPhotoUrl });
         closeModal('modalNewStatus');
+    }
+    // Reaproveita o mesmo editor de fotos já usado nos anexos de conversa (ver openPhotoEditor).
+    // Diferença aqui: a foto do estado já pode estar num URL remoto (Cloudinary) em vez de um
+    // dataUrl local, por já ter sido carregada ao ser escolhida — por isso, ao gravar a edição,
+    // volta a carregar para o Cloudinary da mesma forma que handleStatusPhotoSelected já fazia,
+    // para o estado publicado não ficar preso ao dataUrl local.
+    function editStatusPhoto() {
+        if (!APP.pendingStatusPhotoUrl) return;
+        openPhotoEditor({
+            dataUrl: APP.pendingStatusPhotoUrl,
+            onSave: async (dataUrl) => {
+                let finalUrl = dataUrl;
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const data = await res.json();
+                    if (data.success && data.url) finalUrl = data.url;
+                } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
+                APP.pendingStatusPhotoUrl = finalUrl;
+                document.getElementById('newStatusPhotoImg').src = finalUrl;
+            }
+        });
     }
     APP.viewingStatus = null;
     function viewStatusFeed(phone) {
@@ -9448,21 +9472,42 @@
         history: [], drawing: false, lastX: 0, lastY: 0, cropStart: null, cropRect: null, cropSnapshot: null,
         eventsInitialized: false
     };
-    function openPhotoEditor() {
-        const pending = APP.pendingAttachment;
-        if (!pending) return;
-        PHOTO_EDITOR.originalDataUrl = pending.dataUrl;
+    // 'target' deixa o editor ser reaproveitado por qualquer sítio que precise de editar uma
+    // imagem antes de a usar (anexo de conversa, foto de um estado, o que aparecer a seguir) —
+    // só precisa de dizer de onde vem a imagem e o que fazer com o resultado ao gravar. Omitido,
+    // mantém o comportamento original (editar o anexo pendente de uma conversa).
+    let PE_TARGET = null;
+    function openPhotoEditor(target) {
+        if (!target) {
+            const pending = APP.pendingAttachment;
+            if (!pending) return;
+            target = {
+                dataUrl: pending.dataUrl,
+                onSave: (dataUrl) => {
+                    APP.pendingAttachment.dataUrl = dataUrl;
+                    APP.pendingAttachment.fileType = 'image/png';
+                    document.getElementById('viewOncePreviewImg').src = dataUrl;
+                }
+            };
+        }
+        PE_TARGET = target;
+        PHOTO_EDITOR.originalDataUrl = target.dataUrl;
         PHOTO_EDITOR.history = [];
         PHOTO_EDITOR.cropRect = null;
         setPhotoEditorTool(null);
         cancelPhotoEditorTextInput(); // segurança: garante que não fica um campo de texto órfão aberto de uma sessão anterior
         document.getElementById('modalPhotoEditor').classList.add('active');
-        loadImageIntoPhotoEditor(pending.dataUrl);
+        loadImageIntoPhotoEditor(target.dataUrl);
         if (!PHOTO_EDITOR.eventsInitialized) { initPhotoEditorCanvasEvents(); PHOTO_EDITOR.eventsInitialized = true; }
     }
     function loadImageIntoPhotoEditor(dataUrl) {
         const canvas = document.getElementById('photoEditorCanvas');
         const img = new Image();
+        img.crossOrigin = 'anonymous'; // preciso quando a imagem já está num URL remoto (ex.: Cloudinary), senão o canvas fica "contaminado" e não dá para ler/gravar
+        img.onerror = () => {
+            alert('⚠️ Não foi possível carregar esta imagem para editar. Tenta escolher a foto de novo.');
+            closeModal('modalPhotoEditor');
+        };
         img.onload = () => {
             // Limita o tamanho de trabalho para não travar com fotos enormes de telemóvel
             const maxDim = 900;
@@ -9615,9 +9660,7 @@
     }
     function savePhotoEdit() {
         const dataUrl = PHOTO_EDITOR.canvas.toDataURL('image/png');
-        APP.pendingAttachment.dataUrl = dataUrl;
-        APP.pendingAttachment.fileType = 'image/png';
-        document.getElementById('viewOncePreviewImg').src = dataUrl;
+        if (PE_TARGET?.onSave) PE_TARGET.onSave(dataUrl);
         closeModal('modalPhotoEditor');
     }
 

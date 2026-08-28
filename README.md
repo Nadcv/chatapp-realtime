@@ -740,9 +740,9 @@ Barra de "filtros" por baixo da pesquisa (tal como no WhatsApp): começa só com
 
 Tal como o "número de segurança" do WhatsApp/Signal: tocando no 🔒 ao lado do nome da conversa (ou em "⋯ Mais desta conversa" → "🔐 Código de segurança"), aparece um código de 60 dígitos calculado a partir das duas chaves públicas ECDH da conversa (a tua e a do contacto) — sempre o mesmo código dos dois lados, não importa quem o vê. Comparando esse código com o que a outra pessoa vê no aparelho dela (por chamada, mensagem noutro sítio, ou pessoalmente), confirma-se que a encriptação desta conversa é mesmo direta entre os dois, sem mais ninguém a intercetar as chaves pelo meio. Só aparece em conversas 1-para-1 onde as duas partes já têm a chave pública trocada (o mesmo critério do cadeado 🔒 que já existia). Cálculo inteiramente no cliente (SHA-256 sobre as duas chaves, ordenadas para dar sempre o mesmo resultado nos dois lados) — o servidor nunca vê nem participa nesta verificação.
 
-## ✏️ Editar a foto antes de enviar
+## ✏️ Editar a foto antes de enviar (ou antes de publicar um estado)
 
-Na mesma pré-visualização da foto (antes de enviar), um botão "✏️ Editar" abre um pequeno editor — tudo feito no browser, com um `<canvas>`:
+Na pré-visualização da foto — seja antes de enviar numa conversa, seja ao escolher a foto de um novo "🟢 Estado" — um botão "✏️ Editar" abre o mesmo pequeno editor, tudo feito no browser, com um `<canvas>`:
 
 - **✂️ Cortar**: arrasta na imagem para escolher a área, depois "Aplicar corte"
 - **✏️ Desenhar**: traço livre, com cor e espessura à escolha
@@ -754,6 +754,8 @@ Na mesma pré-visualização da foto (antes de enviar), um botão "✏️ Editar
 **Limitação conhecida**: depois de confirmado, o texto fica "cozido" na imagem — não dá para o voltar a mover ou reescrever (só desfazer e tentar de novo).
 
 **Correção**: a primeira versão usava um `prompt()` do navegador para o texto, que em alguns telemóveis competia pelo foco com o toque no canvas e nunca chegava a aparecer — trocado por um campo de texto normal, dentro da própria página. De caminho, corrigido também: o ecrã do editor não tinha scroll, por isso em ecrãs pequenos os botões "Cancelar"/"Guardar" podiam ficar fora da vista sem forma de lá chegar; e a tecla Esc para cancelar o texto estava a propagar-se e a fechar o editor inteiro (e a própria conversa), em vez de só cancelar o que se estava a escrever.
+
+A foto de um estado já pode estar num link do Cloudinary (por já ter sido carregada ao ser escolhida, antes de sequer abrires o editor) em vez de só existir neste aparelho — ao gravar a edição, volta a subir a versão editada para o Cloudinary da mesma forma, para o estado publicado não ficar preso à foto de antes de editar.
 
 ## 👁️ Fotos "ver uma vez"
 
