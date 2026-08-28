@@ -2215,6 +2215,7 @@
                     <button class="btn-small" id="muteToggleBtn" onclick="closeModal('modalChatMore');toggleMuteChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;"><span id="muteToggleIcon">🔔</span><span style="font-size:11px;">Silenciar</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openDisappearingModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">⏳<span style="font-size:11px;">Temporárias</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');exportChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📤<span style="font-size:11px;">Exportar</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');exportChatToPdf()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📄<span style="font-size:11px;">Exportar PDF</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Agendar</span></button>
                     <button class="btn-small" id="autoTranslateBtn" onclick="closeModal('modalChatMore');toggleAutoTranslate()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐🔁<span style="font-size:11px;">Tradução auto.</span></button>
                     <button class="btn-small" id="archiveChatBtn" onclick="closeModal('modalChatMore');toggleArchiveChat()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Arquivar</span></button>
@@ -4885,6 +4886,46 @@
         a.download = `conversa_${(chat?.name || 'chat').replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
         a.click();
         URL.revokeObjectURL(url);
+    }
+    // Mesma fonte de dados do exportChat() acima (texto simples), só que formatado
+    // como um PDF com paginação automática em vez de um ficheiro .txt — reaproveita
+    // o mesmo gerador (jsPDF, carregado sob demanda) já usado para a lista de compras.
+    // Fotos/vídeos/documentos aparecem como "(anexo: nome)", nunca embutidos como
+    // imagem — mesma limitação que o .txt já tinha, para manter isto simples.
+    async function exportChatToPdf() {
+        if (!APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const msgs = APP.messages[APP.currentChatId] || [];
+        try {
+            await loadJsPdfScript();
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const marginX = 14;
+            const maxWidth = doc.internal.pageSize.getWidth() - marginX * 2;
+            doc.setFontSize(16);
+            doc.text(`Conversa: ${chat?.name || 'Chat'}`, marginX, 18);
+            doc.setFontSize(9);
+            doc.setTextColor(120);
+            doc.text(`Exportado em ${new Date().toLocaleString('pt-BR')}`, marginX, 25);
+            doc.setTextColor(0);
+            doc.setFontSize(11);
+            let y = 34;
+            if (!msgs.length) doc.text('(Sem mensagens nesta conversa.)', marginX, y);
+            msgs.forEach((m) => {
+                const who = m.type === 'sent' ? 'Você' : (m.sender || 'Alguém');
+                const body = m.deleted ? '(mensagem apagada)' : (m.fileData ? `(anexo: ${m.fileName || m.fileType || 'ficheiro'})` : (m.text || ''));
+                const wrapped = doc.splitTextToSize(`[${m.time || ''}] ${who}: ${body}`, maxWidth);
+                wrapped.forEach((line) => {
+                    if (y > 280) { doc.addPage(); y = 20; }
+                    doc.text(line, marginX, y);
+                    y += 6;
+                });
+                y += 2;
+            });
+            doc.save(`conversa_${(chat?.name || 'chat').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+        } catch (err) {
+            alert('⚠️ Não foi possível gerar o PDF agora: ' + err.message);
+        }
     }
 
     // ==================== MENSAGENS AGENDADAS ====================
