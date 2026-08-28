@@ -2226,6 +2226,20 @@ function loadScheduledLocal() {
 function saveScheduledLocal() {
   fs.writeFile(SCHEDULED_FILE, JSON.stringify(scheduledMessages), (err) => { if (err) console.error('Erro ao salvar mensagens agendadas:', err.message); });
 }
+// Avança 'prevSendAt' pelo intervalo da recorrência até passar de 'now' — nunca só
+// soma um único intervalo, porque se o servidor esteve em baixo o suficiente para
+// perder várias ocorrências, isto evita um "catch-up" a disparar todas de seguida:
+// salta as perdidas em silêncio e agenda só a próxima que ainda não aconteceu.
+function nextRecurrenceTime(prevSendAt, recurrence, now) {
+  const d = new Date(prevSendAt);
+  do {
+    if (recurrence === 'daily') d.setDate(d.getDate() + 1);
+    else if (recurrence === 'weekly') d.setDate(d.getDate() + 7);
+    else if (recurrence === 'monthly') d.setMonth(d.getMonth() + 1);
+    else break;
+  } while (d.getTime() <= now);
+  return d.getTime();
+}
 
 // ==================== CONVERSAS SILENCIADAS ====================
 const MUTED_FILE = path.join(__dirname, 'muted.json');
@@ -3562,16 +3576,18 @@ io.on('connection', (socket) => {
   });
 
   // ==================== MENSAGENS AGENDADAS ====================
+  const VALID_RECURRENCES = ['daily', 'weekly', 'monthly'];
   socket.on('schedule_message', (data) => {
     const myPhone = users[socket.id]?.phone;
-    const { chatId, text, sendAt, toPhone, fileData, fileName, fileType, transcript } = data || {};
+    const { chatId, text, sendAt, toPhone, fileData, fileName, fileType, transcript, recurrence } = data || {};
     if (!myPhone || !chatId || !sendAt || (!text && !fileData)) return;
     if (!groups[chatId] && !isDmRoomAllowedForPhone(myPhone, chatId)) return;
     const entry = {
       id: 'sc' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       chatId, senderPhone: myPhone, senderName: users[socket.id]?.name || 'Alguém',
       toPhone: toPhone || null, text: (text || '').substring(0, 2000), sendAt: Number(sendAt),
-      fileData: fileData || null, fileName: fileName || null, fileType: fileType || null, transcript: transcript || null
+      fileData: fileData || null, fileName: fileName || null, fileType: fileType || null, transcript: transcript || null,
+      recurrence: VALID_RECURRENCES.includes(recurrence) ? recurrence : null
     };
     scheduledMessages.push(entry);
     saveScheduledLocal();
@@ -4370,12 +4386,20 @@ connectDatabase().then(async () => {
     });
   }, 30 * 60 * 1000);
 
-  // Mensagens agendadas: dispara as que já chegaram à hora marcada.
+  // Mensagens agendadas: dispara as que já chegaram à hora marcada. As recorrentes
+  // não são removidas depois de disparar — ficam com o próximo horário calculado
+  // (ver nextRecurrenceTime), continuando na lista para a próxima ocorrência.
   setInterval(async () => {
     const now = Date.now();
     const due = scheduledMessages.filter((s) => s.sendAt <= now);
     if (!due.length) return;
     scheduledMessages = scheduledMessages.filter((s) => s.sendAt > now);
+    due.forEach((s) => {
+      if (s.recurrence) {
+        s.sendAt = nextRecurrenceTime(s.sendAt, s.recurrence, now);
+        scheduledMessages.push(s);
+      }
+    });
     saveScheduledLocal();
     for (const s of due) {
       const msgData = {
