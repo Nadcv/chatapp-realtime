@@ -2333,7 +2333,54 @@
                 </label>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="cancelAttachmentPreview()">Cancelar</button>
+                    <button class="btn-small" onclick="openPhotoEditor()">✏️ Editar</button>
                     <button class="btn-small" onclick="confirmSendAttachment()">Enviar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ EDITOR DE FOTO (cortar/desenhar/texto/emoji antes de enviar) ============ -->
+        <div class="modal-overlay" id="modalPhotoEditor" style="z-index:300;">
+            <div class="modal" style="max-width:480px;">
+                <h3>✏️ Editar foto</h3>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                    <button class="btn-small" id="peToolCrop" onclick="setPhotoEditorTool('crop')">✂️ Cortar</button>
+                    <button class="btn-small" id="peToolDraw" onclick="setPhotoEditorTool('draw')">✏️ Desenhar</button>
+                    <button class="btn-small" id="peToolText" onclick="setPhotoEditorTool('text')">🔤 Texto</button>
+                    <button class="btn-small" id="peToolEmoji" onclick="setPhotoEditorTool('emoji')">😀 Emoji</button>
+                </div>
+                <div id="peDrawOptions" style="display:none;gap:6px;align-items:center;margin-bottom:8px;">
+                    <input type="color" id="peColor" value="#ff0000" style="width:32px;height:28px;padding:0;border:none;">
+                    <input type="range" id="peBrushSize" min="2" max="20" value="5" style="flex:1;">
+                </div>
+                <div id="peEmojiOptions" style="display:none;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('😀')" style="font-size:16px;padding:4px 8px;">😀</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('😂')" style="font-size:16px;padding:4px 8px;">😂</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('❤️')" style="font-size:16px;padding:4px 8px;">❤️</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('👍')" style="font-size:16px;padding:4px 8px;">👍</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('🔥')" style="font-size:16px;padding:4px 8px;">🔥</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('🎉')" style="font-size:16px;padding:4px 8px;">🎉</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('😢')" style="font-size:16px;padding:4px 8px;">😢</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('😮')" style="font-size:16px;padding:4px 8px;">😮</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('🙏')" style="font-size:16px;padding:4px 8px;">🙏</button>
+                    <button class="btn-small" onclick="selectPhotoEditorEmoji('💯')" style="font-size:16px;padding:4px 8px;">💯</button>
+                </div>
+                <div id="peCropOptions" style="display:none;margin-bottom:8px;">
+                    <button class="btn-small btn-accept" onclick="applyPhotoEditorCrop()">Aplicar corte</button>
+                    <span style="font-size:11px;color:var(--text-secondary);">Arrasta na imagem para escolher a área</span>
+                </div>
+                <div style="max-width:100%;overflow:auto;text-align:center;background:#111;border-radius:8px;">
+                    <canvas id="photoEditorCanvas" style="max-width:100%;touch-action:none;cursor:crosshair;"></canvas>
+                </div>
+                <div class="modal-actions" style="justify-content:space-between;">
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn-small" onclick="undoPhotoEdit()">↩️ Desfazer</button>
+                        <button class="btn-small" onclick="resetPhotoEdit()">🔄 Repor original</button>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn-small" onclick="closeModal('modalPhotoEditor')">Cancelar</button>
+                        <button class="btn-small btn-accept" onclick="savePhotoEdit()">Guardar</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -9382,6 +9429,166 @@
         closeModal('modalAttachmentPreview');
         sendAttachmentMessage(pending.dataUrl, pending.fileName, pending.fileType, null, viewOnce);
     }
+
+    // ==================== EDITOR DE FOTO ANTES DE ENVIAR ====================
+    // Tudo feito no browser, em cima da imagem já escolhida (APP.pendingAttachment) — ao
+    // gravar, só substitui o dataUrl pendente; o resto do fluxo de envio (pré-visualização,
+    // "ver uma vez", upload) continua exatamente igual, uma foto editada não se distingue
+    // de uma não editada a partir daí. Nomes com o prefixo "photoEditor"/"PHOTO_EDITOR" de
+    // propósito, para não colidir com o quadro branco partilhado (outro <canvas> já existente).
+    const PHOTO_EDITOR = {
+        canvas: null, ctx: null, tool: null, originalDataUrl: null, selectedEmoji: null,
+        history: [], drawing: false, lastX: 0, lastY: 0, cropStart: null, cropRect: null, cropSnapshot: null,
+        eventsInitialized: false
+    };
+    function openPhotoEditor() {
+        const pending = APP.pendingAttachment;
+        if (!pending) return;
+        PHOTO_EDITOR.originalDataUrl = pending.dataUrl;
+        PHOTO_EDITOR.history = [];
+        PHOTO_EDITOR.cropRect = null;
+        setPhotoEditorTool(null);
+        document.getElementById('modalPhotoEditor').classList.add('active');
+        loadImageIntoPhotoEditor(pending.dataUrl);
+        if (!PHOTO_EDITOR.eventsInitialized) { initPhotoEditorCanvasEvents(); PHOTO_EDITOR.eventsInitialized = true; }
+    }
+    function loadImageIntoPhotoEditor(dataUrl) {
+        const canvas = document.getElementById('photoEditorCanvas');
+        const img = new Image();
+        img.onload = () => {
+            // Limita o tamanho de trabalho para não travar com fotos enormes de telemóvel
+            const maxDim = 900;
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            PHOTO_EDITOR.canvas = canvas;
+            PHOTO_EDITOR.ctx = canvas.getContext('2d');
+            PHOTO_EDITOR.ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = dataUrl;
+    }
+    function setPhotoEditorTool(tool) {
+        PHOTO_EDITOR.tool = tool;
+        PHOTO_EDITOR.selectedEmoji = null;
+        PHOTO_EDITOR.cropRect = null;
+        ['Crop', 'Draw', 'Text', 'Emoji'].forEach(t => document.getElementById('peTool' + t).classList.remove('btn-accept'));
+        if (tool) document.getElementById('peTool' + tool.charAt(0).toUpperCase() + tool.slice(1)).classList.add('btn-accept');
+        document.getElementById('peDrawOptions').style.display = tool === 'draw' ? 'flex' : 'none';
+        document.getElementById('peEmojiOptions').style.display = tool === 'emoji' ? 'flex' : 'none';
+        document.getElementById('peCropOptions').style.display = tool === 'crop' ? 'block' : 'none';
+    }
+    function selectPhotoEditorEmoji(emoji) { PHOTO_EDITOR.selectedEmoji = emoji; }
+    // Guarda um "antes" (como imagem, não só pixels) para o desfazer conseguir repor também
+    // as dimensões do canvas — importante depois de um corte, que muda o tamanho da tela.
+    function pushPhotoEditorHistory() {
+        PHOTO_EDITOR.history.push(PHOTO_EDITOR.canvas.toDataURL());
+        if (PHOTO_EDITOR.history.length > 20) PHOTO_EDITOR.history.shift();
+    }
+    function undoPhotoEdit() {
+        if (!PHOTO_EDITOR.history.length) return;
+        const prev = PHOTO_EDITOR.history.pop();
+        const img = new Image();
+        img.onload = () => {
+            PHOTO_EDITOR.canvas.width = img.width;
+            PHOTO_EDITOR.canvas.height = img.height;
+            PHOTO_EDITOR.ctx.drawImage(img, 0, 0);
+        };
+        img.src = prev;
+    }
+    function resetPhotoEdit() {
+        PHOTO_EDITOR.history = [];
+        loadImageIntoPhotoEditor(PHOTO_EDITOR.originalDataUrl);
+    }
+    // Converte a posição do rato/toque (em pixels do ecrã) para pixels reais do canvas —
+    // preciso porque o canvas é mostrado redimensionado (max-width:100%) mas os desenhos
+    // têm de acertar nos pixels verdadeiros da imagem, não nos do ecrã.
+    function photoEditorCanvasPos(e) {
+        const canvas = PHOTO_EDITOR.canvas;
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) * (canvas.width / rect.width),
+            y: (e.clientY - rect.top) * (canvas.height / rect.height)
+        };
+    }
+    function initPhotoEditorCanvasEvents() {
+        const canvas = document.getElementById('photoEditorCanvas');
+        canvas.addEventListener('pointerdown', (e) => {
+            if (!PHOTO_EDITOR.tool) return;
+            const pos = photoEditorCanvasPos(e);
+            if (PHOTO_EDITOR.tool === 'draw') {
+                pushPhotoEditorHistory();
+                PHOTO_EDITOR.drawing = true;
+                PHOTO_EDITOR.lastX = pos.x;
+                PHOTO_EDITOR.lastY = pos.y;
+            } else if (PHOTO_EDITOR.tool === 'crop') {
+                PHOTO_EDITOR.cropStart = pos;
+                PHOTO_EDITOR.cropSnapshot = PHOTO_EDITOR.ctx.getImageData(0, 0, PHOTO_EDITOR.canvas.width, PHOTO_EDITOR.canvas.height);
+            } else if (PHOTO_EDITOR.tool === 'text') {
+                const text = prompt('Escreve o texto:');
+                if (text) {
+                    pushPhotoEditorHistory();
+                    PHOTO_EDITOR.ctx.fillStyle = document.getElementById('peColor').value;
+                    PHOTO_EDITOR.ctx.font = '28px sans-serif';
+                    PHOTO_EDITOR.ctx.fillText(text, pos.x, pos.y);
+                }
+            } else if (PHOTO_EDITOR.tool === 'emoji' && PHOTO_EDITOR.selectedEmoji) {
+                pushPhotoEditorHistory();
+                PHOTO_EDITOR.ctx.font = '48px sans-serif';
+                PHOTO_EDITOR.ctx.fillText(PHOTO_EDITOR.selectedEmoji, pos.x, pos.y);
+            }
+        });
+        canvas.addEventListener('pointermove', (e) => {
+            const pos = photoEditorCanvasPos(e);
+            if (PHOTO_EDITOR.tool === 'draw' && PHOTO_EDITOR.drawing) {
+                const ctx = PHOTO_EDITOR.ctx;
+                ctx.strokeStyle = document.getElementById('peColor').value;
+                ctx.lineWidth = document.getElementById('peBrushSize').value;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(PHOTO_EDITOR.lastX, PHOTO_EDITOR.lastY);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.stroke();
+                PHOTO_EDITOR.lastX = pos.x;
+                PHOTO_EDITOR.lastY = pos.y;
+            } else if (PHOTO_EDITOR.tool === 'crop' && PHOTO_EDITOR.cropStart) {
+                // Repõe a imagem limpa (sem o retângulo de seleção anterior) e desenha-o
+                // de novo na posição atual — nunca "suja" o canvas de forma permanente.
+                PHOTO_EDITOR.ctx.putImageData(PHOTO_EDITOR.cropSnapshot, 0, 0);
+                PHOTO_EDITOR.ctx.strokeStyle = '#00ff00';
+                PHOTO_EDITOR.ctx.lineWidth = 2;
+                PHOTO_EDITOR.ctx.strokeRect(PHOTO_EDITOR.cropStart.x, PHOTO_EDITOR.cropStart.y, pos.x - PHOTO_EDITOR.cropStart.x, pos.y - PHOTO_EDITOR.cropStart.y);
+            }
+        });
+        canvas.addEventListener('pointerup', (e) => {
+            if (PHOTO_EDITOR.tool === 'draw') PHOTO_EDITOR.drawing = false;
+            if (PHOTO_EDITOR.tool === 'crop' && PHOTO_EDITOR.cropStart) {
+                const pos = photoEditorCanvasPos(e);
+                const x = Math.min(PHOTO_EDITOR.cropStart.x, pos.x), y = Math.min(PHOTO_EDITOR.cropStart.y, pos.y);
+                const w = Math.abs(pos.x - PHOTO_EDITOR.cropStart.x), h = Math.abs(pos.y - PHOTO_EDITOR.cropStart.y);
+                PHOTO_EDITOR.ctx.putImageData(PHOTO_EDITOR.cropSnapshot, 0, 0); // tira o retângulo da vista, só fica guardado em cropRect
+                PHOTO_EDITOR.cropRect = { x, y, w, h };
+                PHOTO_EDITOR.cropStart = null;
+            }
+        });
+    }
+    function applyPhotoEditorCrop() {
+        const rect = PHOTO_EDITOR.cropRect;
+        if (!rect || rect.w < 5 || rect.h < 5) return alert('Arrasta na imagem para escolher a área a cortar primeiro.');
+        pushPhotoEditorHistory();
+        const imgData = PHOTO_EDITOR.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
+        PHOTO_EDITOR.canvas.width = rect.w;
+        PHOTO_EDITOR.canvas.height = rect.h;
+        PHOTO_EDITOR.ctx.putImageData(imgData, 0, 0);
+        PHOTO_EDITOR.cropRect = null;
+    }
+    function savePhotoEdit() {
+        const dataUrl = PHOTO_EDITOR.canvas.toDataURL('image/png');
+        APP.pendingAttachment.dataUrl = dataUrl;
+        APP.pendingAttachment.fileType = 'image/png';
+        document.getElementById('viewOncePreviewImg').src = dataUrl;
+        closeModal('modalPhotoEditor');
+    }
+
     // Só quem recebe é que perde o acesso à foto depois de a abrir uma vez — quem
     // envia mantém sempre o seu próprio ficheiro (é a foto que a própria pessoa
     // tirou/escolheu, não faz sentido escondê-la de quem a enviou).
