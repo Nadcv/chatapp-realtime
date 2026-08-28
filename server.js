@@ -2483,6 +2483,23 @@ function sanitizeUnoGame(game, forPhone) {
   if (forPhone && game.players.includes(forPhone)) sanitized.myHand = hands[forPhone];
   return sanitized;
 }
+// Enquetes com "esconder resultados até votar": cada destinatário só vê os
+// votos reais depois de ter votado (ou depois de a votação encerrar, altura
+// em que esconder deixa de fazer sentido). Antes disso os votos vêm sempre
+// vazios — a contagem real nunca chega ao browser de quem ainda não votou,
+// para não dar para ver os resultados só a abrir as ferramentas de developer.
+function sanitizePollForViewer(poll, phone) {
+  if (!poll?.hideUntilVoted) return poll;
+  // 'resultsHiddenForViewer' é sempre recalculado e sobreposto aqui (nunca
+  // apenas acrescentado quando escondido) porque o objeto guardado no
+  // servidor é o mesmo para todos os destinatários — sem isto, a "memória"
+  // de quando a enquete foi criada (antes de haver qualquer voto) ficava
+  // presa nela para sempre, mesmo depois de a pessoa já ter votado.
+  const isExpired = !!(poll.expiresAt && Date.now() > poll.expiresAt);
+  const hasVoted = poll.options.some((o) => o.votes.includes(phone));
+  if (isExpired || hasVoted) return { ...poll, resultsHiddenForViewer: false };
+  return { ...poll, options: poll.options.map((o) => ({ text: o.text, votes: [] })), resultsHiddenForViewer: true };
+}
 function ensureUnoDrawPile(game, needed) {
   while (game.drawPile.length < needed && game.discardPile.length > 1) {
     const top = game.discardPile.pop();
@@ -2822,7 +2839,11 @@ io.on('connection', (socket) => {
     // Mensagens de UNO guardam a mão de cada jogador — nunca podem ir tal e
     // qual para quem está a entrar na sala, senão qualquer pessoa via as
     // cartas de toda a gente só de abrir a conversa/grupo.
-    const history = (messagesByRoom[roomId] || []).map((m) => (m.game?.type === 'uno' ? { ...m, game: sanitizeUnoGame(m.game, user.phone) } : m));
+    const history = (messagesByRoom[roomId] || []).map((m) => {
+      if (m.game?.type === 'uno') return { ...m, game: sanitizeUnoGame(m.game, user.phone) };
+      if (m.poll) return { ...m, poll: sanitizePollForViewer(m.poll, user.phone) };
+      return m;
+    });
     socket.emit('room_history', { chatId: roomId, messages: history });
     // Aproveita a entrada na sala para sincronizar o estado dessa conversa que
     // não vem no histórico de mensagens: mensagem fixada e mensagens temporárias.
@@ -3027,7 +3048,10 @@ io.on('connection', (socket) => {
     } else {
       saveMessagesLocal();
     }
-    io.to(data.chatId).emit('poll_updated', { chatId: data.chatId, messageId: data.messageId, poll: msg.poll });
+    (io.sockets.adapter.rooms.get(data.chatId) || []).forEach((sid) => {
+      const viewerPhone = users[sid]?.phone;
+      io.to(sid).emit('poll_updated', { chatId: data.chatId, messageId: data.messageId, poll: sanitizePollForViewer(msg.poll, viewerPhone) });
+    });
   });
 
   // Jogo do galo dentro de uma conversa 1-para-1 — X é sempre quem começou o

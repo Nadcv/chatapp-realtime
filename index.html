@@ -1832,6 +1832,9 @@
                     <option value="259200000">Daqui a 3 dias</option>
                     <option value="604800000">Daqui a 7 dias</option>
                 </select>
+                <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:12px;">
+                    <input type="checkbox" id="pollHideResultsInput"> 🙈 Esconder resultados até eu votar
+                </label>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalCreatePoll')">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="sendPoll()">Criar</button>
@@ -9911,6 +9914,7 @@
             <input type="text" class="poll-option-input" placeholder="Opção 1">
             <input type="text" class="poll-option-input" placeholder="Opção 2">`;
         document.getElementById('pollExpirySelect').value = '0';
+        document.getElementById('pollHideResultsInput').checked = false;
         document.getElementById('modalCreatePoll').classList.add('active');
     }
     // Atalho de "RSVP": um evento é só uma enquete normal com as opções já
@@ -9924,6 +9928,7 @@
             <input type="text" class="poll-option-input" value="❌ Não vou">
             <input type="text" class="poll-option-input" value="🤔 Talvez">`;
         document.getElementById('pollExpirySelect').value = '0';
+        document.getElementById('pollHideResultsInput').checked = false;
         document.getElementById('modalCreatePoll').classList.add('active');
     }
     function addPollOptionInput() {
@@ -9948,7 +9953,12 @@
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         const expiryMs = parseInt(document.getElementById('pollExpirySelect').value) || 0;
-        const poll = { question, options: options.map(text => ({ text, votes: [] })), expiresAt: expiryMs ? Date.now() + expiryMs : null };
+        const hideUntilVoted = document.getElementById('pollHideResultsInput').checked;
+        // 'resultsHiddenForViewer' aqui é só para a exibição otimista imediata de quem
+        // acabou de criar a enquete (ainda sem ter votado) — o servidor recalcula este
+        // campo sempre que reenvia a enquete (ver sanitizePollForViewer), por isso não há
+        // como ficar preso neste estado depois de a pessoa votar.
+        const poll = { question, options: options.map(text => ({ text, votes: [] })), expiresAt: expiryMs ? Date.now() + expiryMs : null, hideUntilVoted, resultsHiddenForViewer: hideUntilVoted };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text: '', time, type: 'sent', poll, read: false });
         renderMessages();
@@ -9970,25 +9980,34 @@
         const isExpired = !!(poll.expiresAt && Date.now() > poll.expiresAt);
         const totalVotes = poll.options.reduce((sum, o) => sum + o.votes.length, 0);
         const myVoteIndex = poll.options.findIndex(o => o.votes.includes(APP.user.phone));
+        // Quando a enquete tem "esconder resultados até votar" e ainda não votámos, o
+        // servidor já nem sequer envia os votos reais (ver sanitizePollForViewer) — aqui
+        // só se decide como apresentar isso, a segurança da coisa é toda do lado do servidor.
+        const resultsHidden = !!poll.resultsHiddenForViewer;
         const optionsHtml = poll.options.map((opt, i) => {
             const pct = totalVotes ? Math.round((opt.votes.length / totalVotes) * 100) : 0;
             const isMine = i === myVoteIndex;
+            const barWidth = resultsHidden ? 0 : pct;
+            const resultLabel = resultsHidden ? '' : `<span style="flex-shrink:0;">${pct}% (${opt.votes.length})</span>`;
             return `
                 <div ${isExpired ? '' : `onclick="votePoll('${msg.id}', ${i})"`} style="cursor:${isExpired ? 'default' : 'pointer'};opacity:${isExpired ? 0.7 : 1};margin:6px 0;padding:8px 10px;border-radius:8px;background:${isMine ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isMine ? 'var(--green)' : 'transparent'};position:relative;overflow:hidden;">
-                    <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(255,255,255,0.1);z-index:0;"></div>
+                    <div style="position:absolute;left:0;top:0;bottom:0;width:${barWidth}%;background:rgba(255,255,255,0.1);z-index:0;"></div>
                     <div style="position:relative;z-index:1;display:flex;justify-content:space-between;gap:8px;">
                         <span>${isMine ? '✓ ' : ''}${escapeHtml(opt.text)}</span>
-                        <span style="flex-shrink:0;">${pct}% (${opt.votes.length})</span>
+                        ${resultLabel}
                     </div>
                 </div>`;
         }).join('');
         const expiryLine = poll.expiresAt
             ? (isExpired ? '<div style="font-size:10px;color:#e74c3c;margin-top:4px;">🔒 Votação encerrada</div>' : `<div style="font-size:10px;opacity:0.7;margin-top:4px;">⏳ Encerra ${formatPollExpiry(poll.expiresAt)}</div>`)
             : '';
+        const totalVotesLine = resultsHidden
+            ? '<div style="font-size:11px;opacity:0.7;margin-top:4px;">🙈 Os resultados aparecem depois de votares</div>'
+            : `<div style="font-size:11px;opacity:0.7;margin-top:4px;">${totalVotes} voto${totalVotes !== 1 ? 's' : ''}</div>`;
         return `<div style="min-width:200px;">
             <div style="font-weight:600;margin-bottom:6px;">📊 ${escapeHtml(poll.question)}</div>
             ${optionsHtml}
-            <div style="font-size:11px;opacity:0.7;margin-top:4px;">${totalVotes} voto${totalVotes !== 1 ? 's' : ''}</div>
+            ${totalVotesLine}
             ${expiryLine}
         </div>`;
     }
