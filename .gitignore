@@ -22,4 +22,5 @@ shopping-list.json
 reminders.json
 recurring-expenses.json
 scheduled-calls.json
+pinned-chats.json
 package-lock.json
