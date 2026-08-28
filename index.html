@@ -7485,8 +7485,10 @@
             const chat = APP.chats.find(c => c.id === chatId);
             if (!chat) return; // conversa já não existe na lista (ex.: chat da IA usa outro fluxo)
             (msgs || []).forEach(msg => {
-                if (msg.deleted || msg.encrypted || !msg.text) return; // "encrypted" aqui só sobra se não foi possível desencriptar
-                if (msg.text.toLowerCase().includes(query)) results.push({ chat, msg });
+                if (msg.deleted || msg.encrypted) return; // "encrypted" aqui só sobra se não foi possível desencriptar
+                const textMatch = !!msg.text && msg.text.toLowerCase().includes(query);
+                const attachmentMatch = !textMatch && !!msg.attachmentText && msg.attachmentText.toLowerCase().includes(query);
+                if (textMatch || attachmentMatch) results.push({ chat, msg, inAttachment: attachmentMatch });
             });
         });
         results.sort((a, b) => (b.msg.time || '').localeCompare(a.msg.time || ''));
@@ -7496,14 +7498,20 @@
             return;
         }
         const queryRe = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig');
-        resultsEl.innerHTML = top.map(({ chat, msg }) => {
-            const snippetRaw = msg.text.length > 140 ? '…' + msg.text.slice(Math.max(0, msg.text.toLowerCase().indexOf(query) - 40), msg.text.toLowerCase().indexOf(query) + 100) + '…' : msg.text;
+        resultsEl.innerHTML = top.map(({ chat, msg, inAttachment }) => {
+            // Quando a correspondência só existe DENTRO do anexo (não no texto/nome da mensagem em
+            // si), o trecho mostrado vem do conteúdo do documento, com uma etiqueta 📎 a explicar
+            // porque é que aquele resultado apareceu (o utilizador nunca vê o texto do PDF na tela).
+            const source = inAttachment ? msg.attachmentText : msg.text;
+            const idx = source.toLowerCase().indexOf(query);
+            const snippetRaw = source.length > 140 ? '…' + source.slice(Math.max(0, idx - 40), idx + 100) + '…' : source;
             const snippet = escapeHtml(snippetRaw).replace(queryRe, '<mark style="background:rgba(255,193,7,0.5);color:inherit;">$1</mark>');
+            const attachmentBadge = inAttachment ? `<span style="opacity:0.7;">📎 ${escapeHtml(msg.fileName || 'anexo')}: </span>` : '';
             return `<div class="chat-item" style="cursor:pointer;" onclick="jumpToSearchResult('${chat.id}','${msg.id}')">
                 <div class="chat-item-avatar ${chat.type === 'group' ? 'avatar-group' : 'avatar-user'}">${chat.avatar || chat.name.charAt(0)}</div>
                 <div class="chat-item-info">
                     <h4>${escapeHtml(chat.name)}</h4>
-                    <p>${snippet}</p>
+                    <p>${attachmentBadge}${snippet}</p>
                 </div>
                 <div class="chat-item-meta"><span>${msg.time || ''}</span></div>
             </div>`;
@@ -9138,6 +9146,58 @@
         if (APP.currentChatId === data.chatId) renderMessages();
     });
 
+    // ==================== PESQUISA DENTRO DE ANEXOS (PDF/texto) ====================
+    // O pdf.js só é carregado quando é mesmo preciso (mesmo padrão do jsPDF da lista de
+    // compras) — não pesa no carregamento normal da app para quem nunca envia um PDF.
+    let PDFJS_LOAD_PROMISE = null;
+    function ensurePdfJsLoaded() {
+        if (window.pdfjsLib) return Promise.resolve();
+        if (PDFJS_LOAD_PROMISE) return PDFJS_LOAD_PROMISE;
+        PDFJS_LOAD_PROMISE = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+            script.onload = () => {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+                resolve();
+            };
+            script.onerror = () => { PDFJS_LOAD_PROMISE = null; reject(new Error('Não foi possível carregar o leitor de PDF.')); };
+            document.head.appendChild(script);
+        });
+        return PDFJS_LOAD_PROMISE;
+    }
+    const MAX_ATTACHMENT_TEXT_CHARS = 20000; // chega para pesquisar sem guardar o documento inteiro dentro da mensagem
+    // Extrai o texto de PDFs e ficheiros .txt para dar para pesquisar o CONTEÚDO do
+    // anexo na pesquisa global, não só o nome do ficheiro. Word/.docx ainda não têm
+    // suporte (precisava de outra biblioteca só para isso) — fica só o nome pesquisável,
+    // como já era antes desta funcionalidade.
+    async function extractAttachmentText(dataUrl, fileName, fileType) {
+        try {
+            const isPdf = fileType === 'application/pdf' || /\.pdf$/i.test(fileName || '');
+            const isTxt = fileType === 'text/plain' || /\.txt$/i.test(fileName || '');
+            if (!isPdf && !isTxt) return null;
+            const base64 = (dataUrl.split(',')[1] || '');
+            if (isTxt) {
+                return decodeURIComponent(escape(atob(base64))).slice(0, MAX_ATTACHMENT_TEXT_CHARS);
+            }
+            await ensurePdfJsLoaded();
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const pdf = await window.pdfjsLib.getDocument({ data: bytes }).promise;
+            let text = '';
+            for (let p = 1; p <= Math.min(pdf.numPages, 30); p++) { // limite de páginas para não travar em PDFs enormes
+                const page = await pdf.getPage(p);
+                const content = await page.getTextContent();
+                text += content.items.map(it => it.str).join(' ') + '\n';
+                if (text.length > MAX_ATTACHMENT_TEXT_CHARS) break;
+            }
+            return text.trim().slice(0, MAX_ATTACHMENT_TEXT_CHARS) || null;
+        } catch (e) {
+            console.warn('Não foi possível extrair texto do anexo para pesquisa:', e.message);
+            return null;
+        }
+    }
+
     async function sendAttachmentMessage(dataUrl, fileName, fileType, transcript, viewOnce) {
         const now = new Date();
         const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -9145,8 +9205,9 @@
         const isImage = (fileType || '').startsWith('image/');
         const isAudio = (fileType || '').startsWith('audio/');
         const text = viewOnce ? '👁️ Foto (ver uma vez)' : (isImage ? '📷 Foto' : (isAudio ? '🎤 Mensagem de voz' : `📎 ${fileName}`));
+        const attachmentText = viewOnce ? null : await extractAttachmentText(dataUrl, fileName, fileType);
         // Mostra já localmente com o ficheiro original — não espera pelo upload para dar feedback instantâneo
-        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null, viewOnce: !!viewOnce };
+        const payload = { id: msgId, sender: 'Você', text, time, type: 'sent', read: false, fileData: dataUrl, fileName, fileType, transcript: transcript || null, viewOnce: !!viewOnce, attachmentText };
         if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
         APP.messages[APP.currentChatId].push(payload);
         renderMessages();
@@ -9176,7 +9237,7 @@
         socket.emit('send_message', {
             id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone,
             toPhone: chat.type === 'user' ? chat.phone : undefined,
-            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null, viewOnce: !!viewOnce
+            text, time, fileData: outgoingFileData, fileName, fileType, transcript: transcript || null, viewOnce: !!viewOnce, attachmentText
         });
     }
 
