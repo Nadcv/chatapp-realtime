@@ -430,6 +430,14 @@ Novo botão 📢 no cabeçalho, com aba própria. Cria uma lista com vários con
 - As tuas listas ficam guardadas no servidor associadas ao teu número — aparecem em qualquer sessão onde entres
 - Tecnicamente não cria nenhuma sala nova: ao enviar, o cliente reaproveita o envio normal de mensagem 1-para-1 (incluindo a encriptação ponta-a-ponta quando o contacto a suporta) uma vez por cada membro da lista — por isso não é pensado para listas muito grandes, já que N destinatários geram N mensagens/notificações individuais
 
+## ↪️ Encaminhar mensagens
+
+Um novo botão "↪️" junto às outras ações de uma mensagem (Responder, Reagir, Traduzir, Fixar) abre um seletor com todas as tuas conversas 1-para-1 e grupos — escolhe uma ou várias, e a mensagem é reenviada para lá tal como se a tivesses escrito de novo, com uma etiqueta "↪️ Encaminhada" a identificá-la.
+
+- Não pede nada ao servidor para "ir buscar" a mensagem — reaproveita o conteúdo já carregado no teu ecrã (incluindo o texto já desencriptado, se vier de uma conversa 1-para-1 com E2EE), e volta a encriptar de novo para quem tiver chave pública, exatamente como já faz o envio para uma lista de transmissão
+- Funciona para texto e para fotos/vídeos/áudios/documentos; **não está disponível** para enquetes, jogos, despesas, listas de compras partilhadas ou fotos "ver uma vez" — são conteúdos com estado próprio (votos, jogadas, ou já vistos/desaparecidos) que não fazem sentido copiados para outra conversa
+- A mensagem original nunca é alterada — só a cópia enviada é que fica marcada como encaminhada
+
 ## 📺 TV em Direto (notícias) + 🎬 Filmes por género
 
 Novo botão 📺 no cabeçalho, com aba própria e duas categorias:
