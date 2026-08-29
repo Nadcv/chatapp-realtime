@@ -3121,6 +3121,19 @@
             </div>
         </div>
 
+        <!-- ============ ENCAMINHAR MENSAGEM ============ -->
+        <div class="modal-overlay" id="modalForwardMessage" style="z-index:200;">
+            <div class="modal">
+                <h3>↪️ Encaminhar mensagem</h3>
+                <p class="member-count">Escolhe para onde encaminhar (podes escolher mais do que uma):</p>
+                <div id="forwardTargetPicker" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalForwardMessage')">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="confirmForwardMessage()">Encaminhar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ============ BLOQUEAR / DENUNCIAR ============ -->
         <div class="modal-overlay" id="modalBlockUser">
             <div class="modal">
@@ -7491,6 +7504,60 @@
         alert(`Mensagem enviada para ${sent} contacto${sent === 1 ? '' : 's'} da lista "${list.name}".`);
     }
 
+    // ==================== ENCAMINHAR MENSAGEM ====================
+    // Reaproveita a mensagem já carregada em APP.messages (com o texto já desencriptado,
+    // se vier de uma conversa 1-para-1 com E2EE) — não pede nada novo ao servidor, só
+    // reenvia o mesmo conteúdo como uma mensagem nova em cada conversa escolhida,
+    // encriptando de novo para quem tiver chave pública (tal como já faz o envio para
+    // uma lista de transmissão, ver sendBroadcastMessage acima).
+    let APP_FORWARD_MSG_ID = null;
+    function openForwardMessageModal(msgId) {
+        APP_FORWARD_MSG_ID = msgId;
+        const picker = document.getElementById('forwardTargetPicker');
+        const targets = APP.chats.filter(c => c.type === 'user' || c.type === 'group');
+        picker.innerHTML = targets.length ? targets.map(c => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">
+                <input type="checkbox" value="${c.id}">
+                <span>${c.type === 'group' ? '👥 ' : ''}${escapeHtml(c.name)}</span>
+            </label>`).join('') : '<p style="color:#8696a0;text-align:center;">Sem conversas disponíveis</p>';
+        document.getElementById('modalForwardMessage').classList.add('active');
+    }
+    async function confirmForwardMessage() {
+        const msgId = APP_FORWARD_MSG_ID;
+        const msg = (APP.messages[APP.currentChatId] || []).find(m => m.id === msgId);
+        const targetIds = [...document.querySelectorAll('#forwardTargetPicker input:checked')].map(i => i.value);
+        if (!msg) { closeModal('modalForwardMessage'); return; }
+        if (!targetIds.length) return alert('Escolhe pelo menos uma conversa.');
+        closeModal('modalForwardMessage');
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        let sent = 0;
+        for (const targetId of targetIds) {
+            const chat = APP.chats.find(c => c.id === targetId);
+            if (!chat) continue;
+            const newId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            const localMsg = {
+                id: newId, sender: 'Você', text: msg.text || '', time, type: 'sent', read: false, forwarded: true,
+                fileData: msg.fileData || null, fileName: msg.fileName || null, fileType: msg.fileType || null, transcript: msg.transcript || null
+            };
+            if (!APP.messages[targetId]) APP.messages[targetId] = [];
+            APP.messages[targetId].push(localMsg);
+            let outgoing = { ...localMsg, chatId: targetId, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined };
+            delete outgoing.read; // campo só de uso local, não faz parte da mensagem em si
+            // Anexos nunca são encriptados nesta app (ver limitações do E2EE no README) — só
+            // faz sentido tentar encriptar quando é texto puro.
+            if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk && !msg.fileData) {
+                await e2eeReadyPromise;
+                const enc = await encryptFor(chat.phone, chat.publicKey, msg.text || '');
+                if (enc) outgoing = { ...outgoing, text: '🔒 Mensagem encriptada', encrypted: true, iv: enc.iv, data: enc.data };
+            }
+            socket.emit('send_message', outgoing);
+            sent++;
+        }
+        renderChatList();
+        if (APP.currentChatId) renderMessages();
+        alert(`Mensagem encaminhada para ${sent} conversa${sent === 1 ? '' : 's'}.`);
+    }
+
     // ==================== BLOQUEAR / DENUNCIAR ====================
     APP.blockedUsers = new Set();
     socket.on('blocked_list', (list) => { APP.blockedUsers = new Set(list || []); updateBlockButton(); });
@@ -9333,6 +9400,11 @@
             const isPinned = (APP.pinnedByChatId[APP.currentChatId] || []).some(p => p.messageId === msg.id);
             const pinnedLabel = isPinned ? '<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">📌 Fixada</div>' : '';
             const topicLabel = (msg.topic && !activeTopic) ? `<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">🗂️ ${escapeHtml(msg.topic)}</div>` : '';
+            const forwardedLabel = msg.forwarded ? '<div style="font-size:10px;opacity:0.7;margin-bottom:2px;">↪️ Encaminhada</div>' : '';
+            // Enquetes, jogos, despesas, listas de compras e fotos "ver uma vez" não fazem
+            // sentido encaminhados (têm estado próprio, ou já desapareceram) — só conteúdo
+            // "estático" (texto, foto/vídeo/áudio/documento normal) pode ser encaminhado.
+            const canForward = !msg.deleted && !msg.poll && !msg.game && !msg.expense && !msg.shoppingList && !msg.viewOnce;
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
             const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
@@ -9344,6 +9416,7 @@
                 ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
                 ${pinnedLabel}
                 ${topicLabel}
+                ${forwardedLabel}
                 ${replyHtml}
                 ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.expense ? renderExpense(msg) : (msg.shoppingList ? renderSharedShoppingList(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId))))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
@@ -9353,6 +9426,7 @@
                 <div class="time">
                     ${!msg.deleted ? `
                     <button onclick="replyToMessage('${msg.id}')" title="Responder" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↩️</button>
+                    ${canForward ? `<button onclick="openForwardMessageModal('${msg.id}')" title="Encaminhar" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">↪️</button>` : ''}
                     <button onclick="toggleReactionPicker('${msg.id}', this)" title="Reagir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">😀</button>
                     <button onclick="translateMsg('${msg.id}', this)" title="Traduzir" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">🌐</button>
                     <button onclick="${isPinned ? `unpinMessage('${msg.id}')` : `pinMessage('${msg.id}')`}" title="${isPinned ? 'Desafixar' : 'Fixar'}" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 3px;vertical-align:middle;">📌</button>
