@@ -804,9 +804,47 @@ function parseCsv(text) {
     return row;
   });
 }
+// A fonte antiga (dados.gov.pt / transporlis.pt) está morta há muito tempo — o arquivo
+// da Mobility Database mostrou que já devolvia um feed GTFS vazio em abril de 2024. Em
+// alternativa, se houver um MOBILITY_DB_REFRESH_TOKEN configurado, descobrimos aqui a
+// URL do ficheiro mais recente através da API pública da Mobility Database
+// (https://mobilitydatabase.org), que MobilityData mantém atualizada de forma independente.
+const MOBILITY_DB_FEED_ID = process.env.MOBILITY_DB_FEED_ID || 'mdb-1037';
+let mobilityDbAccessToken = null;
+let mobilityDbAccessTokenExpiresAt = 0;
+async function getMobilityDbAccessToken() {
+  if (mobilityDbAccessToken && Date.now() < mobilityDbAccessTokenExpiresAt) return mobilityDbAccessToken;
+  const refreshToken = process.env.MOBILITY_DB_REFRESH_TOKEN;
+  const resp = await fetch('https://api.mobilitydatabase.org/v1/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken })
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na Mobility Database — o MOBILITY_DB_REFRESH_TOKEN pode estar errado ou ter sido revogado.`);
+  const data = await resp.json();
+  if (!data.access_token) throw new Error('A Mobility Database não devolveu um access_token.');
+  mobilityDbAccessToken = data.access_token;
+  mobilityDbAccessTokenExpiresAt = Date.now() + 55 * 60 * 1000; // o token real dura 1h; renovamos com 5 min de margem
+  return mobilityDbAccessToken;
+}
+async function resolveGtfsUrl() {
+  if (process.env.CP_GTFS_URL) return process.env.CP_GTFS_URL;
+  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) {
+    throw new Error('Falta configurar CP_GTFS_URL ou MOBILITY_DB_REFRESH_TOKEN (ver README, secção "Horários da CP").');
+  }
+  const token = await getMobilityDbAccessToken();
+  const resp = await fetch(`https://api.mobilitydatabase.org/v1/gtfs_feeds/${MOBILITY_DB_FEED_ID}/datasets?latest=true`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao consultar a Mobility Database`);
+  const datasets = await resp.json();
+  const latest = Array.isArray(datasets) ? datasets[0] : null;
+  if (!latest || !latest.hosted_url) throw new Error(`A Mobility Database não tem nenhum ficheiro disponível para o feed "${MOBILITY_DB_FEED_ID}".`);
+  return latest.hosted_url;
+}
 async function loadGtfsData() {
   if (!AdmZip) throw new Error('O servidor não tem o pacote "adm-zip" instalado.');
-  const url = process.env.CP_GTFS_URL || 'https://dados.gov.pt/api/1/datasets/r/08538006-a7dc-4811-8439-0c607be4e0d7';
+  const url = await resolveGtfsUrl();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   let resp;
