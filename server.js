@@ -806,7 +806,7 @@ function parseCsv(text) {
 }
 async function loadGtfsData() {
   if (!AdmZip) throw new Error('O servidor não tem o pacote "adm-zip" instalado.');
-  const url = process.env.CP_GTFS_URL || 'https://www.cp.pt/StaticFiles/Institucional/4_desenvolvedores/gtfs/gtfs_cp.zip';
+  const url = process.env.CP_GTFS_URL || 'https://dados.gov.pt/api/1/datasets/r/08538006-a7dc-4811-8439-0c607be4e0d7';
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   let resp;
