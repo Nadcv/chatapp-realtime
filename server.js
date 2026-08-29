@@ -817,7 +817,14 @@ async function loadGtfsData() {
   }
   if (!resp.ok) throw new Error(`HTTP ${resp.status} ao descarregar o GTFS da CP`);
   const buf = Buffer.from(await resp.arrayBuffer());
-  const zip = new AdmZip(buf);
+  const isZip = buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07);
+  if (!isZip) throw new Error(`A resposta de ${url} não é um ficheiro ZIP válido — a variável CP_GTFS_URL provavelmente está desatualizada ou aponta para a página errada (ver README).`);
+  let zip;
+  try {
+    zip = new AdmZip(buf);
+  } catch (err) {
+    throw new Error(`Não foi possível ler o ZIP de ${url}: ${err.message} — a variável CP_GTFS_URL provavelmente está desatualizada (ver README).`);
+  }
   const readCsv = (filename) => {
     const entry = zip.getEntry(filename);
     if (!entry) return [];
