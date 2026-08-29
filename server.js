@@ -983,40 +983,37 @@ app.get('/api/trains/departures', async (req, res) => {
   }
 });
 
-// Estado do serviço do Metro de Lisboa — API oficial (api.metrolisboa.pt), exige registo
-// próprio (portal WSO2 "API Store"). Autenticação OAuth2 client_credentials: o
-// METROLISBOA_BASIC_AUTH (o cabeçalho "Authorization: Basic ..." mostrado no "Show keys"
-// da aplicação criada no portal) troca-se por um token de acesso, válido cerca de 1h.
-let metroLisboaAccessToken = null;
-let metroLisboaAccessTokenExpiresAt = 0;
-async function getMetroLisboaAccessToken() {
-  if (metroLisboaAccessToken && Date.now() < metroLisboaAccessTokenExpiresAt) return metroLisboaAccessToken;
-  const basicAuth = process.env.METROLISBOA_BASIC_AUTH;
-  if (!basicAuth) throw new Error('METROLISBOA_BASIC_AUTH não está definida.');
-  const resp = await fetch('https://api.metrolisboa.pt:8243/token', {
-    method: 'POST',
-    headers: { 'Authorization': basicAuth, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=client_credentials'
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na API do Metro de Lisboa — o METROLISBOA_BASIC_AUTH pode estar errado ou ter sido revogado.`);
-  const data = await resp.json();
-  if (!data.access_token) throw new Error('A API do Metro de Lisboa não devolveu um access_token.');
-  metroLisboaAccessToken = data.access_token;
-  const expiresInMs = (Number(data.expires_in) || 3600) * 1000;
-  metroLisboaAccessTokenExpiresAt = Date.now() + Math.max(expiresInMs - 5 * 60000, 60000); // renova 5 min antes de expirar
-  return metroLisboaAccessToken;
-}
+// Estado do serviço do Metro de Lisboa — a API oficial (api.metrolisboa.pt) bloqueia
+// ligações vindas de servidores na nuvem (confirmado: a ligação é rejeitada mesmo com
+// credenciais corretas, tanto em desenvolvimento como no Railway). Em alternativa, usamos
+// a API pública e gratuita da UnderLX (https://perturbacoes.pt), um projeto da comunidade
+// que trata precisamente das perturbações do Metro de Lisboa (oficiais + reportadas pelos
+// utilizadores) — sem necessidade de registo nem chave.
+const UNDERLX_API_BASE = 'https://api.underlx.com/v1';
 app.get('/api/metro/status', async (req, res) => {
   try {
-    const token = await getMetroLisboaAccessToken();
-    const resp = await fetch('https://api.metrolisboa.pt:8243/estadoServicoML/1.0.1/estadoLinha/todos', {
-      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+    const [linesResp, disturbancesResp] = await Promise.all([
+      fetch(`${UNDERLX_API_BASE}/lines`, { headers: { 'Accept': 'application/json' } }),
+      fetch(`${UNDERLX_API_BASE}/disturbances?filter=ongoing`, { headers: { 'Accept': 'application/json' } })
+    ]);
+    if (!linesResp.ok) throw new Error(`HTTP ${linesResp.status} ao obter as linhas`);
+    if (!disturbancesResp.ok) throw new Error(`HTTP ${disturbancesResp.status} ao obter as perturbações`);
+    const lines = await linesResp.json();
+    const disturbances = await disturbancesResp.json();
+    const descriptionsByLine = new Map();
+    (disturbances || []).forEach((d) => {
+      if (!descriptionsByLine.has(d.line)) descriptionsByLine.set(d.line, []);
+      descriptionsByLine.get(d.line).push(d.description || d.notes || 'Perturbação em curso');
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    res.json(data);
+    const result = (lines || []).map((l) => ({
+      id: l.id,
+      name: l.name,
+      color: l.color,
+      status: descriptionsByLine.has(l.id) ? descriptionsByLine.get(l.id).join('; ') : 'Serviço normal'
+    }));
+    res.json({ lines: result });
   } catch (err) {
-    console.error('Erro API Metro Lisboa:', err.message);
+    console.error('Erro estado Metro Lisboa (UnderLX):', err.message);
     res.status(503).json({ error: 'Não foi possível obter o estado do Metro de Lisboa agora: ' + err.message });
   }
 });
