@@ -811,7 +811,16 @@ async function loadGtfsData() {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   let resp;
   try {
-    resp = await fetch(url, { signal: controller.signal });
+    // O portal dados.gov.pt (e outros à frente de CDNs/gateways) por vezes recusa ou
+    // devolve erro a pedidos que não se pareçam com um browser real — o mesmo problema
+    // já visto nas notícias/pré-visualizações de links, corrigido do mesmo modo.
+    resp = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+        'Accept': 'application/zip,application/octet-stream,*/*'
+      }
+    });
   } finally {
     clearTimeout(timeoutId);
   }
