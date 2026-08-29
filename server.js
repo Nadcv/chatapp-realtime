@@ -17,6 +17,8 @@ try {
   Readability = require('@mozilla/readability').Readability;
   createDOMPurify = require('dompurify');
 } catch (e) { console.warn('⚠️ Pacotes de "modo leitura" (jsdom/readability/dompurify) não instalados — notícias sempre abrem por iframe/link.'); }
+let AdmZip = null;
+try { AdmZip = require('adm-zip'); } catch (e) { console.warn('⚠️ Pacote "adm-zip" não instalado — horários de comboio (GTFS) desativados.'); }
 
 const app = express();
 app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
@@ -751,6 +753,179 @@ app.get('/api/transport/train-stations', async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(502).json({ error: 'Não foi possível obter as estações de comboio.' });
+  }
+});
+
+// ==================== HORÁRIOS DE COMBOIOS (CP) — GTFS ====================
+// As estações acima (Carris Metropolitana) só têm localização, e só cobrem a
+// área de Lisboa — sem horários, e sem o resto do país. A CP não tem posição
+// ao vivo dos comboios disponível gratuitamente, mas publica os HORÁRIOS
+// PROGRAMADOS em formato aberto GTFS (o mesmo formato-padrão usado por
+// transportes públicos no mundo inteiro) através do portal de dados abertos
+// português. Isto descarrega esse ficheiro (um .zip com vários .csv) uma vez
+// por dia, processa-o em memória, e responde a pesquisas de estação/partidas
+// a partir daí — nunca pede nada à CP em tempo real por pedido do utilizador.
+//
+// O URL exato do feed pode mudar sem aviso (é um portal de dados abertos, não
+// uma API versionada) — por isso fica configurável por variável de ambiente
+// (CP_GTFS_URL), com um valor por omissão que pode precisar de atualização;
+// ver README para onde encontrar o link correto se este parar de funcionar.
+const GTFS_TTL_MS = 24 * 60 * 60 * 1000; // os horários da CP não mudam a cada minuto — um dia chega
+let gtfsData = null;
+let gtfsLoadedAt = 0;
+let gtfsLoadPromise = null;
+
+// Parser mínimo de uma linha CSV do GTFS — sem bibliotecas extra só para isto.
+// Só trata aspas simples à volta de campos com vírgulas lá dentro (o suficiente
+// para o GTFS real, que não costuma ter quebras de linha dentro de um campo).
+function parseCsvLine(line) {
+  const fields = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; }
+      else cur += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { fields.push(cur); cur = ''; }
+    else cur += c;
+  }
+  fields.push(cur);
+  return fields;
+}
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.length);
+  if (!lines.length) return [];
+  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (values[i] || '').trim(); });
+    return row;
+  });
+}
+async function loadGtfsData() {
+  if (!AdmZip) throw new Error('O servidor não tem o pacote "adm-zip" instalado.');
+  const url = process.env.CP_GTFS_URL || 'https://www.cp.pt/StaticFiles/Institucional/4_desenvolvedores/gtfs/gtfs_cp.zip';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  let resp;
+  try {
+    resp = await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao descarregar o GTFS da CP`);
+  const buf = Buffer.from(await resp.arrayBuffer());
+  const zip = new AdmZip(buf);
+  const readCsv = (filename) => {
+    const entry = zip.getEntry(filename);
+    if (!entry) return [];
+    return parseCsv(zip.readAsText(entry));
+  };
+
+  const stops = new Map(); // stop_id -> {id, name, lat, lon}
+  readCsv('stops.txt').forEach((r) => {
+    if (!r.stop_id) return;
+    stops.set(r.stop_id, { id: r.stop_id, name: r.stop_name || r.stop_id, lat: Number(r.stop_lat), lon: Number(r.stop_lon) });
+  });
+
+  const routes = new Map(); // route_id -> {shortName, longName}
+  readCsv('routes.txt').forEach((r) => {
+    if (!r.route_id) return;
+    routes.set(r.route_id, { shortName: r.route_short_name || '', longName: r.route_long_name || '' });
+  });
+
+  const trips = new Map(); // trip_id -> {routeId, serviceId, headsign}
+  readCsv('trips.txt').forEach((r) => {
+    if (!r.trip_id) return;
+    trips.set(r.trip_id, { routeId: r.route_id, serviceId: r.service_id, headsign: r.trip_headsign || '' });
+  });
+
+  const calendar = new Map(); // service_id -> {days:[dom..sáb], start, end}
+  readCsv('calendar.txt').forEach((r) => {
+    if (!r.service_id) return;
+    calendar.set(r.service_id, {
+      days: [r.sunday, r.monday, r.tuesday, r.wednesday, r.thursday, r.friday, r.saturday].map((v) => v === '1'),
+      start: r.start_date, end: r.end_date
+    });
+  });
+  const calendarExceptions = new Map(); // service_id -> Map(YYYYMMDD -> 1 adicionado | 2 removido)
+  readCsv('calendar_dates.txt').forEach((r) => {
+    if (!r.service_id || !r.date) return;
+    if (!calendarExceptions.has(r.service_id)) calendarExceptions.set(r.service_id, new Map());
+    calendarExceptions.get(r.service_id).set(r.date, Number(r.exception_type));
+  });
+
+  const stopTimesByStop = new Map(); // stop_id -> [{tripId, arrival, departure}]
+  readCsv('stop_times.txt').forEach((r) => {
+    if (!r.stop_id || !r.trip_id) return;
+    if (!stopTimesByStop.has(r.stop_id)) stopTimesByStop.set(r.stop_id, []);
+    stopTimesByStop.get(r.stop_id).push({ tripId: r.trip_id, arrival: r.arrival_time || '', departure: r.departure_time || r.arrival_time || '' });
+  });
+
+  return { stops, routes, trips, calendar, calendarExceptions, stopTimesByStop };
+}
+async function ensureGtfsLoaded() {
+  if (gtfsData && Date.now() - gtfsLoadedAt < GTFS_TTL_MS) return gtfsData;
+  if (gtfsLoadPromise) return gtfsLoadPromise;
+  gtfsLoadPromise = loadGtfsData()
+    .then((data) => { gtfsData = data; gtfsLoadedAt = Date.now(); return data; })
+    .finally(() => { gtfsLoadPromise = null; });
+  return gtfsLoadPromise;
+}
+// service_id de um horário GTFS só se aplica em certos dias da semana, dentro de um
+// intervalo de datas — e pode ter exceções pontuais (feriados, dias especiais).
+function isServiceActiveOnDate(gtfs, serviceId, dateObj) {
+  const dateStr = dateObj.getFullYear() + String(dateObj.getMonth() + 1).padStart(2, '0') + String(dateObj.getDate()).padStart(2, '0');
+  const exceptions = gtfs.calendarExceptions.get(serviceId);
+  if (exceptions?.has(dateStr)) return exceptions.get(dateStr) === 1;
+  const cal = gtfs.calendar.get(serviceId);
+  if (!cal) return false;
+  if (dateStr < cal.start || dateStr > cal.end) return false;
+  return !!cal.days[dateObj.getDay()];
+}
+
+app.get('/api/trains/stations', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsLoaded();
+    const q = (req.query.q || '').toLowerCase().trim();
+    let list = [...gtfs.stops.values()];
+    if (q) list = list.filter((s) => s.name.toLowerCase().includes(q));
+    res.json(list.slice(0, 30).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon })));
+  } catch (err) {
+    console.error('Erro GTFS (estações CP):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
+  }
+});
+
+app.get('/api/trains/departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsLoaded();
+    const stationId = req.query.stationId;
+    const station = stationId && gtfs.stops.get(stationId);
+    if (!station) return res.status(400).json({ error: 'Estação inválida.' });
+    const now = new Date();
+    // Nota: horas GTFS depois da meia-noite vêm como "25:10:00" etc. (ainda contam para o
+    // serviço do dia anterior) — esta comparação simples por string não lida com esse caso
+    // à volta da meia-noite, é uma simplificação aceitável para uma lista de "próximas partidas".
+    const nowHHMMSS = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+    const times = gtfs.stopTimesByStop.get(stationId) || [];
+    const departures = times
+      .filter((st) => st.departure >= nowHHMMSS)
+      .map((st) => {
+        const trip = gtfs.trips.get(st.tripId);
+        if (!trip || !isServiceActiveOnDate(gtfs, trip.serviceId, now)) return null;
+        const route = gtfs.routes.get(trip.routeId);
+        return { time: st.departure, headsign: trip.headsign || route?.longName || '', routeName: route?.shortName || '' };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.time.localeCompare(b.time))
+      .slice(0, 12);
+    res.json({ stationName: station.name, departures });
+  } catch (err) {
+    console.error('Erro GTFS (partidas CP):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
   }
 });
 

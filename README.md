@@ -106,10 +106,17 @@ As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram 
 Três separadores num mapa (Leaflet + OpenStreetMap, gratuito, sem chave):
 - **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave.
 - **✈️ Aviões** — tráfego aéreo ao vivo sobre Portugal e Espanha, via OpenSky Network (gratuita, sem chave, uso razoável).
-- **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para isso — ver nota abaixo).
+- **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para isso — ver nota abaixo). Tem agora uma **barra de pesquisa de horários da CP**: escreve o nome de uma estação, escolhe-a na lista e vês as próximas partidas programadas (hora, linha, destino) — dados oficiais em formato aberto GTFS, não é posição ao vivo do comboio.
 
 ### Se quiseres dados ao vivo do Metro de Lisboa
-O Metro de Lisboa tem uma API oficial pública (`api.metrolisboa.pt`), mas exige registo próprio (é um portal de API, tipo "API Store"). Se quiseres, posso integrar assim que tiveres uma chave — o processo seria parecido com o que fizeste para o `GITHUB_TOKEN`. A CP (Comboios de Portugal) e a Renfe (Espanha) não têm posição ao vivo dos comboios disponível gratuitamente — a CP publica os **horários programados** (não a posição em tempo real) em formato aberto GTFS através do portal de dados abertos português; dá para mostrar "que comboio parte a que horas de que estação" sem ser ao vivo, mas é mais trabalho (implica processar ficheiros GTFS) e fica para uma fase seguinte, se quiseres. A Renfe não disponibiliza nada de aberto/gratuito.
+O Metro de Lisboa tem uma API oficial pública (`api.metrolisboa.pt`), mas exige registo próprio (é um portal de API, tipo "API Store"). Se quiseres, posso integrar assim que tiveres uma chave — o processo seria parecido com o que fizeste para o `GITHUB_TOKEN`. A Renfe (Espanha) não disponibiliza nada de aberto/gratuito, nem ao vivo nem horários.
+
+### Horários da CP (Comboios de Portugal) — como funciona
+A CP não publica posição ao vivo dos comboios, mas publica os **horários programados** em formato aberto GTFS (o mesmo formato usado por transportes públicos em todo o mundo). O servidor descarrega esse ficheiro (um `.zip` com várias tabelas CSV), guarda-o em memória durante 24 horas, e serve pesquisa de estações e próximas partidas através de `/api/trains/stations` e `/api/trains/departures`.
+
+- **`CP_GTFS_URL`** (opcional) — URL do ficheiro GTFS `.zip` da CP. Por omissão aponta para `https://www.cp.pt/StaticFiles/Institucional/4_desenvolvedores/gtfs/gtfs_cp.zip`, mas **esta URL não pôde ser confirmada durante o desenvolvimento** (a rede de testes usada não tem acesso a domínios fora do GitHub/npm). Se os horários não aparecerem depois de publicares no Railway, confirma a URL certa em [dados.gov.pt](https://dados.gov.pt) (procura "CP" ou "GTFS") ou no próprio site da CP, e define `CP_GTFS_URL` nas variáveis de ambiente do Railway com o valor correto.
+- Sem esta variável nem ligação à URL por omissão, a pesquisa de comboios mostra um erro amigável — o resto da app continua a funcionar normalmente (autocarros e aviões não são afetados).
+- **Limitação conhecida:** o GTFS representa horários depois da meia-noite como "25:10" (para a 01:10 do dia seguinte); esta versão trata isso como texto simples, por isso partidas mesmo à volta da meia-noite podem não aparecer pela ordem certa nessa janela específica. Não afeta o resto do dia.
 
 ## Novidades nas mensagens
 
@@ -120,7 +127,7 @@ O Metro de Lisboa tem uma API oficial pública (`api.metrolisboa.pt`), mas exige
 - **Confirmação de leitura (✓/✓✓)** — ✓ cinzento quando enviada, ✓✓ azul quando a outra pessoa abre a conversa e lê.
 
 ### Ainda por vir
-Linha de comboios/metro ao vivo — sem solução gratuita e fiável disponível (ver secção de Transportes); PWA (instalar como app + notificações); foto de perfil.
+Posição ao vivo de comboios/metro — sem solução gratuita e fiável disponível (ver secção de Transportes; já dá para ver horários programados da CP); PWA (instalar como app + notificações); foto de perfil.
 
 ## Correção: chamadas que ligavam mas não davam para falar
 
