@@ -106,18 +106,10 @@ As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram 
 Três separadores num mapa (Leaflet + OpenStreetMap, gratuito, sem chave):
 - **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave.
 - **✈️ Aviões** — tráfego aéreo ao vivo sobre Portugal e Espanha, via OpenSky Network (gratuita, sem chave, uso razoável).
-- **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para posição ao vivo). Tem uma **barra de pesquisa de horários da CP** (partidas programadas, não ao vivo — ver secção abaixo) e um **estado do serviço do Metro de Lisboa** (linha Azul/Amarela/Vermelha/Verde — normal, perturbada, etc.), atualizado pela própria API oficial do Metro.
+- **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para posição ao vivo). Tem uma **barra de pesquisa de horários da CP** (partidas programadas, não ao vivo — ver secção abaixo) e um **estado do serviço do Metro de Lisboa** (linha Azul/Amarela/Vermelha/Verde — normal, perturbada, etc.).
 
 ### Estado do serviço do Metro de Lisboa — como funciona
-O Metro de Lisboa tem uma API oficial (`api.metrolisboa.pt`), mas exige registo próprio (portal de API tipo "API Store") — não posição ao vivo dos comboios, apenas o estado de cada linha. Para ativar:
-
-1. Regista-te em https://api.metrolisboa.pt/store/
-2. Cria uma "Application" (página "Applications")
-3. Subscreve a API "EstadoServicoML" a essa aplicação
-4. Gera chaves de produção e clica em "Show keys" — aparece um exemplo de `curl` com um cabeçalho `Authorization: Basic <código>`
-5. Define **`METROLISBOA_BASIC_AUTH`** nas variáveis de ambiente do Railway com esse valor completo (incluindo a palavra "Basic ")
-
-O servidor troca esse valor por um token de acesso automaticamente (válido cerca de 1h, renovado sozinho). Sem esta variável, a app mostra um erro amigável nessa secção — o resto continua a funcionar normalmente. A Renfe (Espanha) não disponibiliza nada de aberto/gratuito, nem ao vivo nem horários.
+A API oficial do Metro de Lisboa (`api.metrolisboa.pt`) bloqueia ligações vindas de servidores na nuvem — confirmámos isto tanto em desenvolvimento como já publicado no Railway, mesmo com credenciais corretas (a ligação chega a estabelecer-se mas é rejeitada a meio, de forma consistente, sugerindo um bloqueio deliberado a tráfego de datacenters). Por isso, usamos antes a API pública e gratuita da [UnderLX](https://perturbacoes.pt) — um projeto da comunidade dedicado precisamente a acompanhar as perturbações do Metro de Lisboa (juntando fontes oficiais com relatos de utilizadores). **Não precisa de registo nem de chave.** Se a UnderLX alguma vez ficar indisponível, a secção mostra um erro amigável — o resto da app não é afetado. A Renfe (Espanha) não disponibiliza nada de aberto/gratuito, nem ao vivo nem horários.
 
 ### Horários da CP (Comboios de Portugal) — como funciona
 A CP não publica posição ao vivo dos comboios, mas publica os **horários programados** em formato aberto GTFS (o mesmo formato usado por transportes públicos em todo o mundo). O servidor descarrega esse ficheiro (um `.zip` com várias tabelas CSV), guarda-o em memória durante 24 horas, e serve pesquisa de estações e próximas partidas através de `/api/trains/stations` e `/api/trains/departures`.

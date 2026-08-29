@@ -8340,7 +8340,7 @@
             loadMetroLineStatus();
         }
     }
-    const METRO_LINE_LABELS = { azul: '🔵 Azul', amarela: '🟡 Amarela', vermelha: '🔴 Vermelha', verde: '🟢 Verde' };
+    const METRO_LINE_EMOJI = { azul: '🔵', amarela: '🟡', vermelha: '🔴', verde: '🟢' };
     async function loadMetroLineStatus() {
         const box = document.getElementById('metroStatusBar');
         box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">A carregar estado do Metro de Lisboa...</p>';
@@ -8348,12 +8348,12 @@
             const res = await fetch('/api/metro/status');
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
-            const resposta = data.resposta || data;
-            const knownKeys = Object.keys(METRO_LINE_LABELS).filter(k => resposta[k] != null);
-            const otherKeys = Object.keys(resposta).filter(k => !knownKeys.includes(k) && !k.startsWith('tipo_msg') && typeof resposta[k] === 'string');
-            const rows = [...knownKeys, ...otherKeys];
-            if (!rows.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">Estado do Metro de Lisboa indisponível.</p>'; return; }
-            box.innerHTML = rows.map(k => `<div><strong>${METRO_LINE_LABELS[k] || escapeHtml(k)}:</strong> ${escapeHtml(String(resposta[k]))}</div>`).join('');
+            const lines = data.lines || [];
+            if (!lines.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">Estado do Metro de Lisboa indisponível.</p>'; return; }
+            box.innerHTML = lines.map(l => {
+                const emoji = METRO_LINE_EMOJI[(l.name || '').toLowerCase()] || '⚪';
+                return `<div><strong>${emoji} ${escapeHtml(l.name || l.id)}:</strong> ${escapeHtml(l.status)}</div>`;
+            }).join('');
         } catch (err) {
             box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;">⚠️ ${escapeHtml(err.message)}</p>`;
         }
