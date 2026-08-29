@@ -1626,6 +1626,7 @@
                 <button class="btn-small transport-tab" data-tab="flight" onclick="switchTransportTab('flight')" style="flex:1;">✈️ Aviões</button>
             </div>
             <div id="railScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
                 <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP)..." oninput="debounceRailStationSearch()">
                 <div id="railSearchResults"></div>
             </div>
@@ -8336,6 +8337,25 @@
         } else if (tab === 'rail') {
             TRANSPORT.map.setView([38.75, -9.15], 11);
             loadRailStations();
+            loadMetroLineStatus();
+        }
+    }
+    const METRO_LINE_LABELS = { azul: '🔵 Azul', amarela: '🟡 Amarela', vermelha: '🔴 Vermelha', verde: '🟢 Verde' };
+    async function loadMetroLineStatus() {
+        const box = document.getElementById('metroStatusBar');
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">A carregar estado do Metro de Lisboa...</p>';
+        try {
+            const res = await fetch('/api/metro/status');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            const resposta = data.resposta || data;
+            const knownKeys = Object.keys(METRO_LINE_LABELS).filter(k => resposta[k] != null);
+            const otherKeys = Object.keys(resposta).filter(k => !knownKeys.includes(k) && !k.startsWith('tipo_msg') && typeof resposta[k] === 'string');
+            const rows = [...knownKeys, ...otherKeys];
+            if (!rows.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">Estado do Metro de Lisboa indisponível.</p>'; return; }
+            box.innerHTML = rows.map(k => `<div><strong>${METRO_LINE_LABELS[k] || escapeHtml(k)}:</strong> ${escapeHtml(String(resposta[k]))}</div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;">⚠️ ${escapeHtml(err.message)}</p>`;
         }
     }
 
