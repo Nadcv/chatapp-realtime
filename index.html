@@ -9616,28 +9616,50 @@
         PHOTO_EDITOR.originalDataUrl = target.dataUrl;
         PHOTO_EDITOR.history = [];
         PHOTO_EDITOR.cropRect = null;
+        PE_TAINTED_WARNED = false;
         setPhotoEditorTool(null);
         cancelPhotoEditorTextInput(); // segurança: garante que não fica um campo de texto órfão aberto de uma sessão anterior
         document.getElementById('modalPhotoEditor').classList.add('active');
         loadImageIntoPhotoEditor(target.dataUrl);
         if (!PHOTO_EDITOR.eventsInitialized) { initPhotoEditorCanvasEvents(); PHOTO_EDITOR.eventsInitialized = true; }
     }
+    // Bug real reportado: pedir crossOrigin='anonymous' sempre (para poder ler/gravar o
+    // canvas com uma imagem já num URL remoto, ex. Cloudinary) faz o carregamento falhar por
+    // completo — canvas preto, sem imagem nenhuma — quando esse servidor não envia os
+    // cabeçalhos de CORS certos, em vez de só impedir ler os pixels mais tarde. Agora tenta
+    // primeiro SEM crossOrigin (mostra a imagem em quase todos os casos, incluindo Cloudinary
+    // sem CORS); só falha mesmo mais tarde, ao tentar gravar/cortar, e nessa altura mostra um
+    // aviso claro em vez de rebentar (ver savePhotoEdit/applyPhotoEditorCrop/pushPhotoEditorHistory).
+    // Também nunca deixa o canvas com um tamanho enorme de uma sessão anterior enquanto uma
+    // imagem nova ainda não carregou (ou falha a carregar) — era por isso que o ecrã parecia
+    // "preso": ficava um retângulo preto gigante a esconder os botões Cancelar/Guardar.
     function loadImageIntoPhotoEditor(dataUrl) {
         const canvas = document.getElementById('photoEditorCanvas');
+        canvas.width = 300;
+        canvas.height = 300;
+        PHOTO_EDITOR.canvas = canvas;
+        PHOTO_EDITOR.ctx = canvas.getContext('2d');
+        PHOTO_EDITOR.ctx.clearRect(0, 0, canvas.width, canvas.height);
         const img = new Image();
-        img.crossOrigin = 'anonymous'; // preciso quando a imagem já está num URL remoto (ex.: Cloudinary), senão o canvas fica "contaminado" e não dá para ler/gravar
-        img.onerror = () => {
+        let settled = false;
+        const giveUp = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
             alert('⚠️ Não foi possível carregar esta imagem para editar. Tenta escolher a foto de novo.');
             closeModal('modalPhotoEditor');
         };
+        const timeoutId = setTimeout(giveUp, 12000); // nunca fica à espera para sempre de uma rede lenta/presa
+        img.onerror = giveUp;
         img.onload = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
             // Limita o tamanho de trabalho para não travar com fotos enormes de telemóvel
             const maxDim = 900;
             const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
             canvas.width = Math.round(img.width * scale);
             canvas.height = Math.round(img.height * scale);
-            PHOTO_EDITOR.canvas = canvas;
-            PHOTO_EDITOR.ctx = canvas.getContext('2d');
             PHOTO_EDITOR.ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         };
         img.src = dataUrl;
@@ -9682,11 +9704,26 @@
         document.getElementById('peTextOverlayInput').style.display = 'none';
         PE_TEXT_PENDING_POS = null;
     }
+    // Se a imagem veio de um URL remoto sem CORS (ver loadImageIntoPhotoEditor), o canvas
+    // carrega e mostra-se na mesma, mas fica "contaminado": desenhar/escrever continua a
+    // funcionar (só WRITE), só ler os pixels de volta (toDataURL/getImageData — cortar,
+    // desfazer, gravar) é que falha. Este aviso só aparece uma vez por sessão do editor,
+    // para não repetir o mesmo alerta a cada traço de desenho.
+    let PE_TAINTED_WARNED = false;
+    function photoEditorTaintedError() {
+        if (PE_TAINTED_WARNED) return;
+        PE_TAINTED_WARNED = true;
+        alert('⚠️ Esta foto está guardada num servidor que não permite editá-la aqui (cortar/desfazer/gravar) — mas continuas a poder vê-la. Escolhe/tira a foto de novo (em vez de reaproveitar uma já enviada) para conseguires editá-la.');
+    }
     // Guarda um "antes" (como imagem, não só pixels) para o desfazer conseguir repor também
     // as dimensões do canvas — importante depois de um corte, que muda o tamanho da tela.
     function pushPhotoEditorHistory() {
-        PHOTO_EDITOR.history.push(PHOTO_EDITOR.canvas.toDataURL());
-        if (PHOTO_EDITOR.history.length > 20) PHOTO_EDITOR.history.shift();
+        try {
+            PHOTO_EDITOR.history.push(PHOTO_EDITOR.canvas.toDataURL());
+            if (PHOTO_EDITOR.history.length > 20) PHOTO_EDITOR.history.shift();
+        } catch (err) {
+            photoEditorTaintedError();
+        }
     }
     function undoPhotoEdit() {
         if (!PHOTO_EDITOR.history.length) return;
@@ -9726,8 +9763,12 @@
                 PHOTO_EDITOR.lastX = pos.x;
                 PHOTO_EDITOR.lastY = pos.y;
             } else if (PHOTO_EDITOR.tool === 'crop') {
-                PHOTO_EDITOR.cropStart = pos;
-                PHOTO_EDITOR.cropSnapshot = PHOTO_EDITOR.ctx.getImageData(0, 0, PHOTO_EDITOR.canvas.width, PHOTO_EDITOR.canvas.height);
+                try {
+                    PHOTO_EDITOR.cropSnapshot = PHOTO_EDITOR.ctx.getImageData(0, 0, PHOTO_EDITOR.canvas.width, PHOTO_EDITOR.canvas.height);
+                    PHOTO_EDITOR.cropStart = pos;
+                } catch (err) {
+                    photoEditorTaintedError();
+                }
             } else if (PHOTO_EDITOR.tool === 'text') {
                 showPhotoEditorTextInput(pos, e.clientX, e.clientY);
             } else if (PHOTO_EDITOR.tool === 'emoji' && PHOTO_EDITOR.selectedEmoji) {
@@ -9773,17 +9814,27 @@
     function applyPhotoEditorCrop() {
         const rect = PHOTO_EDITOR.cropRect;
         if (!rect || rect.w < 5 || rect.h < 5) return alert('Arrasta na imagem para escolher a área a cortar primeiro.');
-        pushPhotoEditorHistory();
-        const imgData = PHOTO_EDITOR.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
-        PHOTO_EDITOR.canvas.width = rect.w;
-        PHOTO_EDITOR.canvas.height = rect.h;
-        PHOTO_EDITOR.ctx.putImageData(imgData, 0, 0);
-        PHOTO_EDITOR.cropRect = null;
+        try {
+            pushPhotoEditorHistory();
+            const imgData = PHOTO_EDITOR.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
+            PHOTO_EDITOR.canvas.width = rect.w;
+            PHOTO_EDITOR.canvas.height = rect.h;
+            PHOTO_EDITOR.ctx.putImageData(imgData, 0, 0);
+            PHOTO_EDITOR.cropRect = null;
+        } catch (err) {
+            photoEditorTaintedError();
+        }
     }
     function savePhotoEdit() {
-        const dataUrl = PHOTO_EDITOR.canvas.toDataURL('image/png');
-        if (PE_TARGET?.onSave) PE_TARGET.onSave(dataUrl);
-        closeModal('modalPhotoEditor');
+        // De propósito NÃO fecha o modal se isto falhar — "Cancelar" continua sempre
+        // disponível para sair, mesmo quando esta foto não pode ser gravada editada.
+        try {
+            const dataUrl = PHOTO_EDITOR.canvas.toDataURL('image/png');
+            if (PE_TARGET?.onSave) PE_TARGET.onSave(dataUrl);
+            closeModal('modalPhotoEditor');
+        } catch (err) {
+            photoEditorTaintedError();
+        }
     }
 
     // Só quem recebe é que perde o acesso à foto depois de a abrir uma vez — quem
