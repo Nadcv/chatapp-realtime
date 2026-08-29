@@ -2194,6 +2194,7 @@
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openSearchUserModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔍<span style="font-size:11px;">Utilizadores cadastrados</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCallLogScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📋<span style="font-size:11px;">Histórico de chamadas</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openArchivedScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Conversas arquivadas</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openBlockedUsersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Contas bloqueadas</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures')">Fechar</button>
@@ -3145,6 +3146,18 @@
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalBlockUser')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ CONTAS BLOQUEADAS (lista + desbloquear) ============ -->
+        <div class="modal-overlay" id="modalBlockedUsers">
+            <div class="modal">
+                <h3>🚫 Contas bloqueadas</h3>
+                <p style="color:#8696a0;font-size:13px;">Quem bloqueares deixa de te conseguir escrever ou ligar. Desbloquear aqui não precisa de reabrir a conversa com a pessoa.</p>
+                <div id="blockedUsersList" style="max-height:280px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalBlockedUsers')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -7560,14 +7573,49 @@
 
     // ==================== BLOQUEAR / DENUNCIAR ====================
     APP.blockedUsers = new Set();
-    socket.on('blocked_list', (list) => { APP.blockedUsers = new Set(list || []); updateBlockButton(); });
+    socket.on('blocked_list', (list) => {
+        APP.blockedUsers = new Set(list || []);
+        updateBlockButton();
+        // Atualiza a lista de contas bloqueadas ao vivo, se estiver aberta (ex.: depois de
+        // desbloquear alguém, some logo da lista sem precisar de fechar e reabrir o modal).
+        if (document.getElementById('modalBlockedUsers')?.classList.contains('active')) renderBlockedUsersList();
+    });
     function updateBlockButton() {
         const btn = document.getElementById('blockUserBtn');
         if (!btn) return;
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         btn.style.display = chat?.type === 'user' ? 'flex' : 'none';
-        if (chat?.phone && APP.blockedUsers.has(chat.phone)) { btn.title = 'Utilizador bloqueado — gerir'; btn.classList.add('btn-danger'); }
-        else { btn.title = 'Bloquear ou denunciar'; btn.classList.remove('btn-danger'); }
+        const label = btn.querySelector('span');
+        if (chat?.phone && APP.blockedUsers.has(chat.phone)) {
+            btn.title = 'Utilizador bloqueado — toca para desbloquear';
+            btn.classList.add('btn-danger');
+            if (label) label.textContent = 'Desbloquear';
+        } else {
+            btn.title = 'Bloquear ou denunciar';
+            btn.classList.remove('btn-danger');
+            if (label) label.textContent = 'Bloquear';
+        }
+    }
+    // Lista de todas as contas bloqueadas, com nome (quando ainda é um contacto reconhecido —
+    // senão mostra só o número) e um botão para desbloquear ali mesmo, sem ter de reabrir a
+    // conversa com a pessoa só para lá chegar (era o único caminho antes desta lista existir).
+    function openBlockedUsersModal() {
+        renderBlockedUsersList();
+        document.getElementById('modalBlockedUsers').classList.add('active');
+    }
+    function renderBlockedUsersList() {
+        const el = document.getElementById('blockedUsersList');
+        const phones = [...APP.blockedUsers];
+        if (!phones.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:20px;">Não bloqueaste ninguém.</p>'; return; }
+        el.innerHTML = phones.map(phone => {
+            const contact = APP.onlineContacts.find(c => c.phone === phone);
+            const name = contact ? escapeHtml(contact.name) : escapeHtml(phone);
+            return `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                <div style="flex:1;font-size:14px;">${name}</div>
+                <button class="btn-small" onclick="socket.emit('unblock_user', {phone:'${phone}'})">✅ Desbloquear</button>
+            </div>`;
+        }).join('');
     }
     function openBlockUserModal() {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);

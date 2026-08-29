@@ -917,6 +917,13 @@ Também no perfil, em "⚠️ Zona de perigo": um botão "📥 Exportar os meus 
 
 "🗑️ Apagar conta" pede a tua senha outra vez (para não bastar alguém pegar num aparelho destrancado) e é permanente — apaga a conta, o perfil e todos os dados pessoais acima. Tal como no WhatsApp, mensagens que já enviaste continuam nas conversas de quem as recebeu (apagar a tua conta não reescreve o histórico de outras pessoas). Se tiveres outro dispositivo com sessão iniciada na mesma conta, é desligado automaticamente com um aviso.
 
+## 🚫 Bloquear/desbloquear e denunciar
+
+No menu "⋯" de uma conversa 1-para-1, "🚫 Bloquear" impede essa pessoa de te escrever ou ligar — ao contrário do WhatsApp, sem aviso explícito de "fostes bloqueado" para a outra pessoa. "⚠️ Denunciar" pede o motivo e bloqueia automaticamente.
+
+- **📇 → "🚫 Contas bloqueadas"** mostra todas as contas que já bloqueaste, com o nome (quando ainda é um contacto reconhecido) ou o número, e um botão para desbloquear ali mesmo — não precisas de voltar a abrir a conversa com a pessoa só para a desbloquear
+- O botão no menu "⋯" já reflete o estado atual (passa a dizer "Desbloquear" em vez de "Bloquear" para quem já está bloqueado), e reabre o mesmo modal com a opção certa
+
 **Limitação conhecida**: como as conversas de grupo aqui são "abertas" (ver "Como funcionam os grupos" acima) e uma conversa 1-para-1 só existe enquanto ambas as contas existem, depois de apagares a conta a conversa contigo pode deixar de aparecer na lista de conversas de quem falava contigo (mesmo sem o histórico dessa pessoa ser apagado por baixo) — é um efeito secundário aceite do modelo simples de apagar a conta, não um passo extra que faltou fazer.
 
 ## 📅 Chamada agendada
