@@ -983,6 +983,44 @@ app.get('/api/trains/departures', async (req, res) => {
   }
 });
 
+// Estado do serviço do Metro de Lisboa — API oficial (api.metrolisboa.pt), exige registo
+// próprio (portal WSO2 "API Store"). Autenticação OAuth2 client_credentials: o
+// METROLISBOA_BASIC_AUTH (o cabeçalho "Authorization: Basic ..." mostrado no "Show keys"
+// da aplicação criada no portal) troca-se por um token de acesso, válido cerca de 1h.
+let metroLisboaAccessToken = null;
+let metroLisboaAccessTokenExpiresAt = 0;
+async function getMetroLisboaAccessToken() {
+  if (metroLisboaAccessToken && Date.now() < metroLisboaAccessTokenExpiresAt) return metroLisboaAccessToken;
+  const basicAuth = process.env.METROLISBOA_BASIC_AUTH;
+  if (!basicAuth) throw new Error('METROLISBOA_BASIC_AUTH não está definida.');
+  const resp = await fetch('https://api.metrolisboa.pt:8243/token', {
+    method: 'POST',
+    headers: { 'Authorization': basicAuth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=client_credentials'
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na API do Metro de Lisboa — o METROLISBOA_BASIC_AUTH pode estar errado ou ter sido revogado.`);
+  const data = await resp.json();
+  if (!data.access_token) throw new Error('A API do Metro de Lisboa não devolveu um access_token.');
+  metroLisboaAccessToken = data.access_token;
+  const expiresInMs = (Number(data.expires_in) || 3600) * 1000;
+  metroLisboaAccessTokenExpiresAt = Date.now() + Math.max(expiresInMs - 5 * 60000, 60000); // renova 5 min antes de expirar
+  return metroLisboaAccessToken;
+}
+app.get('/api/metro/status', async (req, res) => {
+  try {
+    const token = await getMetroLisboaAccessToken();
+    const resp = await fetch('https://api.metrolisboa.pt:8243/estadoServicoML/1.0.1/estadoLinha/todos', {
+      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    console.error('Erro API Metro Lisboa:', err.message);
+    res.status(503).json({ error: 'Não foi possível obter o estado do Metro de Lisboa agora: ' + err.message });
+  }
+});
+
 // Aviões em tempo real — OpenSky Network, gratuita, sem chave. O uso anónimo
 // (sem conta) tem uma cota diária baixa (~400 "créditos"/dia) e cada pedido
 // SEM caixa delimitadora (mundo inteiro) custa 4 créditos, contra 1 crédito
