@@ -1543,7 +1543,12 @@ async function checkPriceAlerts() {
 app.get('/api/culture/events', async (req, res) => {
   try {
     const url = process.env.AGENDALX_EVENTS_URL || 'https://www.agendalx.pt/wp-json/agendalx/v1/events';
-    const data = await cachedFetch('agendalx_events', url, 60 * 60 * 1000);
+    // Tal como outros sites/CDNs portugueses (RTP, etc.), pedidos sem um
+    // User-Agent de browser real podem ser recusados — por isso identificamo-nos
+    // como um browser normal, em vez de um robô.
+    const data = await cachedFetch('agendalx_events', url, 60 * 60 * 1000, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36', 'Accept': 'application/json' }
+    });
     const events = (Array.isArray(data) ? data : []).map((e) => ({
       id: e.id,
       title: (typeof e.title === 'object' ? e.title?.rendered : e.title) || '',
