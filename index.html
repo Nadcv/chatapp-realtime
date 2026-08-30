@@ -1678,6 +1678,11 @@
                     <button class="btn-small" onclick="searchFlightPriceOffers()">🔍 Pesquisar voos</button>
                     <button class="btn-small" onclick="searchFlightDeals()">💸 Voos baratos (Europa + São Tomé) — a partir da origem</button>
                     <div id="fpResults" style="max-height:280px;overflow-y:auto;"></div>
+                    <div style="display:flex;gap:6px;align-items:center;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;margin-top:4px;">
+                        <input type="number" id="fpAlertMaxPriceInput" placeholder="Preço-alvo (€)" min="1" style="flex:1;">
+                        <button class="btn-small" onclick="createPriceAlert()" style="flex-shrink:0;">🔔 Criar alerta</button>
+                    </div>
+                    <div id="fpAlertsList" style="font-size:12px;"></div>
                 </div>
             </div>
             <div id="transportMap"></div>
@@ -8656,6 +8661,7 @@
         document.querySelectorAll('.price-mode-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
         document.getElementById('tripModeFields').style.display = mode === 'trip' ? 'flex' : 'none';
         document.getElementById('flightModeFields').style.display = mode === 'flight' ? 'flex' : 'none';
+        if (mode === 'flight') loadPriceAlerts();
     }
 
     // ==================== PREÇOS DE VOOS (Ignav) ====================
@@ -8761,6 +8767,52 @@
             btn.disabled = false;
             btn.textContent = '🔗 Ver opções de reserva';
         }
+    }
+
+    async function createPriceAlert() {
+        const origin = document.getElementById('fpOriginInput').value.trim().toUpperCase();
+        const destination = document.getElementById('fpDestinationInput').value.trim().toUpperCase();
+        const date = document.getElementById('fpDateInput').value;
+        const maxPrice = document.getElementById('fpAlertMaxPriceInput').value;
+        if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination) || !date || !maxPrice) {
+            alert('Preenche origem, destino, data e preço-alvo antes de criar o alerta.');
+            return;
+        }
+        try {
+            const res = await fetch('/api/price-alerts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: APP.token, origin, destination, date, maxPrice })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            document.getElementById('fpAlertMaxPriceInput').value = '';
+            loadPriceAlerts();
+        } catch (err) {
+            alert('⚠️ ' + err.message);
+        }
+    }
+    async function loadPriceAlerts() {
+        const list = document.getElementById('fpAlertsList');
+        try {
+            const res = await fetch('/api/price-alerts?token=' + encodeURIComponent(APP.token));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.alerts.length) { list.innerHTML = ''; return; }
+            list.innerHTML = '<div style="color:var(--text-secondary);padding:4px 0;">🔔 Os teus alertas:</div>' + data.alerts.map(a => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <span>${escapeHtml(a.origin)} → ${escapeHtml(a.destination)} · ${escapeHtml(a.date)} · abaixo de ${a.maxPrice} €</span>
+                    <button class="btn-small" onclick='deletePriceAlert(${JSON.stringify(a.id)})'>🗑️</button>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = '';
+        }
+    }
+    async function deletePriceAlert(id) {
+        try {
+            await fetch('/api/price-alerts/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(APP.token), { method: 'DELETE' });
+            loadPriceAlerts();
+        } catch (err) { /* silencioso — a lista só não atualiza já */ }
     }
 
     function loadRailStations() {
