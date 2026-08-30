@@ -1168,117 +1168,89 @@ app.get('/api/transport/flights', async (req, res) => {
   }
 });
 
-// ==================== PREÇOS DE VOOS (Amadeus for Developers) ====================
-// Ao contrário do rastreamento ao vivo acima (OpenSky), pesquisar preços por
-// cidade+data exige uma fonte comercial de tarifas — não existe nenhuma API
-// verdadeiramente aberta e sem registo para isto (é dado valioso, ninguém dá de
-// graça sem pelo menos um email). A Amadeus for Developers tem um nível
-// Self-Service gratuito (só conta por email, sem cartão de crédito), mas corre
-// no ambiente de teste deles (test.api.amadeus.com), que por vezes devolve
-// tarifas de exemplo em vez de preços 100% ao vivo. Sem AMADEUS_API_KEY/
-// AMADEUS_API_SECRET configuradas, os endpoints respondem "configured: false"
-// e o cliente mostra um aviso a pedir configuração, em vez de rebentar.
-// test.api.amadeus.com = ambiente gratuito Self-Service; se um dia migrares
-// para acesso de produção aprovado pela Amadeus, define AMADEUS_API_BASE=
-// https://api.amadeus.com sem mudar mais nada.
-const AMADEUS_API_BASE = process.env.AMADEUS_API_BASE || 'https://test.api.amadeus.com';
-let amadeusAccessToken = null;
-let amadeusAccessTokenExpiresAt = 0;
-async function getAmadeusAccessToken() {
-  if (amadeusAccessToken && Date.now() < amadeusAccessTokenExpiresAt) return amadeusAccessToken;
-  const resp = await fetch(`${AMADEUS_API_BASE}/v1/security/oauth2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.AMADEUS_API_KEY,
-      client_secret: process.env.AMADEUS_API_SECRET
-    })
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na Amadeus — confirma AMADEUS_API_KEY/AMADEUS_API_SECRET.`);
-  const data = await resp.json();
-  if (!data.access_token) throw new Error('A Amadeus não devolveu um access_token.');
-  amadeusAccessToken = data.access_token;
-  amadeusAccessTokenExpiresAt = Date.now() + ((data.expires_in || 1800) - 60) * 1000;
-  return amadeusAccessToken;
-}
-const AMADEUS_CONFIGURED = () => !!(process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET);
+// ==================== PREÇOS DE COMBOIO/AUTOCARRO NA EUROPA (Tictactrip) ====================
+// Pesquisa de preços por rota+data (ao contrário do rastreamento ao vivo e dos
+// horários GTFS acima) exige uma fonte comercial de tarifas. A Amadeus for
+// Developers (voos) foi descontinuada para novos registos em 2025 — o programa
+// self-service redireciona agora só para um portal "Enterprise" (confirmámos
+// isto ao vivo, já não é possível criar conta). A Tictactrip (developers.tictactrip.eu)
+// é uma alternativa real e documentada, mas só cobre comboio+autocarro na
+// Europa (sem voos) — junta mais de 250 transportadoras (Flixbus, OUIGO, etc.).
+// A autenticação não é self-service instantânea: pede-se um token por email a
+// dev@tictactrip.eu. Sem TICTACTRIP_API_TOKEN configurado, os endpoints
+// respondem "configured: false" e o cliente mostra um aviso a pedir
+// configuração, em vez de rebentar.
+const TICTACTRIP_API_BASE = process.env.TICTACTRIP_API_BASE || 'https://api.tictactrip.eu';
+const TICTACTRIP_CONFIGURED = () => !!process.env.TICTACTRIP_API_TOKEN;
 
-app.get('/api/transport/flights-search/cities', async (req, res) => {
-  if (!AMADEUS_CONFIGURED()) return res.json({ configured: false, results: [] });
-  const q = (req.query.q || '').trim();
+app.get('/api/transport/trip-search/stops', async (req, res) => {
+  if (!TICTACTRIP_CONFIGURED()) return res.json({ configured: false, results: [] });
+  const q = (req.query.q || '').trim().toLowerCase();
   if (q.length < 2) return res.json({ configured: true, results: [] });
   try {
-    const token = await getAmadeusAccessToken();
-    const url = `${AMADEUS_API_BASE}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(q)}&page%5Blimit%5D=8`;
-    const data = await cachedFetch('amadeus_city_' + q.toLowerCase(), url, 24 * 60 * 60 * 1000, { headers: { Authorization: `Bearer ${token}` } });
-    const results = (data.data || [])
-      .filter((loc) => loc.iataCode)
-      .map((loc) => ({
-        code: loc.iataCode,
-        city: loc.address?.cityName || loc.name,
-        country: loc.address?.countryName || ''
-      }));
+    // A própria documentação da Tictactrip pede para NÃO ir buscar isto em
+    // tempo real a cada pesquisa (atualiza-se só de 1 em 1 ou 2 em 2 meses) —
+    // por isso cache de 7 dias, e a pesquisa por nome é feita aqui em memória.
+    const data = await cachedFetch('tictactrip_stopclusters', `${TICTACTRIP_API_BASE}/v2/stopClusters`, 7 * 24 * 60 * 60 * 1000, {
+      headers: { Authorization: `Bearer ${process.env.TICTACTRIP_API_TOKEN}` }
+    });
+    const results = (Array.isArray(data) ? data : [])
+      .filter((c) => (c.name || '').toLowerCase().includes(q) || (c.city || '').toLowerCase().includes(q))
+      .slice(0, 20)
+      .map((c) => ({ id: c.id, name: c.name, city: c.city, country: c.country, transportTypes: c.transportTypes || [] }));
     res.json({ configured: true, results });
   } catch (err) {
-    console.error('Erro Amadeus (cidades):', err.message);
-    res.status(502).json({ error: 'Não foi possível pesquisar cidades agora: ' + err.message });
+    console.error('Erro Tictactrip (paragens):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar cidades/estações agora: ' + err.message });
   }
 });
 
-const amadeusOffersCache = {};
-app.get('/api/transport/flights-search/offers', async (req, res) => {
-  if (!AMADEUS_CONFIGURED()) return res.json({ configured: false, offers: [] });
-  const origin = (req.query.origin || '').trim().toUpperCase();
-  const destination = (req.query.destination || '').trim().toUpperCase();
+const tictactripOffersCache = {};
+app.get('/api/transport/trip-search/offers', async (req, res) => {
+  if (!TICTACTRIP_CONFIGURED()) return res.json({ configured: false, offers: [] });
+  const origin = (req.query.origin || '').trim();
+  const destination = (req.query.destination || '').trim();
   const date = (req.query.date || '').trim();
-  if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
-    return res.status(400).json({ error: 'Escolhe uma cidade/aeroporto de origem e destino a partir da lista de pesquisa.' });
-  }
+  if (!origin || !destination) return res.status(400).json({ error: 'Escolhe uma cidade/estação de origem e destino a partir da lista de pesquisa.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
   const cacheKey = `${origin}_${destination}_${date}`;
   const now = Date.now();
-  if (amadeusOffersCache[cacheKey] && (now - amadeusOffersCache[cacheKey].t) < 10 * 60 * 1000) {
-    return res.json(amadeusOffersCache[cacheKey].data);
+  if (tictactripOffersCache[cacheKey] && (now - tictactripOffersCache[cacheKey].t) < 10 * 60 * 1000) {
+    return res.json(tictactripOffersCache[cacheKey].data);
   }
   try {
-    const token = await getAmadeusAccessToken();
-    const params = new URLSearchParams({
-      originLocationCode: origin,
-      destinationLocationCode: destination,
-      departureDate: date,
-      adults: '1',
-      currencyCode: 'EUR',
-      max: '15'
-    });
-    const resp = await fetch(`${AMADEUS_API_BASE}/v2/shopping/flight-offers?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }
+    const resp = await fetch(`${TICTACTRIP_API_BASE}/v2/results`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.TICTACTRIP_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        originGpuid: origin,
+        destinationGpuid: destination,
+        outboundDate: `${date}T00:00:00Z`,
+        passengers: [{ age: 30 }]
+      })
     });
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
       throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
     }
     const data = await resp.json();
-    const carriers = data.dictionaries?.carriers || {};
-    const offers = (data.data || []).map((offer) => {
-      const segments = offer.itineraries?.[0]?.segments || [];
-      const first = segments[0];
-      const last = segments[segments.length - 1];
-      return {
-        price: offer.price?.total,
-        currency: offer.price?.currency,
-        airline: carriers[first?.carrierCode] || first?.carrierCode || '',
-        departure: first?.departure?.at,
-        arrival: last?.arrival?.at,
-        stops: Math.max(0, segments.length - 1)
-      };
-    });
+    const trips = Object.values(data.trips || {});
+    const offers = trips.map((trip) => ({
+      priceEur: trip.priceCents != null ? (trip.priceCents / 100).toFixed(2) : null,
+      transportType: (trip.transportType || '').toLowerCase(),
+      providers: (trip.providers || []).map((p) => p.name).join(', '),
+      durationMinutes: trip.durationMinutes,
+      departure: trip.departureLocalISO,
+      arrival: trip.arrivalLocalISO,
+      stops: Math.max(0, (trip.segments || []).length - 1),
+      co2g: trip.segments?.reduce((sum, s) => sum + (s.co2g || 0), 0) || null
+    })).sort((a, b) => (parseFloat(a.priceEur) || Infinity) - (parseFloat(b.priceEur) || Infinity));
     const result = { configured: true, offers };
-    amadeusOffersCache[cacheKey] = { t: now, data: result };
+    tictactripOffersCache[cacheKey] = { t: now, data: result };
     res.json(result);
   } catch (err) {
-    console.error('Erro Amadeus (pesquisa de voos):', err.message);
-    res.status(502).json({ error: 'Não foi possível pesquisar voos agora: ' + err.message });
+    console.error('Erro Tictactrip (pesquisa de viagens):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar viagens agora: ' + err.message });
   }
 });
 
