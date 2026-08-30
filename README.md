@@ -164,6 +164,17 @@ A Amadeus (o GDS "oficial" usado por agências de viagens) **encerrou o programa
 
 Se o token não estiver configurado ou a pesquisa falhar, mostra um erro amigável — o resto da app não é afetado.
 
+## Eventos culturais (🎭, no menu "Mais")
+
+Investigámos várias fontes possíveis para outras ideias pendentes (estacionamento/mobilidade urbana, bicicletas/trotinetes partilhadas, marketplace de bilhetes, alertas de incidentes) e nenhuma tinha uma API pública e genuína sem exigir scraping ou engenharia reversa — por isso, para já, avançámos só com a que era claramente viável: a **Agenda Cultural de Lisboa**.
+
+- Fonte: `https://www.agendalx.pt/wp-json/agendalx/v1/events` — API oficial, aberta e **gratuita da Câmara Municipal de Lisboa**, sem chave nem registo.
+- **Só cobre eventos em Lisboa** — não encontrámos equivalente confirmado para o Porto ou outras cidades.
+- O servidor guarda a resposta em cache 1 hora (`cachedFetch`); a API não parece ter parâmetros confirmados de pesquisa/paginação, por isso o filtro por nome ou categoria é feito no cliente, sobre a lista completa já recebida.
+- Cada evento mostra título, subtítulo, datas, horário, local e um link "Ver mais" para a página do evento no site da Agenda Cultural.
+- **`AGENDALX_EVENTS_URL`** (opcional) — se definida, substitui o valor por omissão.
+- Tal como a CP e o Metro de Lisboa, não foi possível confirmar a forma exata da resposta a partir deste ambiente de desenvolvimento (a rede aqui bloqueia praticamente todos os domínios `.pt`) — o formato usado foi inferido a partir de documentação e resultados de pesquisa públicos. Se a fonte falhar ou devolver campos inesperados, a secção mostra um erro amigável — o resto da app não é afetado. A confirmação definitiva só é possível já em produção.
+
 ## Novidades nas mensagens
 
 - **Responder a uma mensagem (↩️)** — toca no ícone por baixo de qualquer mensagem para responder a ela; aparece uma citação da mensagem original.
@@ -174,6 +185,8 @@ Se o token não estiver configurado ou a pesquisa falhar, mostra um erro amigáv
 
 ### Ainda por vir
 Posição ao vivo de comboios/metro — sem solução gratuita e fiável disponível (ver secção de Transportes; já dá para ver horários programados da CP); PWA (instalar como app + notificações); foto de perfil.
+
+Também ficaram de fora, por não termos encontrado uma API pública genuína (só scraping, engenharia reversa ou acesso B2B/vendas): estacionamento e mobilidade urbana (parquímetros/lugares livres), bicicletas e trotinetes partilhadas, marketplace de bilhetes de eventos e alertas de incidentes de trânsito em tempo real. Se um dia surgir uma fonte aberta e legítima para alguma destas, vale a pena reconsiderar.
 
 ## Correção: chamadas que ligavam mas não davam para falar
 
