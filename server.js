@@ -1281,6 +1281,37 @@ function summarizeIgnavLeg(leg) {
   };
 }
 const ignavOffersCache = {};
+async function fetchIgnavOffers(origin, destination, date, returnDate) {
+  const cacheKey = `${origin}_${destination}_${date}_${returnDate || ''}`;
+  const now = Date.now();
+  if (ignavOffersCache[cacheKey] && (now - ignavOffersCache[cacheKey].t) < 10 * 60 * 1000) {
+    return ignavOffersCache[cacheKey].data;
+  }
+  const endpoint = returnDate ? 'round-trip' : 'one-way';
+  const body = returnDate
+    ? { origin, destination, departure_date: date, return_date: returnDate }
+    : { origin, destination, departure_date: date };
+  const resp = await fetch(`${IGNAV_API_BASE}/fares/${endpoint}`, {
+    method: 'POST',
+    headers: { 'X-Api-Key': process.env.IGNAV_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) {
+    const respBody = await resp.text().catch(() => '');
+    throw new Error(`HTTP ${resp.status}${respBody ? ' — ' + respBody.slice(0, 200) : ''}`);
+  }
+  const data = await resp.json();
+  const offers = (data.itineraries || []).map((it) => ({
+    price: it.price?.amount,
+    currency: it.price?.currency,
+    outbound: summarizeIgnavLeg(it.outbound),
+    inbound: summarizeIgnavLeg(it.inbound),
+    ignavId: it.ignav_id
+  })).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+  ignavOffersCache[cacheKey] = { t: now, data: offers };
+  return offers;
+}
+
 app.get('/api/transport/flight-price/offers', async (req, res) => {
   if (!IGNAV_CONFIGURED()) return res.json({ configured: false, offers: [] });
   const origin = (req.query.origin || '').trim().toUpperCase();
@@ -1292,40 +1323,60 @@ app.get('/api/transport/flight-price/offers', async (req, res) => {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
   if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
-  const cacheKey = `${origin}_${destination}_${date}_${returnDate}`;
-  const now = Date.now();
-  if (ignavOffersCache[cacheKey] && (now - ignavOffersCache[cacheKey].t) < 10 * 60 * 1000) {
-    return res.json(ignavOffersCache[cacheKey].data);
-  }
   try {
-    const endpoint = returnDate ? 'round-trip' : 'one-way';
-    const body = returnDate
-      ? { origin, destination, departure_date: date, return_date: returnDate }
-      : { origin, destination, departure_date: date };
-    const resp = await fetch(`${IGNAV_API_BASE}/fares/${endpoint}`, {
-      method: 'POST',
-      headers: { 'X-Api-Key': process.env.IGNAV_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) {
-      const respBody = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${resp.status}${respBody ? ' — ' + respBody.slice(0, 200) : ''}`);
-    }
-    const data = await resp.json();
-    const offers = (data.itineraries || []).map((it) => ({
-      price: it.price?.amount,
-      currency: it.price?.currency,
-      outbound: summarizeIgnavLeg(it.outbound),
-      inbound: summarizeIgnavLeg(it.inbound),
-      ignavId: it.ignav_id
-    })).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
-    const result = { configured: true, offers };
-    ignavOffersCache[cacheKey] = { t: now, data: result };
-    res.json(result);
+    const offers = await fetchIgnavOffers(origin, destination, date, returnDate);
+    res.json({ configured: true, offers });
   } catch (err) {
     console.error('Erro Ignav (pesquisa de voos):', err.message);
     res.status(502).json({ error: 'Não foi possível pesquisar voos agora: ' + err.message });
   }
+});
+
+// Lista curada de grandes cidades europeias, usada para "voos baratos" —
+// a Ignav não tem um endpoint tipo "qualquer destino", só rota a rota, por
+// isso pesquisamos esta lista fixa uma a uma (cada pesquisa gasta ~15
+// pedidos da cota gratuita da Ignav).
+const EUROPE_DEALS_DESTINATIONS = [
+  { code: 'VLC', name: 'Valência' },
+  { code: 'MAD', name: 'Madrid' },
+  { code: 'BCN', name: 'Barcelona' },
+  { code: 'LHR', name: 'Londres' },
+  { code: 'CDG', name: 'Paris' },
+  { code: 'FCO', name: 'Roma' },
+  { code: 'MXP', name: 'Milão' },
+  { code: 'AMS', name: 'Amesterdão' },
+  { code: 'BRU', name: 'Bruxelas' },
+  { code: 'BER', name: 'Berlim' },
+  { code: 'MUC', name: 'Munique' },
+  { code: 'ZRH', name: 'Zurique' },
+  { code: 'VIE', name: 'Viena' },
+  { code: 'ATH', name: 'Atenas' },
+  { code: 'DUB', name: 'Dublin' }
+];
+
+app.get('/api/transport/flight-price/deals', async (req, res) => {
+  if (!IGNAV_CONFIGURED()) return res.json({ configured: false, deals: [] });
+  const origin = (req.query.origin || '').trim().toUpperCase();
+  const date = (req.query.date || '').trim();
+  if (!/^[A-Z]{3}$/.test(origin)) return res.status(400).json({ error: 'Indica um código IATA de origem válido (3 letras).' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
+  const destinations = EUROPE_DEALS_DESTINATIONS.filter((d) => d.code !== origin);
+  const results = await Promise.allSettled(destinations.map((d) => fetchIgnavOffers(origin, d.code, date)));
+  const deals = destinations.map((d, i) => {
+    if (results[i].status !== 'fulfilled' || !results[i].value.length) return null;
+    const cheapest = results[i].value[0];
+    return {
+      destinationCode: d.code,
+      destinationName: d.name,
+      price: cheapest.price,
+      currency: cheapest.currency,
+      airline: cheapest.outbound?.airline || '',
+      departure: cheapest.outbound?.departure,
+      stops: cheapest.outbound?.stops ?? 0,
+      ignavId: cheapest.ignavId
+    };
+  }).filter(Boolean).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+  res.json({ configured: true, deals });
 });
 
 app.get('/api/transport/flight-price/booking-link', async (req, res) => {

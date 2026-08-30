@@ -1676,6 +1676,7 @@
                         <input type="date" id="fpReturnDateInput" placeholder="Volta (opcional)" style="flex:1;">
                     </div>
                     <button class="btn-small" onclick="searchFlightPriceOffers()">🔍 Pesquisar voos</button>
+                    <button class="btn-small" onclick="searchFlightDeals()">💸 Voos baratos na Europa (a partir da origem)</button>
                     <div id="fpResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
             </div>
@@ -8705,6 +8706,45 @@
         } catch (err) {
             box.innerHTML = `<p style="color:#e74c3c;font-size:13px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
         }
+    }
+    async function searchFlightDeals() {
+        const box = document.getElementById('fpResults');
+        const origin = document.getElementById('fpOriginInput').value.trim().toUpperCase();
+        const date = document.getElementById('fpDateInput').value;
+        if (!/^[A-Z]{3}$/.test(origin)) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Indica o código IATA de origem (3 letras, ex.: LIS).</p>';
+            return;
+        }
+        if (!date) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma data de partida.</p>';
+            return;
+        }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos baratos por toda a Europa (~15 pedidos)...</p>';
+        try {
+            const params = new URLSearchParams({ origin, date });
+            const res = await fetch('/api/transport/flight-price/deals?' + params.toString());
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (data.configured === false) {
+                box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">⚠️ Pesquisa de voos por configurar (falta IGNAV_API_KEY no servidor).</p>';
+                return;
+            }
+            if (!data.deals.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">Não encontrei voos para nenhum destino nesta data.</p>'; return; }
+            box.innerHTML = data.deals.map(d => {
+                const dep = d.departure ? new Date(d.departure) : null;
+                const fmt = (dt) => dt ? dt.toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                return `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.08);cursor:pointer;" onclick='selectFlightDeal(${JSON.stringify(d.destinationCode)})'>
+                    <div><strong>${escapeHtml(d.destinationName)}</strong> (${escapeHtml(d.destinationCode)}) · <strong>${d.price != null ? d.price + ' ' + escapeHtml(d.currency || '') : '—'}</strong></div>
+                    <div style="font-size:12px;color:var(--text-secondary);">✈️ ${escapeHtml(d.airline || '')} · ${fmt(dep)} ${d.stops > 0 ? `· ${d.stops} escala(s)` : '· direto'}</div>
+                </div>`;
+            }).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:#e74c3c;font-size:13px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    function selectFlightDeal(destinationCode) {
+        document.getElementById('fpDestinationInput').value = destinationCode;
+        searchFlightPriceOffers();
     }
     async function openFlightBookingLink(ignavId, btn) {
         btn.disabled = true;
