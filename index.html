@@ -1634,7 +1634,7 @@
                 <div id="railSearchResults"></div>
             </div>
             <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
-                <input type="text" id="flightAirlineFilterInput" placeholder="🔍 Filtrar por companhia (ex.: TAP, RYR)..." oninput="onFlightAirlineFilterChange()">
+                <input type="text" id="flightAirlineFilterInput" placeholder="🔍 Filtrar por companhia (ex.: TAP, Ryanair, easyJet)..." oninput="onFlightAirlineFilterChange()">
             </div>
             <div id="busCityToggle" style="display:none;gap:6px;padding:6px 10px;background:var(--bg-secondary);">
                 <button class="btn-small bus-city-tab active" data-city="lisboa" onclick="switchBusCity('lisboa')" style="flex:1;">📍 Lisboa (ao vivo)</button>
@@ -8492,6 +8492,40 @@
         });
     }
 
+    // Códigos ICAO das companhias mais comuns na Europa — para o filtro de
+    // aviões aceitar o nome (ex.: "Ryanair") e não só o código (ex.: "RYR"),
+    // já que o callsign de cada voo só tem o código.
+    const AIRLINE_NAME_TO_ICAO = {
+        'tap': 'TAP', 'tap portugal': 'TAP', 'tap air portugal': 'TAP',
+        'ryanair': 'RYR',
+        'easyjet': 'EZY', 'easy jet': 'EZY',
+        'iberia': 'IBE',
+        'vueling': 'VLG',
+        'transavia': 'TRA',
+        'air france': 'AFR',
+        'klm': 'KLM',
+        'lufthansa': 'DLH',
+        'british airways': 'BAW',
+        'swiss': 'SWR', 'swiss international air lines': 'SWR',
+        'eurowings': 'EWG',
+        'wizz air': 'WZZ', 'wizzair': 'WZZ',
+        'aer lingus': 'EIN',
+        'sas': 'SAS', 'scandinavian airlines': 'SAS',
+        'turkish airlines': 'THY',
+        'pegasus': 'PGT', 'pegasus airlines': 'PGT',
+        'norwegian': 'NAX', 'norwegian air': 'NAX',
+        'ita airways': 'ITY', 'ita': 'ITY',
+        'emirates': 'UAE',
+        'qatar airways': 'QTR',
+        'air europa': 'AEA',
+        'azores airlines': 'RZO', 'sata': 'RZO'
+    };
+    function resolveAirlineFilter(text) {
+        const t = text.trim().toLowerCase();
+        if (!t) return '';
+        if (AIRLINE_NAME_TO_ICAO[t]) return AIRLINE_NAME_TO_ICAO[t];
+        return text.trim().toUpperCase();
+    }
     function onFlightAirlineFilterChange() {
         if (TRANSPORT.activeTab === 'flight' && TRANSPORT.lastFlightStates) renderFlights(TRANSPORT.lastFlightStates);
     }
@@ -8520,7 +8554,7 @@
         // código ICAO da companhia (ex.: "TAP123" para a TAP, "RYR456" para a
         // Ryanair) — filtramos aqui no cliente, já que os dados da área toda
         // já vieram no pedido (não gasta mais cota da OpenSky).
-        const filterRaw = (document.getElementById('flightAirlineFilterInput').value || '').trim().toUpperCase();
+        const filterRaw = resolveAirlineFilter(document.getElementById('flightAirlineFilterInput').value || '');
         TRANSPORT.layers.flight.clearLayers();
         let shown = 0;
         states.forEach(s => {
