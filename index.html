@@ -1660,9 +1660,10 @@
                     <input type="text" id="tripDestinationInput" placeholder="🚏 Cidade/estação de destino (Europa)..." oninput="debounceTripStopSearch('destination')" autocomplete="off">
                     <div id="tripDestinationResults"></div>
                     <div style="display:flex;gap:6px;">
-                        <input type="date" id="tripDateInput" style="flex:1;">
-                        <button class="btn-small" onclick="searchTripOffers()" style="flex-shrink:0;">🔍 Pesquisar preços</button>
+                        <input type="date" id="tripDateInput" placeholder="Ida" style="flex:1;">
+                        <input type="date" id="tripReturnDateInput" placeholder="Volta (opcional)" style="flex:1;">
                     </div>
+                    <button class="btn-small" onclick="searchTripOffers()">🔍 Pesquisar preços</button>
                     <div id="tripOffersResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
                 <div id="flightModeFields" style="display:none;flex-direction:column;gap:6px;">
@@ -1671,9 +1672,10 @@
                         <input type="text" id="fpDestinationInput" placeholder="✈️ Destino (código IATA, ex.: OPO)..." maxlength="3" style="flex:1;text-transform:uppercase;">
                     </div>
                     <div style="display:flex;gap:6px;">
-                        <input type="date" id="fpDateInput" style="flex:1;">
-                        <button class="btn-small" onclick="searchFlightPriceOffers()" style="flex-shrink:0;">🔍 Pesquisar voos</button>
+                        <input type="date" id="fpDateInput" placeholder="Ida" style="flex:1;">
+                        <input type="date" id="fpReturnDateInput" placeholder="Volta (opcional)" style="flex:1;">
                     </div>
+                    <button class="btn-small" onclick="searchFlightPriceOffers()">🔍 Pesquisar voos</button>
                     <div id="fpResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
             </div>
@@ -8578,6 +8580,7 @@
     async function searchTripOffers() {
         const box = document.getElementById('tripOffersResults');
         const date = document.getElementById('tripDateInput').value;
+        const returnDate = document.getElementById('tripReturnDateInput').value;
         if (!TRANSPORT.tripOriginCode || !TRANSPORT.tripDestinationCode) {
             box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma cidade/estação de origem e destino a partir da lista (não basta escrever texto livre).</p>';
             return;
@@ -8589,6 +8592,7 @@
         box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar preços...</p>';
         try {
             const params = new URLSearchParams({ origin: TRANSPORT.tripOriginCode, destination: TRANSPORT.tripDestinationCode, date });
+            if (returnDate) params.set('returnDate', returnDate);
             const res = await fetch('/api/transport/trip-search/offers?' + params.toString());
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
@@ -8602,8 +8606,9 @@
                 const arr = o.arrival ? new Date(o.arrival) : null;
                 const fmt = (d) => d ? d.toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
                 const icon = TRIP_TYPE_EMOJI[o.transportType] || '🚏';
+                const dirLabel = returnDate ? (o.direction === 'inbound' ? '⬅️ Volta · ' : '➡️ Ida · ') : '';
                 return `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.08);">
-                    <div><strong>${o.priceEur != null ? o.priceEur + ' €' : '—'}</strong> · ${icon} ${escapeHtml(o.providers || '')}</div>
+                    <div>${dirLabel}<strong>${o.priceEur != null ? o.priceEur + ' €' : '—'}</strong> · ${icon} ${escapeHtml(o.providers || '')}</div>
                     <div style="font-size:12px;color:var(--text-secondary);">${fmt(dep)} → ${fmt(arr)} ${o.stops > 0 ? `· ${o.stops} escala(s)` : '· direto'}${o.co2g != null ? ` · 🌱 ${(o.co2g / 1000).toFixed(1)} kg CO₂` : ''}</div>
                 </div>`;
             }).join('');
@@ -8622,11 +8627,19 @@
     // A Amadeus (GDS oficial) fechou o self-service em 2026; a Ignav é uma
     // alternativa self-serve real, que só devolve preços + um link de reserva
     // para a própria companhia/OTA — nunca processa pagamento nenhum aqui.
+    function renderIgnavLeg(leg, label) {
+        if (!leg) return '';
+        const dep = leg.departure ? new Date(leg.departure) : null;
+        const arr = leg.arrival ? new Date(leg.arrival) : null;
+        const fmt = (d) => d ? d.toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+        return `<div style="font-size:12px;color:var(--text-secondary);">${label} ✈️ ${escapeHtml(leg.airline || '')} · ${fmt(dep)} → ${fmt(arr)} ${leg.stops > 0 ? `· ${leg.stops} escala(s)` : '· direto'}</div>`;
+    }
     async function searchFlightPriceOffers() {
         const box = document.getElementById('fpResults');
         const origin = document.getElementById('fpOriginInput').value.trim().toUpperCase();
         const destination = document.getElementById('fpDestinationInput').value.trim().toUpperCase();
         const date = document.getElementById('fpDateInput').value;
+        const returnDate = document.getElementById('fpReturnDateInput').value;
         if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
             box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Indica os códigos IATA de origem e destino (3 letras, ex.: LIS, OPO, MAD).</p>';
             return;
@@ -8638,6 +8651,7 @@
         box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos...</p>';
         try {
             const params = new URLSearchParams({ origin, destination, date });
+            if (returnDate) params.set('returnDate', returnDate);
             const res = await fetch('/api/transport/flight-price/offers?' + params.toString());
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
@@ -8646,13 +8660,11 @@
                 return;
             }
             if (!data.offers.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">Nenhum voo encontrado para esta rota/data.</p>'; return; }
-            box.innerHTML = data.offers.map((o, i) => {
-                const dep = o.departure ? new Date(o.departure) : null;
-                const arr = o.arrival ? new Date(o.arrival) : null;
-                const fmt = (d) => d ? d.toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+            box.innerHTML = data.offers.map((o) => {
                 return `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.08);">
-                    <div><strong>${o.price != null ? o.price + ' ' + escapeHtml(o.currency || '') : '—'}</strong> · ✈️ ${escapeHtml(o.airline || '')}</div>
-                    <div style="font-size:12px;color:var(--text-secondary);">${fmt(dep)} → ${fmt(arr)} ${o.stops > 0 ? `· ${o.stops} escala(s)` : '· direto'}</div>
+                    <div><strong>${o.price != null ? o.price + ' ' + escapeHtml(o.currency || '') : '—'}</strong>${returnDate ? ' (ida e volta)' : ''}</div>
+                    ${renderIgnavLeg(o.outbound, '➡️ Ida:')}
+                    ${renderIgnavLeg(o.inbound, '⬅️ Volta:')}
                     <button class="btn-small" style="margin-top:4px;" onclick='openFlightBookingLink(${JSON.stringify(o.ignavId)}, this)'>🔗 Ver opções de reserva</button>
                 </div>`;
             }).join('');
