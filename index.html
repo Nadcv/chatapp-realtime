@@ -1627,6 +1627,8 @@
             </div>
             <div id="railScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
+                <input type="text" id="metroLisboaSearchInput" placeholder="🔍 Pesquisar estação do Metro de Lisboa (horários)..." oninput="debounceMetroLisboaStationSearch()">
+                <div id="metroLisboaSearchResults"></div>
                 <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP)..." oninput="debounceRailStationSearch()">
                 <div id="railSearchResults"></div>
             </div>
@@ -1645,6 +1647,17 @@
             </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
+        </div>
+
+        <!-- ============ HORÁRIOS DO METRO DE LISBOA (via GTFS) ============ -->
+        <div class="modal-overlay" id="modalMetroLisboaDepartures" style="z-index:200;">
+            <div class="modal">
+                <h3 id="metroLisboaDeparturesTitle">🚇 Próximas partidas</h3>
+                <div id="metroLisboaDeparturesList" style="max-height:320px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalMetroLisboaDepartures')">Fechar</button>
+                </div>
+            </div>
         </div>
 
         <!-- ============ HORÁRIOS DE COMBOIO (CP, via GTFS) ============ -->
@@ -8484,6 +8497,50 @@
             });
             document.getElementById('transportStatus').textContent = `Estações de metro e comboio (localização) · Sem posição ao vivo dos comboios — ver cp.pt / metrolisboa.pt`;
         });
+    }
+
+    // ==================== HORÁRIOS DO METRO DE LISBOA (via GTFS) ====================
+    let metroLisboaSearchTimer = null;
+    function debounceMetroLisboaStationSearch() {
+        clearTimeout(metroLisboaSearchTimer);
+        metroLisboaSearchTimer = setTimeout(runMetroLisboaStationSearch, 300);
+    }
+    async function runMetroLisboaStationSearch() {
+        const q = document.getElementById('metroLisboaSearchInput').value.trim();
+        const box = document.getElementById('metroLisboaSearchResults');
+        if (!q) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/transport/metro-lisboa/stops?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma estação encontrada.</p>'; return; }
+            box.innerHTML = data.map(s => `
+                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openMetroLisboaDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)})'>
+                    🚇 ${escapeHtml(s.name)}
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    async function openMetroLisboaDeparturesModal(stationId, stationName) {
+        document.getElementById('metroLisboaDeparturesTitle').textContent = `🚇 Próximas partidas — ${stationName}`;
+        const list = document.getElementById('metroLisboaDeparturesList');
+        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">A carregar...</p>';
+        document.getElementById('modalMetroLisboaDepartures').classList.add('active');
+        try {
+            const res = await fetch('/api/transport/metro-lisboa/departures?stationId=' + encodeURIComponent(stationId));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
+            list.innerHTML = data.departures.map(d => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${escapeHtml((d.time || '').slice(0, 5))}</strong>${d.routeName ? ' · ' + escapeHtml(d.routeName) : ''}</div>
+                    <div style="color:var(--text-secondary);font-size:12px;text-align:right;">${escapeHtml(d.headsign || '')}</div>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = `<p style="color:var(--text-secondary);text-align:center;padding:20px;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
     }
 
     // ==================== HORÁRIOS DE COMBOIO (CP, via GTFS) ====================

@@ -979,6 +979,36 @@ app.get('/api/trains/departures', async (req, res) => {
   }
 });
 
+// ==================== METRO DE LISBOA — GTFS ====================
+// Mesmo padrão que resolveu a CP: o próprio Metro de Lisboa publica um feed GTFS
+// "Google Transit" no seu site público (não é a API bloqueada api.metrolisboa.pt).
+const METRO_LISBOA_GTFS_URL_DEFAULT = 'https://www.metrolisboa.pt/google_transit/googleTransit.zip';
+async function resolveMetroLisboaGtfsUrl() {
+  return process.env.METRO_LISBOA_GTFS_URL || METRO_LISBOA_GTFS_URL_DEFAULT;
+}
+
+app.get('/api/transport/metro-lisboa/stops', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('metro-lisboa', resolveMetroLisboaGtfsUrl, 'METRO_LISBOA_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
+  } catch (err) {
+    console.error('Erro GTFS (estações Metro de Lisboa):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários do Metro de Lisboa agora: ' + err.message });
+  }
+});
+
+app.get('/api/transport/metro-lisboa/departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('metro-lisboa', resolveMetroLisboaGtfsUrl, 'METRO_LISBOA_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId);
+    if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro GTFS (partidas Metro de Lisboa):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários do Metro de Lisboa agora: ' + err.message });
+  }
+});
+
 // ==================== AUTOCARROS DE GUIMARÃES (GUIMABUS) — GTFS ====================
 // Feed GTFS real e atual da GUIMABUS, publicado no nó regional de dados abertos do Minho
 // (Minho Access Point), encontrado através do dataset "Rede de Transporte Público
