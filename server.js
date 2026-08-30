@@ -1540,6 +1540,12 @@ async function checkPriceAlerts() {
 // API oficial, aberta e gratuita da Câmara Municipal de Lisboa — sem chave,
 // sem registo. Só cobre eventos em Lisboa; não encontrámos equivalente
 // confirmado para o Porto ou outras cidades.
+function normalizeAgendalxCategories(raw) {
+  if (Array.isArray(raw)) return raw.map((c) => (c && typeof c === 'object' ? c.name : c)).filter(Boolean);
+  if (raw && typeof raw === 'object') return Object.values(raw).map((c) => (c && typeof c === 'object' ? c.name : c)).filter(Boolean);
+  if (typeof raw === 'string') return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
+}
 app.get('/api/culture/events', async (req, res) => {
   try {
     const url = process.env.AGENDALX_EVENTS_URL || 'https://www.agendalx.pt/wp-json/agendalx/v1/events';
@@ -1549,17 +1555,29 @@ app.get('/api/culture/events', async (req, res) => {
     const data = await cachedFetch('agendalx_events', url, 60 * 60 * 1000, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36', 'Accept': 'application/json' }
     });
-    const events = (Array.isArray(data) ? data : []).map((e) => ({
-      id: e.id,
-      title: (typeof e.title === 'object' ? e.title?.rendered : e.title) || '',
-      subtitle: e.subtitle || '',
-      dates: e.string_dates || '',
-      times: e.string_times || '',
-      venue: e.venue?.name || '',
-      image: e.featured_media_large || null,
-      categories: (e.categories_name_list || []).map((c) => (typeof c === 'object' ? c.name : c)).filter(Boolean),
-      url: e.slug ? `https://www.agendalx.pt/events/event/${e.slug}/` : null
-    })).filter((e) => e.title);
+    const events = (Array.isArray(data) ? data : []).map((e) => {
+      // A resposta real da Agenda Cultural de Lisboa não segue exatamente a
+      // forma documentada/inferida (ex.: categories_name_list já apareceu
+      // como algo que não é uma lista) — por isso cada evento é processado
+      // em separado, para um campo inesperado num evento não derrubar a
+      // lista inteira.
+      try {
+        return {
+          id: e.id,
+          title: (typeof e.title === 'object' ? e.title?.rendered : e.title) || '',
+          subtitle: (typeof e.subtitle === 'object' ? e.subtitle?.rendered : e.subtitle) || '',
+          dates: e.string_dates || '',
+          times: e.string_times || '',
+          venue: e.venue?.name || '',
+          image: e.featured_media_large || null,
+          categories: normalizeAgendalxCategories(e.categories_name_list),
+          url: e.slug ? `https://www.agendalx.pt/events/event/${e.slug}/` : null
+        };
+      } catch (err) {
+        console.error('Erro ao processar um evento da Agenda Cultural de Lisboa:', err.message);
+        return null;
+      }
+    }).filter((e) => e && e.title);
     res.json({ events });
   } catch (err) {
     console.error('Erro Agenda Cultural de Lisboa:', err.message);
