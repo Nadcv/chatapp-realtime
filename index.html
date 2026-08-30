@@ -1653,6 +1653,7 @@
                 <div style="display:flex;gap:6px;">
                     <button class="btn-small price-mode-tab active" data-mode="trip" onclick="switchPriceMode('trip')" style="flex:1;">🚆🚌 Comboio/Autocarro</button>
                     <button class="btn-small price-mode-tab" data-mode="flight" onclick="switchPriceMode('flight')" style="flex:1;">✈️ Voos</button>
+                    <button class="btn-small price-mode-tab" data-mode="planner" onclick="switchPriceMode('planner')" style="flex:1;">🧭 Planeador</button>
                 </div>
                 <div id="tripModeFields" style="display:flex;flex-direction:column;gap:6px;">
                     <input type="text" id="tripOriginInput" placeholder="🚏 Cidade/estação de origem (Europa)..." oninput="debounceTripStopSearch('origin')" autocomplete="off">
@@ -1741,6 +1742,58 @@
                     <div id="flightStatsSection" style="display:none;flex-direction:column;gap:6px;">
                         <div id="fpStatsBox" style="font-size:12px;"></div>
                     </div>
+                </div>
+                <div id="plannerModeFields" style="display:none;flex-direction:column;gap:6px;">
+                    <div style="font-size:11px;color:var(--text-secondary);">Compara voo, comboio/autocarro europeu e comboio direto CP (quando aplicável) para a mesma rota.</div>
+                    <div style="display:flex;gap:6px;">
+                        <select id="plannerOriginInput" style="flex:1;">
+                            <option value="">🧭 Origem...</option>
+                            <option value="LIS">Lisboa</option>
+                            <option value="OPO">Porto</option>
+                            <option value="FAO">Faro</option>
+                            <option value="VLC">Valência</option>
+                            <option value="MAD">Madrid</option>
+                            <option value="BCN">Barcelona</option>
+                            <option value="LHR">Londres</option>
+                            <option value="CDG">Paris</option>
+                            <option value="FCO">Roma</option>
+                            <option value="MXP">Milão</option>
+                            <option value="AMS">Amesterdão</option>
+                            <option value="BRU">Bruxelas</option>
+                            <option value="BER">Berlim</option>
+                            <option value="MUC">Munique</option>
+                            <option value="ZRH">Zurique</option>
+                            <option value="VIE">Viena</option>
+                            <option value="ATH">Atenas</option>
+                            <option value="DUB">Dublin</option>
+                            <option value="TMS">São Tomé</option>
+                        </select>
+                        <select id="plannerDestinationInput" style="flex:1;">
+                            <option value="">🧭 Destino...</option>
+                            <option value="LIS">Lisboa</option>
+                            <option value="OPO">Porto</option>
+                            <option value="FAO">Faro</option>
+                            <option value="VLC">Valência</option>
+                            <option value="MAD">Madrid</option>
+                            <option value="BCN">Barcelona</option>
+                            <option value="LHR">Londres</option>
+                            <option value="CDG">Paris</option>
+                            <option value="FCO">Roma</option>
+                            <option value="MXP">Milão</option>
+                            <option value="AMS">Amesterdão</option>
+                            <option value="BRU">Bruxelas</option>
+                            <option value="BER">Berlim</option>
+                            <option value="MUC">Munique</option>
+                            <option value="ZRH">Zurique</option>
+                            <option value="VIE">Viena</option>
+                            <option value="ATH">Atenas</option>
+                            <option value="DUB">Dublin</option>
+                            <option value="TMS">São Tomé</option>
+                        </select>
+                    </div>
+                    <input type="date" id="plannerDateInput">
+                    <button class="btn-small" onclick="searchTripPlanner()">🧭 Comparar opções</button>
+                    <div id="plannerResults" style="max-height:320px;overflow-y:auto;"></div>
                 </div>
             </div>
             <div id="transportMap"></div>
@@ -8784,6 +8837,51 @@
         document.querySelectorAll('.price-mode-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
         document.getElementById('tripModeFields').style.display = mode === 'trip' ? 'flex' : 'none';
         document.getElementById('flightModeFields').style.display = mode === 'flight' ? 'flex' : 'none';
+        document.getElementById('plannerModeFields').style.display = mode === 'planner' ? 'flex' : 'none';
+    }
+    // ==================== PLANEADOR DE VIAGENS MULTIMODAL ====================
+    function formatPlannerDuration(min) {
+        if (min == null) return null;
+        const h = Math.floor(min / 60);
+        const m = Math.round(min % 60);
+        return (h > 0 ? h + 'h ' : '') + m + 'min';
+    }
+    async function searchTripPlanner() {
+        const origin = document.getElementById('plannerOriginInput').value.trim().toUpperCase();
+        const destination = document.getElementById('plannerDestinationInput').value.trim().toUpperCase();
+        const date = document.getElementById('plannerDateInput').value;
+        const box = document.getElementById('plannerResults');
+        if (!origin || !destination) { box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe a origem e o destino.</p>'; return; }
+        if (origin === destination) { box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">A origem e o destino não podem ser os mesmos.</p>'; return; }
+        if (!date) { box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma data.</p>'; return; }
+        box.innerHTML = '<p style="font-size:13px;padding:6px 0;">A comparar opções...</p>';
+        try {
+            const res = await fetch(`/api/transport/planner?origin=${origin}&destination=${destination}&date=${date}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.options.length) {
+                box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">Nenhuma opção disponível para esta rota (verifica se o Ignav/Tictactrip estão configurados, ou tenta outra rota).</p>';
+                return;
+            }
+            const rows = data.options.map((o) => {
+                const priceText = o.price != null ? `${o.price} ${o.currency}` : (o.extra?.priceNote || 'Preço não disponível');
+                const durationText = formatPlannerDuration(o.durationMin) || '—';
+                const stopsText = o.stops != null ? (o.stops === 0 ? 'direto' : `${o.stops} escala(s)`) : '—';
+                const co2Text = `${o.co2Estimated ? '~' : ''}${o.co2Kg} kg CO₂${o.co2Estimated ? ' (estimativa)' : ''}`;
+                const recommended = data.recommendation && data.recommendation.mode === o.mode;
+                return `<div style="padding:8px;margin-bottom:6px;border-radius:8px;background:var(--bg-secondary);${recommended ? 'border:2px solid #2ecc71;' : ''}">
+                    <div style="font-weight:600;">${escapeHtml(o.label)} ${recommended ? '🏆' : ''}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">💰 ${escapeHtml(priceText)} · ⏱️ ${escapeHtml(durationText)} · 🔀 ${escapeHtml(stopsText)}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">🌱 ${escapeHtml(co2Text)}${o.extra?.airline ? ' · ' + escapeHtml(o.extra.airline) : ''}${o.extra?.providers ? ' · ' + escapeHtml(o.extra.providers) : ''}</div>
+                    ${o.extra?.routeName ? `<div style="font-size:12px;color:var(--text-secondary);">🚄 ${escapeHtml(o.extra.routeName)}${o.extra.departure ? ' · ' + escapeHtml(o.extra.departure) + ' → ' + escapeHtml(o.extra.arrival) : ''}</div>` : ''}
+                </div>`;
+            }).join('');
+            const distanceLine = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">📏 ~${data.distanceKm} km em linha reta</div>`;
+            const recBanner = data.recommendation ? `<div style="font-size:12px;padding:6px 8px;background:rgba(46,204,113,0.15);border-radius:6px;margin-bottom:6px;">🏆 Recomendação: <strong>${escapeHtml(data.recommendation.label)}</strong>${data.recommendation.tip ? `<div style="margin-top:2px;">💡 ${escapeHtml(data.recommendation.tip)}</div>` : ''}</div>` : '';
+            box.innerHTML = distanceLine + recBanner + rows;
+        } catch (err) {
+            box.innerHTML = `<p style="color:#e74c3c;font-size:13px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
     }
     function switchFlightSubTab(sub) {
         document.querySelectorAll('.flight-sub-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.sub === sub));

@@ -1206,6 +1206,44 @@ app.get('/api/transport/trip-search/stops', async (req, res) => {
 });
 
 const tictactripOffersCache = {};
+async function searchTictactripOffers(originGpuid, destinationGpuid, date, returnDate) {
+  const cacheKey = `${originGpuid}_${destinationGpuid}_${date}_${returnDate || ''}`;
+  const now = Date.now();
+  if (tictactripOffersCache[cacheKey] && (now - tictactripOffersCache[cacheKey].t) < 10 * 60 * 1000) {
+    return tictactripOffersCache[cacheKey].data;
+  }
+  const body = {
+    originGpuid,
+    destinationGpuid,
+    outboundDate: `${date}T00:00:00Z`,
+    passengers: [{ age: 30 }]
+  };
+  if (returnDate) body.returnDate = `${returnDate}T00:00:00Z`;
+  const resp = await fetch(`${TICTACTRIP_API_BASE}/v2/results`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.TICTACTRIP_API_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) {
+    const respBody = await resp.text().catch(() => '');
+    throw new Error(`HTTP ${resp.status}${respBody ? ' — ' + respBody.slice(0, 200) : ''}`);
+  }
+  const data = await resp.json();
+  const trips = Object.values(data.trips || {});
+  const offers = trips.map((trip) => ({
+    priceEur: trip.priceCents != null ? (trip.priceCents / 100).toFixed(2) : null,
+    transportType: (trip.transportType || '').toLowerCase(),
+    providers: (trip.providers || []).map((p) => p.name).join(', '),
+    durationMinutes: trip.durationMinutes,
+    departure: trip.departureLocalISO,
+    arrival: trip.arrivalLocalISO,
+    stops: Math.max(0, (trip.segments || []).length - 1),
+    co2g: trip.segments?.reduce((sum, s) => sum + (s.co2g || 0), 0) || null,
+    direction: trip.direction === 'inboundTrip' ? 'inbound' : 'outbound'
+  })).sort((a, b) => (parseFloat(a.priceEur) || Infinity) - (parseFloat(b.priceEur) || Infinity));
+  tictactripOffersCache[cacheKey] = { t: now, data: offers };
+  return offers;
+}
 app.get('/api/transport/trip-search/offers', async (req, res) => {
   if (!TICTACTRIP_CONFIGURED()) return res.json({ configured: false, offers: [] });
   const origin = (req.query.origin || '').trim();
@@ -1216,44 +1254,9 @@ app.get('/api/transport/trip-search/offers', async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
   if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
   if (returnDate && returnDate < date) return res.status(400).json({ error: 'A data de volta não pode ser antes da data de ida.' });
-  const cacheKey = `${origin}_${destination}_${date}_${returnDate}`;
-  const now = Date.now();
-  if (tictactripOffersCache[cacheKey] && (now - tictactripOffersCache[cacheKey].t) < 10 * 60 * 1000) {
-    return res.json(tictactripOffersCache[cacheKey].data);
-  }
   try {
-    const body = {
-      originGpuid: origin,
-      destinationGpuid: destination,
-      outboundDate: `${date}T00:00:00Z`,
-      passengers: [{ age: 30 }]
-    };
-    if (returnDate) body.returnDate = `${returnDate}T00:00:00Z`;
-    const resp = await fetch(`${TICTACTRIP_API_BASE}/v2/results`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.TICTACTRIP_API_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) {
-      const respBody = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${resp.status}${respBody ? ' — ' + respBody.slice(0, 200) : ''}`);
-    }
-    const data = await resp.json();
-    const trips = Object.values(data.trips || {});
-    const offers = trips.map((trip) => ({
-      priceEur: trip.priceCents != null ? (trip.priceCents / 100).toFixed(2) : null,
-      transportType: (trip.transportType || '').toLowerCase(),
-      providers: (trip.providers || []).map((p) => p.name).join(', '),
-      durationMinutes: trip.durationMinutes,
-      departure: trip.departureLocalISO,
-      arrival: trip.arrivalLocalISO,
-      stops: Math.max(0, (trip.segments || []).length - 1),
-      co2g: trip.segments?.reduce((sum, s) => sum + (s.co2g || 0), 0) || null,
-      direction: trip.direction === 'inboundTrip' ? 'inbound' : 'outbound'
-    })).sort((a, b) => (parseFloat(a.priceEur) || Infinity) - (parseFloat(b.priceEur) || Infinity));
-    const result = { configured: true, offers };
-    tictactripOffersCache[cacheKey] = { t: now, data: result };
-    res.json(result);
+    const offers = await searchTictactripOffers(origin, destination, date, returnDate);
+    res.json({ configured: true, offers });
   } catch (err) {
     console.error('Erro Tictactrip (pesquisa de viagens):', err.message);
     res.status(502).json({ error: 'Não foi possível pesquisar viagens agora: ' + err.message });
@@ -1450,6 +1453,226 @@ app.get('/api/transport/flight-price/booking-link', async (req, res) => {
     console.error('Erro Ignav (link de reserva):', err.message);
     res.status(502).json({ error: 'Não foi possível obter o link de reserva agora: ' + err.message });
   }
+});
+
+// ==================== PLANEADOR DE VIAGENS MULTIMODAL ====================
+// Combina as três fontes de transporte já integradas (Ignav para voos,
+// Tictactrip para comboio/autocarro na Europa, GTFS da CP para comboios
+// diretos dentro de Portugal) numa comparação lado a lado por preço,
+// duração, número de escalas e pegada de CO2.
+//
+// Limitação importante, por honestidade: isto NÃO é um planeador porta-a-porta
+// de verdade. Cada opção mostrada é uma viagem de UM MODO só (voo, ou
+// comboio/autocarro, ou comboio CP direto) — não juntamos pernas de
+// transportadoras diferentes numa única viagem combinada (ex.: "voo até
+// à cidade + metro até ao centro" com horários e preços reais encadeados),
+// porque não temos dados fiáveis de ligação porta-a-porta entre o
+// aeroporto e a rede de transporte local em cada cidade. Em vez de
+// inventar essa ligação, a "recomendação" indica qual o modo geral mais
+// vantajoso e, quando aplicável, uma nota informativa (estática, não
+// calculada) sobre a ligação de transporte público conhecida a partir do
+// aeroporto de chegada.
+const PLANNER_CITIES = {
+  LIS: { name: 'Lisboa', lat: 38.7813, lon: -9.1359, cpStation: 'Lisboa Oriente' },
+  OPO: { name: 'Porto', lat: 41.2481, lon: -8.6814, cpStation: 'Porto Campanha', airportTransit: 'Aeroporto do Porto: estação "Aeroporto" da Linha E (violeta) do Metro do Porto, ligação direta ao centro.' },
+  FAO: { name: 'Faro', lat: 37.0144, lon: -7.9364, cpStation: 'Faro' },
+  VLC: { name: 'Valência', lat: 39.4893, lon: -0.3776 },
+  MAD: { name: 'Madrid', lat: 40.4719, lon: -3.5626, airportTransit: 'Aeroporto de Madrid-Barajas: Linha 8 do Metro de Madrid liga direto ao centro.' },
+  BCN: { name: 'Barcelona', lat: 41.2974, lon: 2.0833, airportTransit: 'Aeroporto de Barcelona: linha R2 Nord de Rodalies (comboio) liga direto ao centro.' },
+  LHR: { name: 'Londres', lat: 51.4700, lon: -0.4543, airportTransit: 'Aeroporto de Heathrow: Piccadilly Line do Metro e Elizabeth Line ligam direto ao centro.' },
+  CDG: { name: 'Paris', lat: 49.0097, lon: 2.5479, airportTransit: 'Aeroporto Charles de Gaulle: RER B liga direto ao centro.' },
+  FCO: { name: 'Roma', lat: 41.8003, lon: 12.2389, airportTransit: 'Aeroporto de Fiumicino: comboio Leonardo Express liga direto à Estação Termini.' },
+  MXP: { name: 'Milão', lat: 45.6306, lon: 8.7281 },
+  AMS: { name: 'Amesterdão', lat: 52.3105, lon: 4.7683, airportTransit: 'Aeroporto de Schiphol: comboio direto à Estação Central de Amesterdão.' },
+  BRU: { name: 'Bruxelas', lat: 50.9014, lon: 4.4844 },
+  BER: { name: 'Berlim', lat: 52.3667, lon: 13.5033, airportTransit: 'Aeroporto de Berlim (BER): comboio direto à Berlin Hauptbahnhof.' },
+  MUC: { name: 'Munique', lat: 48.3538, lon: 11.7861, airportTransit: 'Aeroporto de Munique: S-Bahn (S1/S8) liga direto ao centro.' },
+  ZRH: { name: 'Zurique', lat: 47.4647, lon: 8.5492, airportTransit: 'Aeroporto de Zurique: comboio direto à Estação Central (Zürich HB).' },
+  VIE: { name: 'Viena', lat: 48.1103, lon: 16.5697, airportTransit: 'Aeroporto de Viena: comboio CAT/S7 liga direto ao centro.' },
+  ATH: { name: 'Atenas', lat: 37.9364, lon: 23.9445, airportTransit: 'Aeroporto de Atenas: Linha 3 do Metro liga direto ao centro.' },
+  DUB: { name: 'Dublin', lat: 53.4264, lon: -6.2499 },
+  TMS: { name: 'São Tomé', lat: 0.3782, lon: 6.7122 }
+};
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+// Fatores de emissão aproximados por passageiro-km (ordem de grandeza usada
+// por várias calculadoras públicas — não é uma pegada certificada, serve
+// só para comparar visualmente as opções entre si).
+const FLIGHT_CO2_G_PER_KM = 115;
+const TRAIN_CO2_G_PER_KM = 35;
+
+async function resolveTictactripCluster(cityName) {
+  if (!TICTACTRIP_CONFIGURED()) return null;
+  const data = await cachedFetch('tictactrip_stopclusters', `${TICTACTRIP_API_BASE}/v2/stopClusters`, 7 * 24 * 60 * 60 * 1000, {
+    headers: { Authorization: `Bearer ${process.env.TICTACTRIP_API_TOKEN}` }
+  });
+  const list = Array.isArray(data) ? data : [];
+  const q = cityName.toLowerCase();
+  return list.find((c) => (c.name || '').toLowerCase() === q || (c.city || '').toLowerCase() === q)
+    || list.find((c) => (c.name || '').toLowerCase().includes(q) || (c.city || '').toLowerCase().includes(q))
+    || null;
+}
+
+function gtfsTimeToMinutes(t) {
+  const [h, m] = (t || '').split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+async function findDirectCpTrip(originStationName, destinationStationName, dateObj) {
+  const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
+  const stopsList = [...gtfs.stops.values()];
+  const originStop = stopsList.find((s) => s.name === originStationName) || stopsList.find((s) => s.name.includes(originStationName));
+  const destStop = stopsList.find((s) => s.name === destinationStationName) || stopsList.find((s) => s.name.includes(destinationStationName));
+  if (!originStop || !destStop) return null;
+  const originTimes = gtfs.stopTimesByStop.get(originStop.id) || [];
+  const destTimes = gtfs.stopTimesByStop.get(destStop.id) || [];
+  const destByTrip = new Map(destTimes.map((t) => [t.tripId, t]));
+  const candidates = [];
+  for (const ot of originTimes) {
+    const dt = destByTrip.get(ot.tripId);
+    if (!dt) continue;
+    // Comparação simples de string HH:MM:SS — não lida com viradas de meia-noite,
+    // a mesma simplificação já assumida no resto do motor GTFS desta app.
+    if (dt.arrival <= ot.departure) continue;
+    const trip = gtfs.trips.get(ot.tripId);
+    if (!trip || !isServiceActiveOnDate(gtfs, trip.serviceId, dateObj)) continue;
+    const route = gtfs.routes.get(trip.routeId);
+    const durationMin = gtfsTimeToMinutes(dt.arrival) - gtfsTimeToMinutes(ot.departure);
+    if (durationMin == null || durationMin <= 0) continue;
+    candidates.push({ departure: ot.departure, arrival: dt.arrival, durationMin, routeName: route?.longName || route?.shortName || 'CP' });
+  }
+  candidates.sort((a, b) => a.departure.localeCompare(b.departure));
+  return candidates[0] || null;
+}
+
+app.get('/api/transport/planner', async (req, res) => {
+  const origin = (req.query.origin || '').trim().toUpperCase();
+  const destination = (req.query.destination || '').trim().toUpperCase();
+  const date = (req.query.date || '').trim();
+  if (!PLANNER_CITIES[origin] || !PLANNER_CITIES[destination]) return res.status(400).json({ error: 'Escolhe uma origem e um destino válidos da lista.' });
+  if (origin === destination) return res.status(400).json({ error: 'A origem e o destino não podem ser os mesmos.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de viagem válida.' });
+  const originCity = PLANNER_CITIES[origin];
+  const destCity = PLANNER_CITIES[destination];
+  const distanceKm = Math.round(haversineKm(originCity.lat, originCity.lon, destCity.lat, destCity.lon));
+  const dateObj = new Date(date + 'T12:00:00');
+
+  const options = [];
+
+  if (IGNAV_CONFIGURED()) {
+    try {
+      const offers = await fetchIgnavOffers(origin, destination, date);
+      const best = offers[0];
+      if (best) {
+        options.push({
+          mode: 'flight',
+          label: '✈️ Avião',
+          provider: 'Ignav',
+          price: best.price,
+          currency: best.currency || 'EUR',
+          durationMin: null,
+          stops: best.outbound?.stops ?? null,
+          co2Kg: Math.round(distanceKm * FLIGHT_CO2_G_PER_KM) / 1000,
+          co2Estimated: true,
+          extra: { airline: best.outbound?.airline || '' }
+        });
+      }
+    } catch (err) {
+      console.error('Erro no planeador (Ignav):', err.message);
+    }
+  }
+
+  if (TICTACTRIP_CONFIGURED()) {
+    try {
+      const [originCluster, destCluster] = await Promise.all([resolveTictactripCluster(originCity.name), resolveTictactripCluster(destCity.name)]);
+      if (originCluster && destCluster) {
+        const offers = await searchTictactripOffers(originCluster.id, destCluster.id, date);
+        const best = offers.find((o) => o.direction === 'outbound');
+        if (best) {
+          options.push({
+            mode: 'train_bus',
+            label: '🚆🚌 Comboio/Autocarro',
+            provider: 'Tictactrip',
+            price: best.priceEur != null ? parseFloat(best.priceEur) : null,
+            currency: 'EUR',
+            durationMin: best.durationMinutes ?? null,
+            stops: best.stops ?? null,
+            co2Kg: best.co2g != null ? Math.round(best.co2g) / 1000 : Math.round(distanceKm * TRAIN_CO2_G_PER_KM) / 1000,
+            co2Estimated: best.co2g == null,
+            extra: { providers: best.providers || '' }
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Erro no planeador (Tictactrip):', err.message);
+    }
+  }
+
+  if (originCity.cpStation && destCity.cpStation) {
+    try {
+      const direct = await findDirectCpTrip(originCity.cpStation, destCity.cpStation, dateObj);
+      if (direct) {
+        options.push({
+          mode: 'cp_direct',
+          label: '🚄 Comboio direto (CP)',
+          provider: 'CP (GTFS)',
+          price: null,
+          currency: null,
+          durationMin: direct.durationMin,
+          stops: 0,
+          co2Kg: Math.round(distanceKm * TRAIN_CO2_G_PER_KM) / 1000,
+          co2Estimated: true,
+          extra: { departure: direct.departure, arrival: direct.arrival, routeName: direct.routeName, priceNote: 'Preço não disponível via GTFS — consulta a CP diretamente.' }
+        });
+      }
+    } catch (err) {
+      console.error('Erro no planeador (CP GTFS):', err.message);
+    }
+  }
+
+  // Recomendação: normaliza preço/duração/CO2 (0-1, menor é melhor) entre as
+  // opções que têm essa informação, e soma com peso igual. Sem preço/duração
+  // disponíveis para comparar, cai para a opção mais barata ou a primeira.
+  let recommendation = null;
+  if (options.length) {
+    const withPrice = options.filter((o) => o.price != null);
+    const withDuration = options.filter((o) => o.durationMin != null);
+    const minMax = (arr, key) => {
+      const vals = arr.map((o) => o[key]);
+      return { min: Math.min(...vals), max: Math.max(...vals) };
+    };
+    const priceRange = withPrice.length ? minMax(withPrice, 'price') : null;
+    const durationRange = withDuration.length ? minMax(withDuration, 'durationMin') : null;
+    const co2Range = minMax(options, 'co2Kg');
+    const norm = (val, range) => (!range || range.max === range.min) ? 0.5 : (val - range.min) / (range.max - range.min);
+    let best = null;
+    let bestScore = Infinity;
+    for (const o of options) {
+      const parts = [norm(o.co2Kg, co2Range)];
+      if (o.price != null && priceRange) parts.push(norm(o.price, priceRange));
+      if (o.durationMin != null && durationRange) parts.push(norm(o.durationMin, durationRange));
+      const score = parts.reduce((a, b) => a + b, 0) / parts.length;
+      if (score < bestScore) { bestScore = score; best = o; }
+    }
+    recommendation = {
+      mode: best.mode,
+      label: best.label,
+      tip: best.mode === 'flight' ? (destCity.airportTransit || null) : null
+    };
+  }
+
+  res.json({
+    origin, originName: originCity.name,
+    destination, destinationName: destCity.name,
+    distanceKm,
+    options,
+    recommendation
+  });
 });
 
 // ==================== ALERTAS DE PREÇO DE VOOS (Ignav) ====================
