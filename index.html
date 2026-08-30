@@ -1632,6 +1632,9 @@
                 <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP)..." oninput="debounceRailStationSearch()">
                 <div id="railSearchResults"></div>
             </div>
+            <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="flightAirlineFilterInput" placeholder="🔍 Filtrar por companhia (ex.: TAP, RYR)..." oninput="onFlightAirlineFilterChange()">
+            </div>
             <div id="busCityToggle" style="display:none;gap:6px;padding:6px 10px;background:var(--bg-secondary);">
                 <button class="btn-small bus-city-tab active" data-city="lisboa" onclick="switchBusCity('lisboa')" style="flex:1;">📍 Lisboa (ao vivo)</button>
                 <button class="btn-small bus-city-tab" data-city="guimaraes" onclick="switchBusCity('guimaraes')" style="flex:1;">📍 Guimarães (horários)</button>
@@ -8372,6 +8375,7 @@
         document.querySelectorAll('.transport-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
         document.getElementById('railScheduleBar').style.display = tab === 'rail' ? 'flex' : 'none';
         document.getElementById('busCityToggle').style.display = tab === 'bus' ? 'flex' : 'none';
+        document.getElementById('flightFilterBar').style.display = tab === 'flight' ? 'flex' : 'none';
         Object.values(TRANSPORT.layers).forEach(layer => TRANSPORT.map.removeLayer(layer));
         TRANSPORT.layers[tab].addTo(TRANSPORT.map);
         if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
@@ -8447,6 +8451,9 @@
         });
     }
 
+    function onFlightAirlineFilterChange() {
+        if (TRANSPORT.activeTab === 'flight' && TRANSPORT.lastFlightStates) renderFlights(TRANSPORT.lastFlightStates);
+    }
     function loadFlights() {
         document.getElementById('transportStatus').textContent = 'A atualizar voos...';
         // Usa a área do mapa que está visível agora — assim funciona em
@@ -8461,21 +8468,33 @@
         });
         fetch('/api/transport/flights?' + params.toString()).then(r => r.json()).then(data => {
             if (data.error) throw new Error(data.error);
-            const states = data.states || [];
-            TRANSPORT.layers.flight.clearLayers();
-            states.forEach(s => {
-                // formato OpenSky: [icao24, callsign, origin_country, ..., lon(5), lat(6), baro_altitude(7), ..., velocity(9), true_track(10), ...]
-                const lon = s[5], lat = s[6], altitude = s[7], velocity = s[9], heading = s[10] || 0, callsign = (s[1] || '').trim();
-                if (lat == null || lon == null) return;
-                const icon = L.divIcon({ html: `<div style="transform:rotate(${heading}deg);font-size:16px;">✈️</div>`, className: '', iconSize: [20, 20] });
-                L.marker([lat, lon], { icon })
-                    .bindPopup(`✈️ <strong>${callsign || 'Desconhecido'}</strong><br>Altitude: ${altitude != null ? Math.round(altitude) + ' m' : '—'}<br>Velocidade: ${velocity != null ? Math.round(velocity * 3.6) + ' km/h' : '—'}`)
-                    .addTo(TRANSPORT.layers.flight);
-            });
-            document.getElementById('transportStatus').textContent = `${states.length} voos na área visível do mapa (OpenSky Network) — mova/afaste o mapa e toque em 🔄 para atualizar`;
+            TRANSPORT.lastFlightStates = data.states || [];
+            renderFlights(TRANSPORT.lastFlightStates);
         }).catch(err => {
             document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar os voos: ' + err.message;
         });
+    }
+    function renderFlights(states) {
+        // Filtro por companhia: o callsign de um voo começa tipicamente pelo
+        // código ICAO da companhia (ex.: "TAP123" para a TAP, "RYR456" para a
+        // Ryanair) — filtramos aqui no cliente, já que os dados da área toda
+        // já vieram no pedido (não gasta mais cota da OpenSky).
+        const filterRaw = (document.getElementById('flightAirlineFilterInput').value || '').trim().toUpperCase();
+        TRANSPORT.layers.flight.clearLayers();
+        let shown = 0;
+        states.forEach(s => {
+            // formato OpenSky: [icao24, callsign, origin_country, ..., lon(5), lat(6), baro_altitude(7), ..., velocity(9), true_track(10), ...]
+            const lon = s[5], lat = s[6], altitude = s[7], velocity = s[9], heading = s[10] || 0, callsign = (s[1] || '').trim();
+            if (lat == null || lon == null) return;
+            if (filterRaw && !callsign.toUpperCase().startsWith(filterRaw)) return;
+            shown++;
+            const icon = L.divIcon({ html: `<div style="transform:rotate(${heading}deg);font-size:16px;">✈️</div>`, className: '', iconSize: [20, 20] });
+            L.marker([lat, lon], { icon })
+                .bindPopup(`✈️ <strong>${escapeHtml(callsign) || 'Desconhecido'}</strong><br>Altitude: ${altitude != null ? Math.round(altitude) + ' m' : '—'}<br>Velocidade: ${velocity != null ? Math.round(velocity * 3.6) + ' km/h' : '—'}`)
+                .addTo(TRANSPORT.layers.flight);
+        });
+        const suffix = filterRaw ? ` filtrados por "${filterRaw}" (de ${states.length} na área)` : ' na área visível do mapa';
+        document.getElementById('transportStatus').textContent = `${shown} voos${suffix} (OpenSky Network) — mova/afaste o mapa e toque em 🔄 para atualizar`;
     }
 
     function loadRailStations() {
