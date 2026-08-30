@@ -1672,8 +1672,50 @@
                         <span id="fpVoiceStatus" style="font-size:12px;color:var(--text-secondary);"></span>
                     </div>
                     <div style="display:flex;gap:6px;">
-                        <input type="text" id="fpOriginInput" placeholder="✈️ Origem (código IATA, ex.: LIS)..." maxlength="3" style="flex:1;text-transform:uppercase;">
-                        <input type="text" id="fpDestinationInput" placeholder="✈️ Destino (código IATA, ex.: OPO)..." maxlength="3" style="flex:1;text-transform:uppercase;">
+                        <select id="fpOriginInput" style="flex:1;">
+                            <option value="">✈️ Origem...</option>
+                            <option value="LIS">Lisboa</option>
+                            <option value="OPO">Porto</option>
+                            <option value="FAO">Faro</option>
+                            <option value="VLC">Valência</option>
+                            <option value="MAD">Madrid</option>
+                            <option value="BCN">Barcelona</option>
+                            <option value="LHR">Londres</option>
+                            <option value="CDG">Paris</option>
+                            <option value="FCO">Roma</option>
+                            <option value="MXP">Milão</option>
+                            <option value="AMS">Amesterdão</option>
+                            <option value="BRU">Bruxelas</option>
+                            <option value="BER">Berlim</option>
+                            <option value="MUC">Munique</option>
+                            <option value="ZRH">Zurique</option>
+                            <option value="VIE">Viena</option>
+                            <option value="ATH">Atenas</option>
+                            <option value="DUB">Dublin</option>
+                            <option value="TMS">São Tomé</option>
+                        </select>
+                        <select id="fpDestinationInput" style="flex:1;">
+                            <option value="">✈️ Destino...</option>
+                            <option value="LIS">Lisboa</option>
+                            <option value="OPO">Porto</option>
+                            <option value="FAO">Faro</option>
+                            <option value="VLC">Valência</option>
+                            <option value="MAD">Madrid</option>
+                            <option value="BCN">Barcelona</option>
+                            <option value="LHR">Londres</option>
+                            <option value="CDG">Paris</option>
+                            <option value="FCO">Roma</option>
+                            <option value="MXP">Milão</option>
+                            <option value="AMS">Amesterdão</option>
+                            <option value="BRU">Bruxelas</option>
+                            <option value="BER">Berlim</option>
+                            <option value="MUC">Munique</option>
+                            <option value="ZRH">Zurique</option>
+                            <option value="VIE">Viena</option>
+                            <option value="ATH">Atenas</option>
+                            <option value="DUB">Dublin</option>
+                            <option value="TMS">São Tomé</option>
+                        </select>
                     </div>
                     <div style="display:flex;gap:6px;">
                         <input type="date" id="fpDateInput" placeholder="Ida" style="flex:1;">
