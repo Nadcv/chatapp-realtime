@@ -1676,7 +1676,7 @@
                         <input type="date" id="fpReturnDateInput" placeholder="Volta (opcional)" style="flex:1;">
                     </div>
                     <button class="btn-small" onclick="searchFlightPriceOffers()">🔍 Pesquisar voos</button>
-                    <button class="btn-small" onclick="searchFlightDeals()">💸 Voos baratos na Europa (a partir da origem)</button>
+                    <button class="btn-small" onclick="searchFlightDeals()">💸 Voos baratos (Europa + São Tomé) — a partir da origem</button>
                     <div id="fpResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
             </div>
@@ -8719,7 +8719,7 @@
             box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma data de partida.</p>';
             return;
         }
-        box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos baratos por toda a Europa (~15 pedidos)...</p>';
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos baratos pela Europa e São Tomé (~16 pedidos)...</p>';
         try {
             const params = new URLSearchParams({ origin, date });
             const res = await fetch('/api/transport/flight-price/deals?' + params.toString());

@@ -1332,11 +1332,12 @@ app.get('/api/transport/flight-price/offers', async (req, res) => {
   }
 });
 
-// Lista curada de grandes cidades europeias, usada para "voos baratos" —
-// a Ignav não tem um endpoint tipo "qualquer destino", só rota a rota, por
-// isso pesquisamos esta lista fixa uma a uma (cada pesquisa gasta ~15
-// pedidos da cota gratuita da Ignav).
-const EUROPE_DEALS_DESTINATIONS = [
+// Lista curada de destinos usada para "voos baratos" — a Ignav não tem um
+// endpoint tipo "qualquer destino", só rota a rota, por isso pesquisamos
+// esta lista fixa uma a uma (cada pesquisa gasta ~16 pedidos da cota
+// gratuita da Ignav). Grandes cidades europeias + São Tomé e Príncipe
+// (ligação relevante a partir de Portugal, fora da Europa).
+const CHEAP_DEALS_DESTINATIONS = [
   { code: 'VLC', name: 'Valência' },
   { code: 'MAD', name: 'Madrid' },
   { code: 'BCN', name: 'Barcelona' },
@@ -1351,7 +1352,8 @@ const EUROPE_DEALS_DESTINATIONS = [
   { code: 'ZRH', name: 'Zurique' },
   { code: 'VIE', name: 'Viena' },
   { code: 'ATH', name: 'Atenas' },
-  { code: 'DUB', name: 'Dublin' }
+  { code: 'DUB', name: 'Dublin' },
+  { code: 'TMS', name: 'São Tomé' }
 ];
 
 app.get('/api/transport/flight-price/deals', async (req, res) => {
@@ -1360,7 +1362,7 @@ app.get('/api/transport/flight-price/deals', async (req, res) => {
   const date = (req.query.date || '').trim();
   if (!/^[A-Z]{3}$/.test(origin)) return res.status(400).json({ error: 'Indica um código IATA de origem válido (3 letras).' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
-  const destinations = EUROPE_DEALS_DESTINATIONS.filter((d) => d.code !== origin);
+  const destinations = CHEAP_DEALS_DESTINATIONS.filter((d) => d.code !== origin);
   const results = await Promise.allSettled(destinations.map((d) => fetchIgnavOffers(origin, d.code, date)));
   const deals = destinations.map((d, i) => {
     if (results[i].status !== 'fulfilled' || !results[i].value.length) return null;
