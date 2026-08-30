@@ -1559,6 +1559,11 @@ app.get('/api/culture/events', async (req, res) => {
     const data = await cachedFetch('agendalx_events', url, 60 * 60 * 1000, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36', 'Accept': 'application/json' }
     });
+    // DIAGNÓSTICO TEMPORÁRIO: a descrição e a morada não estão a aparecer no
+    // cliente e não há nenhum erro nos logs (os campos só ficam vazios), por
+    // isso não há como adivinhar o nome certo sem ver a forma real de um
+    // evento. Remover esta linha assim que confirmarmos os nomes certos.
+    if (Array.isArray(data) && data[0]) console.log('DEBUG Agenda Cultural — exemplo de evento real:', JSON.stringify(data[0]).slice(0, 3000));
     const events = (Array.isArray(data) ? data : []).map((e) => {
       // A resposta real da Agenda Cultural de Lisboa não segue exatamente a
       // forma documentada/inferida (ex.: categories_name_list já apareceu
