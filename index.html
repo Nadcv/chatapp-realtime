@@ -1683,6 +1683,8 @@
                         <button class="btn-small" onclick="createPriceAlert()" style="flex-shrink:0;">🔔 Criar alerta</button>
                     </div>
                     <div id="fpAlertsList" style="font-size:12px;"></div>
+                    <button class="btn-small" onclick="toggleFlightStats()" style="border-top:1px solid rgba(255,255,255,0.08);margin-top:4px;">📊 As minhas estatísticas de pesquisa</button>
+                    <div id="fpStatsBox" style="display:none;font-size:12px;"></div>
                 </div>
             </div>
             <div id="transportMap"></div>
@@ -8691,7 +8693,7 @@
         }
         box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos...</p>';
         try {
-            const params = new URLSearchParams({ origin, destination, date });
+            const params = new URLSearchParams({ origin, destination, date, token: APP.token || '' });
             if (returnDate) params.set('returnDate', returnDate);
             const res = await fetch('/api/transport/flight-price/offers?' + params.toString());
             const data = await res.json();
@@ -8813,6 +8815,30 @@
             await fetch('/api/price-alerts/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(APP.token), { method: 'DELETE' });
             loadPriceAlerts();
         } catch (err) { /* silencioso — a lista só não atualiza já */ }
+    }
+
+    async function toggleFlightStats() {
+        const box = document.getElementById('fpStatsBox');
+        if (box.style.display === 'none') {
+            box.style.display = 'block';
+            box.innerHTML = '<p style="color:var(--text-secondary);padding:4px 0;">A carregar...</p>';
+            try {
+                const res = await fetch('/api/travel-stats?token=' + encodeURIComponent(APP.token));
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Erro');
+                if (!data.totalSearches) { box.innerHTML = '<p style="color:var(--text-secondary);padding:4px 0;">Ainda não pesquisaste nenhum voo.</p>'; return; }
+                const cheapest = data.cheapestFound;
+                box.innerHTML = `
+                    <div style="padding:4px 0;">🔎 Total de pesquisas: <strong>${data.totalSearches}</strong></div>
+                    ${cheapest ? `<div style="padding:4px 0;">💰 Preço mais baixo encontrado: <strong>${cheapest.origin} → ${cheapest.destination}</strong> a ${cheapest.cheapestPrice} ${escapeHtml(cheapest.currency || '')}</div>` : ''}
+                    ${data.mostSearchedRoute ? `<div style="padding:4px 0;">⭐ Rota mais pesquisada: <strong>${escapeHtml(data.mostSearchedRoute.route)}</strong> (${data.mostSearchedRoute.count}x)</div>` : ''}
+                `;
+            } catch (err) {
+                box.innerHTML = `<p style="color:#e74c3c;padding:4px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+            }
+        } else {
+            box.style.display = 'none';
+        }
     }
 
     function loadRailStations() {
