@@ -104,7 +104,7 @@ As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram 
 ## Transportes em tempo real (🚌, no cabeçalho)
 
 Três separadores num mapa (Leaflet + OpenStreetMap, gratuito, sem chave):
-- **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave. Tem um alternador "Lisboa (ao vivo)" / "Guimarães (horários)" — Guimarães mostra horários programados da GUIMABUS (pesquisa de paragem + próximas partidas), via GTFS aberto; não tem posição ao vivo, só horário.
+- **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave. Tem um alternador "Lisboa (ao vivo)" / "Guimarães (horários)" / "Porto" — Guimarães mostra horários programados da GUIMABUS (via GTFS aberto); Porto mostra Metro do Porto (horários, via GTFS) e STCP (chegadas em tempo real). Só Lisboa (Carris) e a STCP têm posição/chegada ao vivo — o resto é horário programado.
 - **✈️ Aviões** — tráfego aéreo ao vivo sobre Portugal e Espanha, via OpenSky Network (gratuita, sem chave, uso razoável).
 - **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para posição ao vivo). Tem uma **barra de pesquisa de horários da CP** (partidas programadas, não ao vivo — ver secção abaixo) e um **estado do serviço do Metro de Lisboa** (linha Azul/Amarela/Vermelha/Verde — normal, perturbada, etc.).
 
@@ -125,6 +125,14 @@ Se nenhuma das duas estiver definida, ou se a fonte escolhida falhar, a pesquisa
 
 ### Autocarros de Guimarães (GUIMABUS) — como funciona
 Ao contrário da CP, este feed GTFS está mesmo a funcionar: dados publicados no nó regional de dados abertos do Minho ([Minho Access Point](https://minhoaccesspoint.eu)), encontrados através do portal [MAP da Ubiwhere](https://map.mobility.ubiwhere.com/dataset/operador-de-sptp-de-guimaraes). Usa o mesmo motor GTFS partilhado com a CP (cache de 24h em memória). Configurável por **`GUIMARAES_GTFS_URL`** (opcional — por omissão já aponta para o ficheiro correto). Se a fonte alguma vez ficar indisponível, mostra um erro amigável nessa secção; o resto da app não é afetado.
+
+### Porto (Metro do Porto + STCP) — como funciona
+A pesquisa de paragem/estação no Porto junta dois feeds GTFS diferentes, ambos publicados no portal de dados abertos da Câmara do Porto ([opendata.porto.digital](https://opendata.porto.digital)): um para o **Metro do Porto**, outro para a **STCP**. Configuráveis por **`METRO_PORTO_GTFS_URL`** e **`STCP_GTFS_URL`** (opcionais — já apontam por omissão para os ficheiros corretos).
+
+- **Metro do Porto** — só tem horários programados (sem posição ao vivo pública conhecida), tal como Guimarães.
+- **STCP** — o GTFS serve só para pesquisar a paragem por nome; as chegadas mostradas vêm da própria API pública e sem autenticação do site da STCP (`stcp.pt/api/.../realtime`), a mesma que o site deles usa — por isso são chegadas **em tempo real**, não horário fixo.
+
+Se alguma das fontes falhar, mostra um erro amigável só nessa parte da pesquisa — o resto da app não é afetado.
 
 ## Novidades nas mensagens
 

@@ -1012,6 +1012,76 @@ app.get('/api/transport/guimaraes/departures', async (req, res) => {
   }
 });
 
+// ==================== PORTO — METRO DO PORTO (GTFS) + STCP (tempo real) ====================
+// Ambos os feeds GTFS estão publicados no portal de dados abertos da Câmara do Porto
+// (opendata.porto.digital) — encontrados a partir da configuração de um projeto
+// open-source (transportes-portugal-api). O Metro do Porto só tem horários programados
+// (sem posição ao vivo pública conhecida). A STCP tem, além do GTFS (usado só para
+// pesquisar paragens por nome), uma API pública e sem autenticação no próprio site
+// (stcp.pt/api) que dá chegadas em tempo real — a mesma que o site deles usa.
+const METRO_PORTO_GTFS_URL_DEFAULT = 'https://opendata.porto.digital/dataset/15f22603-a216-492a-ab1c-40b1d8aa2f08/resource/fdaaddbe-4782-4f4e-9a30-98caedce8dc5/download/gtfs_mdp_11_09_2023.zip';
+async function resolveMetroPortoGtfsUrl() {
+  return process.env.METRO_PORTO_GTFS_URL || METRO_PORTO_GTFS_URL_DEFAULT;
+}
+const STCP_GTFS_URL_DEFAULT = 'https://opendata.porto.digital/dataset/5275c986-592c-43f5-8f87-aabbd4e4f3a4/resource/1f845744-1962-4108-a20c-ac3357d0957b/download/gtfs-stcp.zip';
+async function resolveStcpGtfsUrl() {
+  return process.env.STCP_GTFS_URL || STCP_GTFS_URL_DEFAULT;
+}
+async function getStcpRealtimeArrivals(stopId) {
+  const resp = await fetch(`https://stcp.pt/api/stops/${encodeURIComponent(stopId)}/realtime`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' }
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const data = await resp.json();
+  const arrivals = data.arrivals || [];
+  return arrivals.map((a) => ({
+    minutes: a.arrival_minutes,
+    routeName: a.route_short_name || a.route_long_name || '',
+    headsign: a.route_long_name || a.destination || ''
+  }));
+}
+
+app.get('/api/transport/porto/stops', async (req, res) => {
+  const q = (req.query.q || '').toLowerCase().trim();
+  const [metroGtfs, stcpGtfs] = await Promise.all([
+    ensureGtfsFeedLoaded('metro-porto', resolveMetroPortoGtfsUrl, 'METRO_PORTO_GTFS_URL').catch((err) => { console.error('Erro GTFS (Metro do Porto):', err.message); return null; }),
+    ensureGtfsFeedLoaded('stcp', resolveStcpGtfsUrl, 'STCP_GTFS_URL').catch((err) => { console.error('Erro GTFS (STCP):', err.message); return null; })
+  ]);
+  if (!metroGtfs && !stcpGtfs) return res.status(503).json({ error: 'Não foi possível obter as paragens do Porto agora.' });
+  const results = [];
+  if (metroGtfs) gtfsSearchStops(metroGtfs, q).forEach((s) => results.push({ ...s, type: 'metro' }));
+  if (stcpGtfs) gtfsSearchStops(stcpGtfs, q).forEach((s) => results.push({ ...s, type: 'bus' }));
+  res.json(results.slice(0, 30));
+});
+
+app.get('/api/transport/porto/departures', async (req, res) => {
+  const { type, stationId } = req.query;
+  if (!stationId) return res.status(400).json({ error: 'Paragem inválida.' });
+  try {
+    if (type === 'bus') {
+      const gtfs = await ensureGtfsFeedLoaded('stcp', resolveStcpGtfsUrl, 'STCP_GTFS_URL');
+      const station = gtfs.stops.get(stationId);
+      if (!station) return res.status(400).json({ error: 'Paragem inválida.' });
+      const arrivals = await getStcpRealtimeArrivals(stationId);
+      res.json({
+        stationName: station.name,
+        departures: arrivals.map((a) => ({ display: a.minutes != null ? `${a.minutes} min` : '—', headsign: a.headsign, routeName: a.routeName }))
+      });
+    } else {
+      const gtfs = await ensureGtfsFeedLoaded('metro-porto', resolveMetroPortoGtfsUrl, 'METRO_PORTO_GTFS_URL');
+      const result = gtfsNextDepartures(gtfs, stationId);
+      if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+      res.json({
+        stationName: result.stationName,
+        departures: result.departures.map((d) => ({ display: (d.time || '').slice(0, 5), headsign: d.headsign, routeName: d.routeName }))
+      });
+    }
+  } catch (err) {
+    console.error('Erro Porto (partidas):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários do Porto agora: ' + err.message });
+  }
+});
+
 // Estado do serviço do Metro de Lisboa — a API oficial (api.metrolisboa.pt) bloqueia
 // ligações vindas de servidores na nuvem (confirmado: a ligação é rejeitada mesmo com
 // credenciais corretas, tanto em desenvolvimento como no Railway). Em alternativa, usamos
