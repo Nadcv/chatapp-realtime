@@ -910,7 +910,7 @@ function gtfsNextDepartures(gtfs, stationId) {
       const trip = gtfs.trips.get(st.tripId);
       if (!trip || !isServiceActiveOnDate(gtfs, trip.serviceId, now)) return null;
       const route = gtfs.routes.get(trip.routeId);
-      return { time: st.departure, headsign: trip.headsign || route?.longName || '', routeName: route?.shortName || '' };
+      return { time: st.departure, headsign: trip.headsign || route?.longName || '', routeName: route?.longName || route?.shortName || '' };
     })
     .filter(Boolean)
     .sort((a, b) => a.time.localeCompare(b.time))
