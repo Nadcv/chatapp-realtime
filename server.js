@@ -170,7 +170,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1312,6 +1312,28 @@ async function fetchIgnavOffers(origin, destination, date, returnDate) {
   return offers;
 }
 
+// ==================== HISTÓRICO/ESTATÍSTICAS DE PESQUISAS DE VOOS ====================
+// Guarda cada pesquisa de voo bem-sucedida (com sessão válida) para depois
+// mostrar um resumo tipo "quantas vezes pesquisei, qual a rota mais
+// pesquisada, o preço mais baixo que já vi". Mesmo padrão de ficheiro local
+// já usado para lembretes/mensagens agendadas — nada de novo a aprender.
+const TRAVEL_HISTORY_FILE = path.join(__dirname, 'travel-history.json');
+let travelHistoryByPhone = {}; // phone -> [{origin, destination, date, cheapestPrice, currency, isRoundTrip, searchedAt}]
+function loadTravelHistoryLocal() {
+  try { if (fs.existsSync(TRAVEL_HISTORY_FILE)) travelHistoryByPhone = JSON.parse(fs.readFileSync(TRAVEL_HISTORY_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar histórico de viagens:', err.message); }
+}
+function saveTravelHistoryLocal() {
+  fs.writeFile(TRAVEL_HISTORY_FILE, JSON.stringify(travelHistoryByPhone), (err) => { if (err) console.error('Erro ao salvar histórico de viagens:', err.message); });
+}
+function logFlightSearch(phone, entry) {
+  if (!phone) return;
+  if (!travelHistoryByPhone[phone]) travelHistoryByPhone[phone] = [];
+  travelHistoryByPhone[phone].push({ ...entry, searchedAt: Date.now() });
+  if (travelHistoryByPhone[phone].length > 100) travelHistoryByPhone[phone] = travelHistoryByPhone[phone].slice(-100);
+  saveTravelHistoryLocal();
+}
+
 app.get('/api/transport/flight-price/offers', async (req, res) => {
   if (!IGNAV_CONFIGURED()) return res.json({ configured: false, offers: [] });
   const origin = (req.query.origin || '').trim().toUpperCase();
@@ -1325,11 +1347,35 @@ app.get('/api/transport/flight-price/offers', async (req, res) => {
   if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
   try {
     const offers = await fetchIgnavOffers(origin, destination, date, returnDate);
+    const phone = sessions[req.query.token];
+    if (phone && offers.length) {
+      logFlightSearch(phone, { origin, destination, date, cheapestPrice: offers[0].price, currency: offers[0].currency, isRoundTrip: !!returnDate });
+    }
     res.json({ configured: true, offers });
   } catch (err) {
     console.error('Erro Ignav (pesquisa de voos):', err.message);
     res.status(502).json({ error: 'Não foi possível pesquisar voos agora: ' + err.message });
   }
+});
+
+app.get('/api/travel-stats', (req, res) => {
+  const phone = sessions[req.query.token];
+  if (!phone) return res.status(401).json({ error: 'Sessão inválida.' });
+  const history = travelHistoryByPhone[phone] || [];
+  if (!history.length) return res.json({ totalSearches: 0, cheapestFound: null, mostSearchedRoute: null, recentSearches: [] });
+  const cheapestFound = history.reduce((min, h) => (h.cheapestPrice != null && (!min || h.cheapestPrice < min.cheapestPrice) ? h : min), null);
+  const routeCounts = {};
+  history.forEach((h) => {
+    const key = `${h.origin} → ${h.destination}`;
+    routeCounts[key] = (routeCounts[key] || 0) + 1;
+  });
+  const mostSearchedRoute = Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0];
+  res.json({
+    totalSearches: history.length,
+    cheapestFound,
+    mostSearchedRoute: mostSearchedRoute ? { route: mostSearchedRoute[0], count: mostSearchedRoute[1] } : null,
+    recentSearches: history.slice(-10).reverse()
+  });
 });
 
 // Lista curada de destinos usada para "voos baratos" — a Ignav não tem um
