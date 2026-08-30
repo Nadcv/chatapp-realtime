@@ -103,10 +103,11 @@ As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram 
 
 ## Transportes em tempo real (🚌, no cabeçalho)
 
-Três separadores num mapa (Leaflet + OpenStreetMap, gratuito, sem chave):
+Quatro separadores (os três primeiros num mapa Leaflet + OpenStreetMap, gratuito, sem chave; o quarto é só uma pesquisa por texto, sem mapa):
 - **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave. Tem um alternador "Lisboa (ao vivo)" / "Guimarães (horários)" / "Porto" — Guimarães mostra horários programados da GUIMABUS (via GTFS aberto); Porto mostra Metro do Porto (horários, via GTFS) e STCP (chegadas em tempo real). Só Lisboa (Carris) e a STCP têm posição/chegada ao vivo — o resto é horário programado.
 - **✈️ Aviões** — tráfego aéreo ao vivo sobre Portugal e Espanha, via OpenSky Network (gratuita, sem chave, uso razoável). Tem uma **caixa de filtro por companhia** — escreve o código ICAO da companhia (ex.: `TAP`, `RYR` para a Ryanair) e só ficam visíveis no mapa os voos cujo callsign começa por esse código; o filtro é aplicado no browser sobre os dados já recebidos, não gasta cota extra da OpenSky. Nota: a OpenSky não devolve o aeroporto de origem/destino de cada voo ao vivo (só posição, altitude e velocidade) — só existe essa informação para voos já terminados, via outro endpoint, com uma cota muito mais restrita.
 - **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para posição ao vivo). Tem uma **barra de pesquisa de horários do Metro de Lisboa** e uma **barra de pesquisa de horários da CP** (ambas partidas programadas, não ao vivo — ver secções abaixo) e um **estado do serviço do Metro de Lisboa** (linha Azul/Amarela/Vermelha/Verde — normal, perturbada, etc.).
+- **💰 Preços** — pesquisa de preços de voos por cidade/aeroporto de origem+destino e data (ao contrário dos outros três separadores, isto não é rastreamento ao vivo nem horário programado, é pesquisa de tarifas — ver secção abaixo).
 
 ### Estado do serviço do Metro de Lisboa — como funciona
 A API oficial do Metro de Lisboa (`api.metrolisboa.pt`) bloqueia ligações vindas de servidores na nuvem — confirmámos isto tanto em desenvolvimento como já publicado no Railway, mesmo com credenciais corretas (a ligação chega a estabelecer-se mas é rejeitada a meio, de forma consistente, sugerindo um bloqueio deliberado a tráfego de datacenters). Por isso, usamos antes a API pública e gratuita da [UnderLX](https://perturbacoes.pt) — um projeto da comunidade dedicado precisamente a acompanhar as perturbações do Metro de Lisboa (juntando fontes oficiais com relatos de utilizadores). **Não precisa de registo nem de chave.** Se a UnderLX alguma vez ficar indisponível, a secção mostra um erro amigável — o resto da app não é afetado. A Renfe (Espanha) não disponibiliza nada de aberto/gratuito, nem ao vivo nem horários.
@@ -140,6 +141,16 @@ A pesquisa de paragem/estação no Porto junta dois feeds GTFS diferentes, ambos
 - **STCP** — o GTFS serve só para pesquisar a paragem por nome; as chegadas mostradas vêm da própria API pública e sem autenticação do site da STCP (`stcp.pt/api/.../realtime`), a mesma que o site deles usa — por isso são chegadas **em tempo real**, não horário fixo.
 
 Se alguma das fontes falhar, mostra um erro amigável só nessa parte da pesquisa — o resto da app não é afetado.
+
+### Preços de voos (Amadeus for Developers) — como funciona
+Ao contrário do rastreamento ao vivo (OpenSky, acima) ou dos horários programados (GTFS), preços por rota+data são dados comerciais — não existe nenhuma API verdadeiramente aberta e sem registo para isto. Usa-se a [Amadeus for Developers](https://developers.amadeus.com), que tem um nível **Self-Service gratuito** (só conta por email, sem cartão de crédito), com uma cota mensal generosa.
+
+- Escreve a cidade/aeroporto de origem e destino nas caixas de pesquisa (tem de escolher uma opção da lista — não aceita texto livre, para garantir o código IATA certo) e uma data de partida, depois toca em "Pesquisar preços".
+- Precisa de **`AMADEUS_API_KEY`** e **`AMADEUS_API_SECRET`** (a chave e o "API Secret" de uma app criada em [developers.amadeus.com](https://developers.amadeus.com), grátis). Sem estas variáveis definidas, a secção mostra um aviso a pedir configuração, em vez de falhar.
+- Por omissão usa o ambiente de **teste** da Amadeus (`test.api.amadeus.com`, o que a conta gratuita Self-Service dá acesso) — que por vezes devolve tarifas de exemplo em vez de preços 100% ao vivo. Se um dia tiveres acesso de produção aprovado pela Amadeus, define **`AMADEUS_API_BASE=https://api.amadeus.com`** para usar dados reais, sem mudar mais nada no código.
+- Os resultados de cada rota+data ficam em cache 10 minutos, para poupar a cota gratuita.
+
+Se as chaves não estiverem configuradas ou a pesquisa falhar, mostra um erro amigável — o resto da app não é afetado.
 
 ## Novidades nas mensagens
 
