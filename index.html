@@ -2313,6 +2313,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSpaceScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛰️<span style="font-size:11px;">Espaço</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTourismScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗺️<span style="font-size:11px;">Turismo</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openEventsScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎭<span style="font-size:11px;">Eventos (Lisboa)</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openShoppingScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛒<span style="font-size:11px;">Compras</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRemindersScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔔<span style="font-size:11px;">Lembretes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDriveListenScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚗<span style="font-size:11px;">Conduzir e Ouvir</span></button>
@@ -2958,6 +2959,19 @@
                     <button class="btn-small" onclick="closeModal('modalTourismFavorites')">Fechar</button>
                 </div>
             </div>
+        </div>
+
+        <!-- ============ EVENTOS CULTURAIS (Lisboa) ============ -->
+        <div class="location-screen" id="eventsScreen">
+            <div class="location-header">
+                <strong>🎭 Eventos em Lisboa</strong>
+                <button onclick="closeEventsScreen()">✖️</button>
+            </div>
+            <div style="padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="eventsSearchInput" placeholder="🔍 Filtrar por nome ou categoria..." oninput="renderEventsList()">
+            </div>
+            <div id="eventsList" style="flex:1;overflow-y:auto;padding:8px 10px;"></div>
+            <div class="location-footer" id="eventsStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
         </div>
 
         <!-- ============ LISTA DE COMPRAS ============ -->
@@ -5919,6 +5933,55 @@
             world: { lat: 20, lon: 0, zoom: 2 }
         }
     };
+    // ==================== EVENTOS CULTURAIS (Agenda Cultural de Lisboa) ====================
+    // API oficial, aberta e gratuita da Câmara Municipal de Lisboa — só cobre
+    // eventos em Lisboa (não há equivalente confirmado para o Porto). Busca-se
+    // a lista completa uma vez e filtra-se aqui no cliente (a API não parece
+    // aceitar parâmetros de pesquisa).
+    let EVENTS_CACHE = null;
+    function openEventsScreen() {
+        document.getElementById('eventsScreen').classList.add('active');
+        if (!EVENTS_CACHE) loadEvents();
+    }
+    function closeEventsScreen() { document.getElementById('eventsScreen').classList.remove('active'); }
+    async function loadEvents() {
+        document.getElementById('eventsStatus').textContent = 'A carregar eventos...';
+        try {
+            const res = await fetch('/api/culture/events');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            EVENTS_CACHE = data.events || [];
+            renderEventsList();
+        } catch (err) {
+            document.getElementById('eventsStatus').textContent = '⚠️ Não foi possível carregar os eventos: ' + err.message;
+        }
+    }
+    function renderEventsList() {
+        const list = document.getElementById('eventsList');
+        if (!EVENTS_CACHE) return;
+        const q = (document.getElementById('eventsSearchInput').value || '').trim().toLowerCase();
+        const filtered = q
+            ? EVENTS_CACHE.filter((e) => e.title.toLowerCase().includes(q) || e.categories.some((c) => c.toLowerCase().includes(q)))
+            : EVENTS_CACHE;
+        if (!filtered.length) {
+            list.innerHTML = '<p style="color:var(--text-secondary);padding:8px 0;">Nenhum evento encontrado.</p>';
+            document.getElementById('eventsStatus').textContent = `0 de ${EVENTS_CACHE.length} eventos — Agenda Cultural de Lisboa`;
+            return;
+        }
+        list.innerHTML = filtered.map((e) => `
+            <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                ${e.image ? `<img src="${escapeHtml(e.image)}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0;">` : ''}
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;">${escapeHtml(e.title)}</div>
+                    ${e.subtitle ? `<div style="font-size:12px;color:var(--text-secondary);">${escapeHtml(e.subtitle)}</div>` : ''}
+                    <div style="font-size:12px;color:var(--text-secondary);">📅 ${escapeHtml(e.dates || '—')}${e.times ? ' · ' + escapeHtml(e.times) : ''}</div>
+                    ${e.venue ? `<div style="font-size:12px;color:var(--text-secondary);">📍 ${escapeHtml(e.venue)}</div>` : ''}
+                    ${e.url ? `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;">🔗 Ver mais</a>` : ''}
+                </div>
+            </div>`).join('');
+        document.getElementById('eventsStatus').textContent = `${filtered.length} de ${EVENTS_CACHE.length} eventos — Agenda Cultural de Lisboa`;
+    }
+
     function openTourismScreen() {
         document.getElementById('tourismScreen').classList.add('active');
         if (!TOURISM.map) {

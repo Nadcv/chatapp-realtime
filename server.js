@@ -1536,6 +1536,32 @@ async function checkPriceAlerts() {
   }
 }
 
+// ==================== EVENTOS CULTURAIS (Agenda Cultural de Lisboa) ====================
+// API oficial, aberta e gratuita da Câmara Municipal de Lisboa — sem chave,
+// sem registo. Só cobre eventos em Lisboa; não encontrámos equivalente
+// confirmado para o Porto ou outras cidades.
+app.get('/api/culture/events', async (req, res) => {
+  try {
+    const url = process.env.AGENDALX_EVENTS_URL || 'https://www.agendalx.pt/wp-json/agendalx/v1/events';
+    const data = await cachedFetch('agendalx_events', url, 60 * 60 * 1000);
+    const events = (Array.isArray(data) ? data : []).map((e) => ({
+      id: e.id,
+      title: (typeof e.title === 'object' ? e.title?.rendered : e.title) || '',
+      subtitle: e.subtitle || '',
+      dates: e.string_dates || '',
+      times: e.string_times || '',
+      venue: e.venue?.name || '',
+      image: e.featured_media_large || null,
+      categories: (e.categories_name_list || []).map((c) => (typeof c === 'object' ? c.name : c)).filter(Boolean),
+      url: e.slug ? `https://www.agendalx.pt/events/event/${e.slug}/` : null
+    })).filter((e) => e.title);
+    res.json({ events });
+  } catch (err) {
+    console.error('Erro Agenda Cultural de Lisboa:', err.message);
+    res.status(502).json({ error: 'Não foi possível obter os eventos agora.' });
+  }
+});
+
 // ==================== INCÊNDIOS EM TEMPO REAL (mundo inteiro) ====================
 // NASA FIRMS (Fire Information for Resource Management System) — focos de
 // incêndio/calor detetados por satélite (VIIRS), atualizados a cada poucas

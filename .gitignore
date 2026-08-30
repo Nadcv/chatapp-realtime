@@ -23,4 +23,6 @@ reminders.json
 recurring-expenses.json
 scheduled-calls.json
 pinned-chats.json
+price-alerts.json
+travel-history.json
 package-lock.json
