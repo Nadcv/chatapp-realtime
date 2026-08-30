@@ -1667,6 +1667,12 @@
                     <div id="tripOffersResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
                 <div id="flightModeFields" style="display:none;flex-direction:column;gap:6px;">
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn-small flight-sub-tab active" data-sub="search" onclick="switchFlightSubTab('search')" style="flex:1;">🔍 Pesquisar</button>
+                        <button class="btn-small flight-sub-tab" data-sub="alerts" onclick="switchFlightSubTab('alerts')" style="flex:1;">🔔 Alertas</button>
+                        <button class="btn-small flight-sub-tab" data-sub="stats" onclick="switchFlightSubTab('stats')" style="flex:1;">📊 Estatísticas</button>
+                    </div>
+                    <div id="flightSearchSection" style="display:flex;flex-direction:column;gap:6px;">
                     <div style="display:flex;gap:6px;align-items:center;">
                         <button class="btn-small" onclick="startVoiceFlightCommand()" style="flex-shrink:0;">🎤 Comando por voz</button>
                         <span id="fpVoiceStatus" style="font-size:12px;color:var(--text-secondary);"></span>
@@ -1724,13 +1730,17 @@
                     <button class="btn-small" onclick="searchFlightPriceOffers()">🔍 Pesquisar voos</button>
                     <button class="btn-small" onclick="searchFlightDeals()">💸 Voos baratos (Europa + São Tomé) — a partir da origem</button>
                     <div id="fpResults" style="max-height:280px;overflow-y:auto;"></div>
-                    <div style="display:flex;gap:6px;align-items:center;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;margin-top:4px;">
-                        <input type="number" id="fpAlertMaxPriceInput" placeholder="Preço-alvo (€)" min="1" style="flex:1;">
-                        <button class="btn-small" onclick="createPriceAlert()" style="flex-shrink:0;">🔔 Criar alerta</button>
                     </div>
-                    <div id="fpAlertsList" style="font-size:12px;"></div>
-                    <button class="btn-small" onclick="toggleFlightStats()" style="border-top:1px solid rgba(255,255,255,0.08);margin-top:4px;">📊 As minhas estatísticas de pesquisa</button>
-                    <div id="fpStatsBox" style="display:none;font-size:12px;"></div>
+                    <div id="flightAlertsSection" style="display:none;flex-direction:column;gap:6px;">
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input type="number" id="fpAlertMaxPriceInput" placeholder="Preço-alvo (€)" min="1" style="flex:1;">
+                            <button class="btn-small" onclick="createPriceAlert()" style="flex-shrink:0;">🔔 Criar alerta</button>
+                        </div>
+                        <div id="fpAlertsList" style="font-size:12px;"></div>
+                    </div>
+                    <div id="flightStatsSection" style="display:none;flex-direction:column;gap:6px;">
+                        <div id="fpStatsBox" style="font-size:12px;"></div>
+                    </div>
                 </div>
             </div>
             <div id="transportMap"></div>
@@ -8709,7 +8719,14 @@
         document.querySelectorAll('.price-mode-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
         document.getElementById('tripModeFields').style.display = mode === 'trip' ? 'flex' : 'none';
         document.getElementById('flightModeFields').style.display = mode === 'flight' ? 'flex' : 'none';
-        if (mode === 'flight') loadPriceAlerts();
+    }
+    function switchFlightSubTab(sub) {
+        document.querySelectorAll('.flight-sub-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.sub === sub));
+        document.getElementById('flightSearchSection').style.display = sub === 'search' ? 'flex' : 'none';
+        document.getElementById('flightAlertsSection').style.display = sub === 'alerts' ? 'flex' : 'none';
+        document.getElementById('flightStatsSection').style.display = sub === 'stats' ? 'flex' : 'none';
+        if (sub === 'alerts') loadPriceAlerts();
+        if (sub === 'stats') loadFlightStats();
     }
 
     // ==================== PREÇOS DE VOOS (Ignav) ====================
@@ -8863,27 +8880,22 @@
         } catch (err) { /* silencioso — a lista só não atualiza já */ }
     }
 
-    async function toggleFlightStats() {
+    async function loadFlightStats() {
         const box = document.getElementById('fpStatsBox');
-        if (box.style.display === 'none') {
-            box.style.display = 'block';
-            box.innerHTML = '<p style="color:var(--text-secondary);padding:4px 0;">A carregar...</p>';
-            try {
-                const res = await fetch('/api/travel-stats?token=' + encodeURIComponent(APP.token));
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Erro');
-                if (!data.totalSearches) { box.innerHTML = '<p style="color:var(--text-secondary);padding:4px 0;">Ainda não pesquisaste nenhum voo.</p>'; return; }
-                const cheapest = data.cheapestFound;
-                box.innerHTML = `
-                    <div style="padding:4px 0;">🔎 Total de pesquisas: <strong>${data.totalSearches}</strong></div>
-                    ${cheapest ? `<div style="padding:4px 0;">💰 Preço mais baixo encontrado: <strong>${cheapest.origin} → ${cheapest.destination}</strong> a ${cheapest.cheapestPrice} ${escapeHtml(cheapest.currency || '')}</div>` : ''}
-                    ${data.mostSearchedRoute ? `<div style="padding:4px 0;">⭐ Rota mais pesquisada: <strong>${escapeHtml(data.mostSearchedRoute.route)}</strong> (${data.mostSearchedRoute.count}x)</div>` : ''}
-                `;
-            } catch (err) {
-                box.innerHTML = `<p style="color:#e74c3c;padding:4px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
-            }
-        } else {
-            box.style.display = 'none';
+        box.innerHTML = '<p style="color:var(--text-secondary);padding:4px 0;">A carregar...</p>';
+        try {
+            const res = await fetch('/api/travel-stats?token=' + encodeURIComponent(APP.token));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.totalSearches) { box.innerHTML = '<p style="color:var(--text-secondary);padding:4px 0;">Ainda não pesquisaste nenhum voo.</p>'; return; }
+            const cheapest = data.cheapestFound;
+            box.innerHTML = `
+                <div style="padding:4px 0;">🔎 Total de pesquisas: <strong>${data.totalSearches}</strong></div>
+                ${cheapest ? `<div style="padding:4px 0;">💰 Preço mais baixo encontrado: <strong>${cheapest.origin} → ${cheapest.destination}</strong> a ${cheapest.cheapestPrice} ${escapeHtml(cheapest.currency || '')}</div>` : ''}
+                ${data.mostSearchedRoute ? `<div style="padding:4px 0;">⭐ Rota mais pesquisada: <strong>${escapeHtml(data.mostSearchedRoute.route)}</strong> (${data.mostSearchedRoute.count}x)</div>` : ''}
+            `;
+        } catch (err) {
+            box.innerHTML = `<p style="color:#e74c3c;padding:4px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
         }
     }
 
