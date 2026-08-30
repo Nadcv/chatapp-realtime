@@ -1625,6 +1625,7 @@
                 <button class="btn-small transport-tab" data-tab="rail" onclick="switchTransportTab('rail')" style="flex:1;">🚇 Metro/Comboio</button>
                 <button class="btn-small transport-tab" data-tab="flight" onclick="switchTransportTab('flight')" style="flex:1;">✈️ Aviões</button>
                 <button class="btn-small transport-tab" data-tab="priceSearch" onclick="switchTransportTab('priceSearch')" style="flex:1;">🎫 Preços (Europa)</button>
+                <button class="btn-small transport-tab" data-tab="bikes" onclick="switchTransportTab('bikes')" style="flex:1;">🚲 Bicicletas (GIRA)</button>
             </div>
             <div id="railScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
@@ -8437,6 +8438,7 @@
             TRANSPORT.layers.bus = L.layerGroup().addTo(TRANSPORT.map);
             TRANSPORT.layers.rail = L.layerGroup();
             TRANSPORT.layers.flight = L.layerGroup();
+            TRANSPORT.layers.bikes = L.layerGroup();
         }
         setTimeout(() => TRANSPORT.map.invalidateSize(), 200);
         switchTransportTab('bus');
@@ -8616,6 +8618,13 @@
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
             document.getElementById('portoScheduleBar').style.display = 'none';
             document.getElementById('transportStatus').textContent = 'Pesquisa preços de comboio/autocarro na Europa por cidade/estação e data (Tictactrip).';
+        } else if (tab === 'bikes') {
+            document.getElementById('transportMap').style.display = '';
+            document.getElementById('guimaraesScheduleBar').style.display = 'none';
+            document.getElementById('portoScheduleBar').style.display = 'none';
+            TRANSPORT.map.setView([38.72, -9.14], 13);
+            loadBikes();
+            TRANSPORT.pollInterval = setInterval(loadBikes, 60000);
         }
     }
     function switchBusCity(city) {
@@ -8671,6 +8680,24 @@
             document.getElementById('transportStatus').textContent = `${data.length} autocarros da Carris Metropolitana (Área Metropolitana de Lisboa) — atualizado agora`;
         }).catch(err => {
             document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar os autocarros: ' + err.message;
+        });
+    }
+
+    function loadBikes() {
+        document.getElementById('transportStatus').textContent = 'A atualizar estações GIRA...';
+        fetch('/api/transport/bikes/gira').then(r => r.json()).then(data => {
+            if (!data.stations) throw new Error(data.error || 'Erro');
+            TRANSPORT.layers.bikes.clearLayers();
+            data.stations.forEach(s => {
+                const bikesText = s.bikes != null ? `🚲 ${s.bikes} bicicleta(s)` : '🚲 nº de bicicletas indisponível';
+                const docksText = s.docks != null ? ` · 🅿️ ${s.docks} doca(s) livre(s)` : '';
+                L.circleMarker([s.lat, s.lon], { radius: 6, color: '#2ecc71', fillColor: '#2ecc71', fillOpacity: 0.9, weight: 1 })
+                    .bindPopup(`<strong>${escapeHtml(s.name)}</strong><br>${bikesText}${docksText}`)
+                    .addTo(TRANSPORT.layers.bikes);
+            });
+            document.getElementById('transportStatus').textContent = `${data.stations.length} estações GIRA (Lisboa) — dados abertos da EMEL, atualizado agora`;
+        }).catch(err => {
+            document.getElementById('transportStatus').textContent = '⚠️ Não foi possível carregar as estações GIRA: ' + err.message;
         });
     }
 
