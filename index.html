@@ -1630,6 +1630,14 @@
                 <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP)..." oninput="debounceRailStationSearch()">
                 <div id="railSearchResults"></div>
             </div>
+            <div id="busCityToggle" style="display:none;gap:6px;padding:6px 10px;background:var(--bg-secondary);">
+                <button class="btn-small bus-city-tab active" data-city="lisboa" onclick="switchBusCity('lisboa')" style="flex:1;">📍 Lisboa (ao vivo)</button>
+                <button class="btn-small bus-city-tab" data-city="guimaraes" onclick="switchBusCity('guimaraes')" style="flex:1;">📍 Guimarães (horários)</button>
+            </div>
+            <div id="guimaraesScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="guimaraesSearchInput" placeholder="🔍 Pesquisar paragem (Guimarães)..." oninput="debounceGuimaraesStopSearch()">
+                <div id="guimaraesSearchResults"></div>
+            </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
         </div>
@@ -1641,6 +1649,17 @@
                 <div id="trainDeparturesList" style="max-height:320px;overflow-y:auto;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalTrainDepartures')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ HORÁRIOS DE AUTOCARRO (GUIMABUS, via GTFS) ============ -->
+        <div class="modal-overlay" id="modalGuimaraesDepartures" style="z-index:200;">
+            <div class="modal">
+                <h3 id="guimaraesDeparturesTitle">🚌 Próximas partidas</h3>
+                <div id="guimaraesDeparturesList" style="max-height:320px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalGuimaraesDepartures')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -8323,21 +8342,41 @@
         TRANSPORT.activeTab = tab;
         document.querySelectorAll('.transport-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
         document.getElementById('railScheduleBar').style.display = tab === 'rail' ? 'flex' : 'none';
+        document.getElementById('busCityToggle').style.display = tab === 'bus' ? 'flex' : 'none';
         Object.values(TRANSPORT.layers).forEach(layer => TRANSPORT.map.removeLayer(layer));
         TRANSPORT.layers[tab].addTo(TRANSPORT.map);
         if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
         if (tab === 'bus') {
-            TRANSPORT.map.setView([38.75, -9.15], 11);
-            loadBuses();
-            TRANSPORT.pollInterval = setInterval(loadBuses, 15000);
+            switchBusCity(TRANSPORT.busCity || 'lisboa');
         } else if (tab === 'flight') {
+            document.getElementById('transportMap').style.display = '';
+            document.getElementById('guimaraesScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([39.5, -6.5], 6);
             loadFlights();
             TRANSPORT.pollInterval = setInterval(loadFlights, 15000);
         } else if (tab === 'rail') {
+            document.getElementById('transportMap').style.display = '';
+            document.getElementById('guimaraesScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([38.75, -9.15], 11);
             loadRailStations();
             loadMetroLineStatus();
+        }
+    }
+    function switchBusCity(city) {
+        TRANSPORT.busCity = city;
+        document.querySelectorAll('.bus-city-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.city === city));
+        if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
+        if (city === 'guimaraes') {
+            document.getElementById('transportMap').style.display = 'none';
+            document.getElementById('guimaraesScheduleBar').style.display = 'flex';
+            document.getElementById('transportStatus').textContent = 'Horários da GUIMABUS (autocarros de Guimarães) — pesquisa uma paragem acima.';
+        } else {
+            document.getElementById('guimaraesScheduleBar').style.display = 'none';
+            document.getElementById('transportMap').style.display = '';
+            TRANSPORT.map.setView([38.75, -9.15], 11);
+            setTimeout(() => TRANSPORT.map.invalidateSize(), 100);
+            loadBuses();
+            TRANSPORT.pollInterval = setInterval(loadBuses, 15000);
         }
     }
     const METRO_LINE_EMOJI = { azul: '🔵', amarela: '🟡', vermelha: '🔴', verde: '🟢' };
@@ -8463,6 +8502,50 @@
         document.getElementById('modalTrainDepartures').classList.add('active');
         try {
             const res = await fetch('/api/trains/departures?stationId=' + encodeURIComponent(stationId));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
+            list.innerHTML = data.departures.map(d => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${escapeHtml((d.time || '').slice(0, 5))}</strong>${d.routeName ? ' · ' + escapeHtml(d.routeName) : ''}</div>
+                    <div style="color:var(--text-secondary);font-size:12px;text-align:right;">${escapeHtml(d.headsign || '')}</div>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = `<p style="color:var(--text-secondary);text-align:center;padding:20px;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    // ==================== HORÁRIOS DE AUTOCARRO (GUIMABUS, via GTFS) ====================
+    let guimaraesSearchTimer = null;
+    function debounceGuimaraesStopSearch() {
+        clearTimeout(guimaraesSearchTimer);
+        guimaraesSearchTimer = setTimeout(runGuimaraesStopSearch, 300);
+    }
+    async function runGuimaraesStopSearch() {
+        const q = document.getElementById('guimaraesSearchInput').value.trim();
+        const box = document.getElementById('guimaraesSearchResults');
+        if (!q) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/transport/guimaraes/stops?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma paragem encontrada.</p>'; return; }
+            box.innerHTML = data.map(s => `
+                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openGuimaraesDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)})'>
+                    🚌 ${escapeHtml(s.name)}
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    async function openGuimaraesDeparturesModal(stopId, stopName) {
+        document.getElementById('guimaraesDeparturesTitle').textContent = `🚌 Próximas partidas — ${stopName}`;
+        const list = document.getElementById('guimaraesDeparturesList');
+        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">A carregar...</p>';
+        document.getElementById('modalGuimaraesDepartures').classList.add('active');
+        try {
+            const res = await fetch('/api/transport/guimaraes/departures?stationId=' + encodeURIComponent(stopId));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
             if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
