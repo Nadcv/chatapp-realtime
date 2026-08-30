@@ -1215,6 +1215,7 @@ app.get('/api/transport/trip-search/offers', async (req, res) => {
   if (!origin || !destination) return res.status(400).json({ error: 'Escolhe uma cidade/estação de origem e destino a partir da lista de pesquisa.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
   if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
+  if (returnDate && returnDate < date) return res.status(400).json({ error: 'A data de volta não pode ser antes da data de ida.' });
   const cacheKey = `${origin}_${destination}_${date}_${returnDate}`;
   const now = Date.now();
   if (tictactripOffersCache[cacheKey] && (now - tictactripOffersCache[cacheKey].t) < 10 * 60 * 1000) {
@@ -1345,6 +1346,7 @@ app.get('/api/transport/flight-price/offers', async (req, res) => {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
   if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
+  if (returnDate && returnDate < date) return res.status(400).json({ error: 'A data de volta não pode ser antes da data de ida.' });
   try {
     const offers = await fetchIgnavOffers(origin, destination, date, returnDate);
     const phone = sessions[req.query.token];
