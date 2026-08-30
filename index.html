@@ -1667,6 +1667,10 @@
                     <div id="tripOffersResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
                 <div id="flightModeFields" style="display:none;flex-direction:column;gap:6px;">
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <button class="btn-small" onclick="startVoiceFlightCommand()" style="flex-shrink:0;">🎤 Comando por voz</button>
+                        <span id="fpVoiceStatus" style="font-size:12px;color:var(--text-secondary);"></span>
+                    </div>
                     <div style="display:flex;gap:6px;">
                         <input type="text" id="fpOriginInput" placeholder="✈️ Origem (código IATA, ex.: LIS)..." maxlength="3" style="flex:1;text-transform:uppercase;">
                         <input type="text" id="fpDestinationInput" placeholder="✈️ Destino (código IATA, ex.: OPO)..." maxlength="3" style="flex:1;text-transform:uppercase;">
@@ -8839,6 +8843,93 @@
         } else {
             box.style.display = 'none';
         }
+    }
+
+    // ==================== COMANDO POR VOZ (Web Speech API) ====================
+    // Reconhecimento de voz nativo do browser (sem chave, sem custos, mas só
+    // funciona em browsers com suporte — ex.: Chrome/Edge; não no Firefox).
+    const CITY_NAME_TO_IATA = {
+        'lisboa': 'LIS', 'lisbon': 'LIS',
+        'porto': 'OPO',
+        'faro': 'FAO',
+        'valência': 'VLC', 'valencia': 'VLC',
+        'madrid': 'MAD',
+        'barcelona': 'BCN',
+        'londres': 'LHR', 'london': 'LHR',
+        'paris': 'CDG',
+        'roma': 'FCO', 'rome': 'FCO',
+        'milão': 'MXP', 'milao': 'MXP', 'milan': 'MXP',
+        'amesterdão': 'AMS', 'amesterdao': 'AMS', 'amsterdam': 'AMS',
+        'bruxelas': 'BRU', 'brussels': 'BRU',
+        'berlim': 'BER', 'berlin': 'BER',
+        'munique': 'MUC', 'munich': 'MUC',
+        'zurique': 'ZRH', 'zurich': 'ZRH',
+        'viena': 'VIE', 'vienna': 'VIE',
+        'atenas': 'ATH', 'athens': 'ATH',
+        'dublin': 'DUB',
+        'são tomé': 'TMS', 'sao tome': 'TMS'
+    };
+    function findCityInText(text) {
+        const t = text.toLowerCase();
+        for (const [name, code] of Object.entries(CITY_NAME_TO_IATA)) {
+            if (t.includes(name)) return { code, name: name.charAt(0).toUpperCase() + name.slice(1) };
+        }
+        return null;
+    }
+    function parseDateFromText(text) {
+        const t = text.toLowerCase();
+        const now = new Date();
+        const fmt = (d) => d.toISOString().slice(0, 10);
+        if (t.includes('depois de amanhã') || t.includes('depois de amanha')) {
+            const d = new Date(now); d.setDate(d.getDate() + 2); return fmt(d);
+        }
+        if (t.includes('amanhã') || t.includes('amanha')) {
+            const d = new Date(now); d.setDate(d.getDate() + 1); return fmt(d);
+        }
+        if (t.includes('hoje')) return fmt(now);
+        const weekdayIndex = { domingo: 0, segunda: 1, 'terça': 2, terca: 2, quarta: 3, quinta: 4, sexta: 5, 'sábado': 6, sabado: 6 };
+        for (const [wd, target] of Object.entries(weekdayIndex)) {
+            if (t.includes(wd)) {
+                const d = new Date(now);
+                let diff = (target - d.getDay() + 7) % 7;
+                if (diff === 0) diff = 7; // "próxima X" é a seguir, não hoje
+                d.setDate(d.getDate() + diff);
+                return fmt(d);
+            }
+        }
+        const dayMatch = t.match(/dia\s+(\d{1,2})/);
+        if (dayMatch) {
+            const day = parseInt(dayMatch[1], 10);
+            let d = new Date(now.getFullYear(), now.getMonth(), day);
+            if (d < now) d = new Date(now.getFullYear(), now.getMonth() + 1, day);
+            return fmt(d);
+        }
+        return null;
+    }
+    function applyVoiceCommand(transcript) {
+        const statusEl = document.getElementById('fpVoiceStatus');
+        statusEl.textContent = `Ouvi: "${transcript}"`;
+        const city = findCityInText(transcript);
+        const date = parseDateFromText(transcript);
+        if (!city) { statusEl.textContent += ' — não percebi o destino, escolhe manualmente.'; return; }
+        if (!document.getElementById('fpOriginInput').value.trim()) document.getElementById('fpOriginInput').value = 'LIS';
+        document.getElementById('fpDestinationInput').value = city.code;
+        if (date) document.getElementById('fpDateInput').value = date;
+        statusEl.textContent += ` → ${city.name} (${city.code})${date ? ', ' + date : ''}. A pesquisar...`;
+        searchFlightPriceOffers();
+    }
+    function startVoiceFlightCommand() {
+        const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const statusEl = document.getElementById('fpVoiceStatus');
+        if (!SpeechRecognitionCtor) { statusEl.textContent = '⚠️ O teu browser não suporta comandos por voz.'; return; }
+        const recognition = new SpeechRecognitionCtor();
+        recognition.lang = 'pt-PT';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        statusEl.textContent = '🎤 A ouvir...';
+        recognition.onresult = (event) => applyVoiceCommand(event.results[0][0].transcript);
+        recognition.onerror = (event) => { statusEl.textContent = '⚠️ Erro no reconhecimento de voz: ' + event.error; };
+        recognition.start();
     }
 
     function loadRailStations() {
