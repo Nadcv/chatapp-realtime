@@ -1211,27 +1211,31 @@ app.get('/api/transport/trip-search/offers', async (req, res) => {
   const origin = (req.query.origin || '').trim();
   const destination = (req.query.destination || '').trim();
   const date = (req.query.date || '').trim();
+  const returnDate = (req.query.returnDate || '').trim();
   if (!origin || !destination) return res.status(400).json({ error: 'Escolhe uma cidade/estação de origem e destino a partir da lista de pesquisa.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
-  const cacheKey = `${origin}_${destination}_${date}`;
+  if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
+  const cacheKey = `${origin}_${destination}_${date}_${returnDate}`;
   const now = Date.now();
   if (tictactripOffersCache[cacheKey] && (now - tictactripOffersCache[cacheKey].t) < 10 * 60 * 1000) {
     return res.json(tictactripOffersCache[cacheKey].data);
   }
   try {
+    const body = {
+      originGpuid: origin,
+      destinationGpuid: destination,
+      outboundDate: `${date}T00:00:00Z`,
+      passengers: [{ age: 30 }]
+    };
+    if (returnDate) body.returnDate = `${returnDate}T00:00:00Z`;
     const resp = await fetch(`${TICTACTRIP_API_BASE}/v2/results`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.TICTACTRIP_API_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        originGpuid: origin,
-        destinationGpuid: destination,
-        outboundDate: `${date}T00:00:00Z`,
-        passengers: [{ age: 30 }]
-      })
+      body: JSON.stringify(body)
     });
     if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+      const respBody = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${respBody ? ' — ' + respBody.slice(0, 200) : ''}`);
     }
     const data = await resp.json();
     const trips = Object.values(data.trips || {});
@@ -1243,7 +1247,8 @@ app.get('/api/transport/trip-search/offers', async (req, res) => {
       departure: trip.departureLocalISO,
       arrival: trip.arrivalLocalISO,
       stops: Math.max(0, (trip.segments || []).length - 1),
-      co2g: trip.segments?.reduce((sum, s) => sum + (s.co2g || 0), 0) || null
+      co2g: trip.segments?.reduce((sum, s) => sum + (s.co2g || 0), 0) || null,
+      direction: trip.direction === 'inboundTrip' ? 'inbound' : 'outbound'
     })).sort((a, b) => (parseFloat(a.priceEur) || Infinity) - (parseFloat(b.priceEur) || Infinity));
     const result = { configured: true, offers };
     tictactripOffersCache[cacheKey] = { t: now, data: result };
@@ -1263,46 +1268,57 @@ app.get('/api/transport/trip-search/offers', async (req, res) => {
 const IGNAV_API_BASE = process.env.IGNAV_API_BASE || 'https://ignav.com/api';
 const IGNAV_CONFIGURED = () => !!process.env.IGNAV_API_KEY;
 
+function summarizeIgnavLeg(leg) {
+  const segments = leg?.segments || [];
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  if (!first) return null;
+  return {
+    airline: leg?.carrier || first?.operating_carrier_name || '',
+    departure: first?.departure_time_local,
+    arrival: last?.arrival_time_local,
+    stops: Math.max(0, segments.length - 1)
+  };
+}
 const ignavOffersCache = {};
 app.get('/api/transport/flight-price/offers', async (req, res) => {
   if (!IGNAV_CONFIGURED()) return res.json({ configured: false, offers: [] });
   const origin = (req.query.origin || '').trim().toUpperCase();
   const destination = (req.query.destination || '').trim().toUpperCase();
   const date = (req.query.date || '').trim();
+  const returnDate = (req.query.returnDate || '').trim();
   if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
     return res.status(400).json({ error: 'Indica códigos IATA de origem e destino válidos (3 letras).' });
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
-  const cacheKey = `${origin}_${destination}_${date}`;
+  if (returnDate && !/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) return res.status(400).json({ error: 'Data de volta inválida.' });
+  const cacheKey = `${origin}_${destination}_${date}_${returnDate}`;
   const now = Date.now();
   if (ignavOffersCache[cacheKey] && (now - ignavOffersCache[cacheKey].t) < 10 * 60 * 1000) {
     return res.json(ignavOffersCache[cacheKey].data);
   }
   try {
-    const resp = await fetch(`${IGNAV_API_BASE}/fares/one-way`, {
+    const endpoint = returnDate ? 'round-trip' : 'one-way';
+    const body = returnDate
+      ? { origin, destination, departure_date: date, return_date: returnDate }
+      : { origin, destination, departure_date: date };
+    const resp = await fetch(`${IGNAV_API_BASE}/fares/${endpoint}`, {
       method: 'POST',
       headers: { 'X-Api-Key': process.env.IGNAV_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin, destination, departure_date: date })
+      body: JSON.stringify(body)
     });
     if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+      const respBody = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${respBody ? ' — ' + respBody.slice(0, 200) : ''}`);
     }
     const data = await resp.json();
-    const offers = (data.itineraries || []).map((it) => {
-      const segments = it.outbound?.segments || [];
-      const first = segments[0];
-      const last = segments[segments.length - 1];
-      return {
-        price: it.price?.amount,
-        currency: it.price?.currency,
-        airline: it.outbound?.carrier || first?.operating_carrier_name || '',
-        departure: first?.departure_time_local,
-        arrival: last?.arrival_time_local,
-        stops: Math.max(0, segments.length - 1),
-        ignavId: it.ignav_id
-      };
-    }).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+    const offers = (data.itineraries || []).map((it) => ({
+      price: it.price?.amount,
+      currency: it.price?.currency,
+      outbound: summarizeIgnavLeg(it.outbound),
+      inbound: summarizeIgnavLeg(it.inbound),
+      ignavId: it.ignav_id
+    })).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
     const result = { configured: true, offers };
     ignavOffersCache[cacheKey] = { t: now, data: result };
     res.json(result);
