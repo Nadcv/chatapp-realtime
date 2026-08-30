@@ -1546,6 +1546,10 @@ function normalizeAgendalxCategories(raw) {
   if (typeof raw === 'string') return raw.split(',').map((s) => s.trim()).filter(Boolean);
   return [];
 }
+function agendalxText(val) {
+  const s = (val && typeof val === 'object') ? (val.rendered || '') : (val || '');
+  return String(s).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
 app.get('/api/culture/events', async (req, res) => {
   try {
     const url = process.env.AGENDALX_EVENTS_URL || 'https://www.agendalx.pt/wp-json/agendalx/v1/events';
@@ -1564,11 +1568,13 @@ app.get('/api/culture/events', async (req, res) => {
       try {
         return {
           id: e.id,
-          title: (typeof e.title === 'object' ? e.title?.rendered : e.title) || '',
-          subtitle: (typeof e.subtitle === 'object' ? e.subtitle?.rendered : e.subtitle) || '',
+          title: agendalxText(e.title),
+          subtitle: agendalxText(e.subtitle),
+          description: agendalxText(e.description || e.content || e.excerpt),
           dates: e.string_dates || '',
           times: e.string_times || '',
           venue: e.venue?.name || '',
+          address: e.venue?.address || e.venue?.morada || e.venue?.location || '',
           image: e.featured_media_large || null,
           categories: normalizeAgendalxCategories(e.categories_name_list),
           url: e.slug ? `https://www.agendalx.pt/events/event/${e.slug}/` : null
