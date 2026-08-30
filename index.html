@@ -8754,6 +8754,10 @@
             box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma data de partida.</p>';
             return;
         }
+        if (returnDate && returnDate < date) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">A data de volta não pode ser antes da data de ida.</p>';
+            return;
+        }
         box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos...</p>';
         try {
             const params = new URLSearchParams({ origin, destination, date, token: APP.token || '' });
