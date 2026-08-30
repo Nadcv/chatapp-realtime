@@ -114,12 +114,12 @@ A API oficial do Metro de Lisboa (`api.metrolisboa.pt`) bloqueia ligações vind
 ### Horários da CP (Comboios de Portugal) — como funciona
 A CP não publica posição ao vivo dos comboios, mas publica os **horários programados** em formato aberto GTFS (o mesmo formato usado por transportes públicos em todo o mundo). O servidor descarrega esse ficheiro (um `.zip` com várias tabelas CSV), guarda-o em memória durante 24 horas, e serve pesquisa de estações e próximas partidas através de `/api/trains/stations` e `/api/trains/departures`.
 
-A fonte "oficial" original (dados.gov.pt → transporlis.pt) está **abandonada há mais de um ano** — confirmámos que já devolvia um ficheiro GTFS vazio (só cabeçalhos, sem dados) em abril de 2024. Por isso, o servidor tenta duas fontes, por esta ordem:
+A fonte "oficial" original (dados.gov.pt → transporlis.pt) está abandonada há mais de um ano — confirmámos que já devolvia um ficheiro GTFS vazio (só cabeçalhos, sem dados) em abril de 2024. Em vez disso, o valor por omissão aponta para `https://publico.cp.pt/gtfs/gtfs.zip`, um feed GTFS da própria CP que confirmámos estar mesmo a funcionar (dados reais de partidas testados na app).
 
-1. **`CP_GTFS_URL`** (opcional) — se definida, usa-se sempre esta URL diretamente, sem mais nenhuma verificação. Útil para apontar manualmente para um ficheiro `.zip` que sabes que funciona.
-2. **`MOBILITY_DB_REFRESH_TOKEN`** (recomendado) — token de atualização da tua conta em [mobilitydatabase.org](https://mobilitydatabase.org) (regista-te lá, o token aparece na página "Your Account" → "API Access"). Com isto, o servidor descobre sozinho a URL do ficheiro GTFS mais recente que a MobilityData tem indexado para a CP (feed `mdb-1037` por omissão, configurável via `MOBILITY_DB_FEED_ID`) — em vez de depender de uma URL fixa que pode ficar desatualizada. O token de atualização não expira; o servidor pede um token de acesso novo automaticamente sempre que precisa (válido 1h).
+- **`CP_GTFS_URL`** (opcional) — se definida, substitui o valor por omissão. Útil se a URL da CP alguma vez mudar.
+- **`MOBILITY_DB_REFRESH_TOKEN`** (opcional, último recurso) — token de atualização da tua conta em [mobilitydatabase.org](https://mobilitydatabase.org), usado só se quiseres experimentar essa fonte alternativa em vez do valor por omissão (feed `mdb-1037`, configurável via `MOBILITY_DB_FEED_ID`) — mas nota que, à data de escrita, essa cópia estava vazia.
 
-Se nenhuma das duas estiver definida, ou se a fonte escolhida falhar, a pesquisa de comboios mostra um erro amigável — o resto da app continua a funcionar normalmente (autocarros e aviões não são afetados).
+Se a fonte escolhida falhar, a pesquisa de comboios mostra um erro amigável — o resto da app continua a funcionar normalmente (autocarros e aviões não são afetados).
 
 **Limitação conhecida:** o GTFS representa horários depois da meia-noite como "25:10" (para a 01:10 do dia seguinte); esta versão trata isso como texto simples, por isso partidas mesmo à volta da meia-noite podem não aparecer pela ordem certa nessa janela específica. Não afeta o resto do dia. Esta limitação aplica-se a qualquer feed GTFS usado pela app, incluindo o de Guimarães abaixo.
 

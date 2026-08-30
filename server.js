@@ -942,11 +942,10 @@ async function getMobilityDbAccessToken() {
   mobilityDbAccessTokenExpiresAt = Date.now() + 55 * 60 * 1000; // o token real dura 1h; renovamos com 5 min de margem
   return mobilityDbAccessToken;
 }
+const CP_GTFS_URL_DEFAULT = 'https://publico.cp.pt/gtfs/gtfs.zip';
 async function resolveCpGtfsUrl() {
   if (process.env.CP_GTFS_URL) return process.env.CP_GTFS_URL;
-  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) {
-    throw new Error('Falta configurar CP_GTFS_URL ou MOBILITY_DB_REFRESH_TOKEN (ver README, secção "Horários da CP").');
-  }
+  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) return CP_GTFS_URL_DEFAULT;
   const token = await getMobilityDbAccessToken();
   const resp = await fetch(`https://api.mobilitydatabase.org/v1/gtfs_feeds/${MOBILITY_DB_FEED_ID}/datasets?latest=true`, {
     headers: { 'Authorization': `Bearer ${token}` }
