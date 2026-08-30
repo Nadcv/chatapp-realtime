@@ -1650,15 +1650,32 @@
                 <div id="portoSearchResults"></div>
             </div>
             <div id="tripSearchBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
-                <input type="text" id="tripOriginInput" placeholder="🚏 Cidade/estação de origem (Europa)..." oninput="debounceTripStopSearch('origin')" autocomplete="off">
-                <div id="tripOriginResults"></div>
-                <input type="text" id="tripDestinationInput" placeholder="🚏 Cidade/estação de destino (Europa)..." oninput="debounceTripStopSearch('destination')" autocomplete="off">
-                <div id="tripDestinationResults"></div>
                 <div style="display:flex;gap:6px;">
-                    <input type="date" id="tripDateInput" style="flex:1;">
-                    <button class="btn-small" onclick="searchTripOffers()" style="flex-shrink:0;">🔍 Pesquisar preços</button>
+                    <button class="btn-small price-mode-tab active" data-mode="trip" onclick="switchPriceMode('trip')" style="flex:1;">🚆🚌 Comboio/Autocarro</button>
+                    <button class="btn-small price-mode-tab" data-mode="flight" onclick="switchPriceMode('flight')" style="flex:1;">✈️ Voos</button>
                 </div>
-                <div id="tripOffersResults" style="max-height:280px;overflow-y:auto;"></div>
+                <div id="tripModeFields" style="display:flex;flex-direction:column;gap:6px;">
+                    <input type="text" id="tripOriginInput" placeholder="🚏 Cidade/estação de origem (Europa)..." oninput="debounceTripStopSearch('origin')" autocomplete="off">
+                    <div id="tripOriginResults"></div>
+                    <input type="text" id="tripDestinationInput" placeholder="🚏 Cidade/estação de destino (Europa)..." oninput="debounceTripStopSearch('destination')" autocomplete="off">
+                    <div id="tripDestinationResults"></div>
+                    <div style="display:flex;gap:6px;">
+                        <input type="date" id="tripDateInput" style="flex:1;">
+                        <button class="btn-small" onclick="searchTripOffers()" style="flex-shrink:0;">🔍 Pesquisar preços</button>
+                    </div>
+                    <div id="tripOffersResults" style="max-height:280px;overflow-y:auto;"></div>
+                </div>
+                <div id="flightModeFields" style="display:none;flex-direction:column;gap:6px;">
+                    <div style="display:flex;gap:6px;">
+                        <input type="text" id="fpOriginInput" placeholder="✈️ Origem (código IATA, ex.: LIS)..." maxlength="3" style="flex:1;text-transform:uppercase;">
+                        <input type="text" id="fpDestinationInput" placeholder="✈️ Destino (código IATA, ex.: OPO)..." maxlength="3" style="flex:1;text-transform:uppercase;">
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <input type="date" id="fpDateInput" style="flex:1;">
+                        <button class="btn-small" onclick="searchFlightPriceOffers()" style="flex-shrink:0;">🔍 Pesquisar voos</button>
+                    </div>
+                    <div id="fpResults" style="max-height:280px;overflow-y:auto;"></div>
+                </div>
             </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
@@ -8592,6 +8609,71 @@
             }).join('');
         } catch (err) {
             box.innerHTML = `<p style="color:#e74c3c;font-size:13px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    function switchPriceMode(mode) {
+        document.querySelectorAll('.price-mode-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+        document.getElementById('tripModeFields').style.display = mode === 'trip' ? 'flex' : 'none';
+        document.getElementById('flightModeFields').style.display = mode === 'flight' ? 'flex' : 'none';
+    }
+
+    // ==================== PREÇOS DE VOOS (Ignav) ====================
+    // A Amadeus (GDS oficial) fechou o self-service em 2026; a Ignav é uma
+    // alternativa self-serve real, que só devolve preços + um link de reserva
+    // para a própria companhia/OTA — nunca processa pagamento nenhum aqui.
+    async function searchFlightPriceOffers() {
+        const box = document.getElementById('fpResults');
+        const origin = document.getElementById('fpOriginInput').value.trim().toUpperCase();
+        const destination = document.getElementById('fpDestinationInput').value.trim().toUpperCase();
+        const date = document.getElementById('fpDateInput').value;
+        if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Indica os códigos IATA de origem e destino (3 letras, ex.: LIS, OPO, MAD).</p>';
+            return;
+        }
+        if (!date) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma data de partida.</p>';
+            return;
+        }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar voos...</p>';
+        try {
+            const params = new URLSearchParams({ origin, destination, date });
+            const res = await fetch('/api/transport/flight-price/offers?' + params.toString());
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (data.configured === false) {
+                box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">⚠️ Pesquisa de voos por configurar (falta IGNAV_API_KEY no servidor).</p>';
+                return;
+            }
+            if (!data.offers.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">Nenhum voo encontrado para esta rota/data.</p>'; return; }
+            box.innerHTML = data.offers.map((o, i) => {
+                const dep = o.departure ? new Date(o.departure) : null;
+                const arr = o.arrival ? new Date(o.arrival) : null;
+                const fmt = (d) => d ? d.toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                return `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${o.price != null ? o.price + ' ' + escapeHtml(o.currency || '') : '—'}</strong> · ✈️ ${escapeHtml(o.airline || '')}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">${fmt(dep)} → ${fmt(arr)} ${o.stops > 0 ? `· ${o.stops} escala(s)` : '· direto'}</div>
+                    <button class="btn-small" style="margin-top:4px;" onclick='openFlightBookingLink(${JSON.stringify(o.ignavId)}, this)'>🔗 Ver opções de reserva</button>
+                </div>`;
+            }).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:#e74c3c;font-size:13px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    async function openFlightBookingLink(ignavId, btn) {
+        btn.disabled = true;
+        btn.textContent = 'A obter link...';
+        try {
+            const res = await fetch('/api/transport/flight-price/booking-link?ignavId=' + encodeURIComponent(ignavId));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.url) throw new Error('Sem link de reserva disponível para este voo.');
+            window.open(data.url, '_blank', 'noopener');
+        } catch (err) {
+            alert('⚠️ ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🔗 Ver opções de reserva';
         }
     }
 

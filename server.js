@@ -1254,6 +1254,87 @@ app.get('/api/transport/trip-search/offers', async (req, res) => {
   }
 });
 
+// ==================== PREÇOS DE VOOS (Ignav) ====================
+// A Amadeus (GDS oficial usado por agências de viagens) fechou o self-service
+// gratuito a 17 de julho de 2026 — confirmámos isto ao vivo (o registo passou
+// a exigir um contrato "Enterprise"). A Ignav posiciona-se especificamente
+// como alternativa self-serve para quem ficou sem essa opção. Nunca processa
+// pagamento: só devolve preços e um link de reserva para a companhia/OTA.
+const IGNAV_API_BASE = process.env.IGNAV_API_BASE || 'https://ignav.com/api';
+const IGNAV_CONFIGURED = () => !!process.env.IGNAV_API_KEY;
+
+const ignavOffersCache = {};
+app.get('/api/transport/flight-price/offers', async (req, res) => {
+  if (!IGNAV_CONFIGURED()) return res.json({ configured: false, offers: [] });
+  const origin = (req.query.origin || '').trim().toUpperCase();
+  const destination = (req.query.destination || '').trim().toUpperCase();
+  const date = (req.query.date || '').trim();
+  if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
+    return res.status(400).json({ error: 'Indica códigos IATA de origem e destino válidos (3 letras).' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
+  const cacheKey = `${origin}_${destination}_${date}`;
+  const now = Date.now();
+  if (ignavOffersCache[cacheKey] && (now - ignavOffersCache[cacheKey].t) < 10 * 60 * 1000) {
+    return res.json(ignavOffersCache[cacheKey].data);
+  }
+  try {
+    const resp = await fetch(`${IGNAV_API_BASE}/fares/one-way`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': process.env.IGNAV_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin, destination, departure_date: date })
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+    }
+    const data = await resp.json();
+    const offers = (data.itineraries || []).map((it) => {
+      const segments = it.outbound?.segments || [];
+      const first = segments[0];
+      const last = segments[segments.length - 1];
+      return {
+        price: it.price?.amount,
+        currency: it.price?.currency,
+        airline: it.outbound?.carrier || first?.operating_carrier_name || '',
+        departure: first?.departure_time_local,
+        arrival: last?.arrival_time_local,
+        stops: Math.max(0, segments.length - 1),
+        ignavId: it.ignav_id
+      };
+    }).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+    const result = { configured: true, offers };
+    ignavOffersCache[cacheKey] = { t: now, data: result };
+    res.json(result);
+  } catch (err) {
+    console.error('Erro Ignav (pesquisa de voos):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar voos agora: ' + err.message });
+  }
+});
+
+app.get('/api/transport/flight-price/booking-link', async (req, res) => {
+  if (!IGNAV_CONFIGURED()) return res.json({ configured: false, url: null });
+  const ignavId = (req.query.ignavId || '').trim();
+  if (!ignavId) return res.status(400).json({ error: 'Falta o identificador do voo.' });
+  try {
+    const resp = await fetch(`${IGNAV_API_BASE}/fares/booking-links`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': process.env.IGNAV_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ignav_id: ignavId })
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+    }
+    const data = await resp.json();
+    const url = data.booking_options?.[0]?.links?.[0]?.url || null;
+    res.json({ configured: true, url });
+  } catch (err) {
+    console.error('Erro Ignav (link de reserva):', err.message);
+    res.status(502).json({ error: 'Não foi possível obter o link de reserva agora: ' + err.message });
+  }
+});
+
 // ==================== INCÊNDIOS EM TEMPO REAL (mundo inteiro) ====================
 // NASA FIRMS (Fire Information for Resource Management System) — focos de
 // incêndio/calor detetados por satélite (VIIRS), atualizados a cada poucas
