@@ -170,7 +170,7 @@ async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
   // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
   // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal();
+  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
@@ -1403,6 +1403,90 @@ app.get('/api/transport/flight-price/booking-link', async (req, res) => {
     res.status(502).json({ error: 'Não foi possível obter o link de reserva agora: ' + err.message });
   }
 });
+
+// ==================== ALERTAS DE PREÇO DE VOOS (Ignav) ====================
+// Uma rota+data+preço-alvo por alerta. Verificado periodicamente (ver
+// setInterval mais abaixo); ao disparar, manda notificação push e remove-se
+// (não continua a repetir o aviso). Limite por utilizador para não esgotar
+// a cota gratuita da Ignav com demasiados alertas.
+const PRICE_ALERTS_FILE = path.join(__dirname, 'price-alerts.json');
+let priceAlerts = []; // [{id, phone, origin, originName, destination, destinationName, date, maxPrice, createdAt}]
+function loadPriceAlertsLocal() {
+  try { if (fs.existsSync(PRICE_ALERTS_FILE)) priceAlerts = JSON.parse(fs.readFileSync(PRICE_ALERTS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar alertas de preço:', err.message); }
+}
+function savePriceAlertsLocal() {
+  fs.writeFile(PRICE_ALERTS_FILE, JSON.stringify(priceAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de preço:', err.message); });
+}
+const MAX_PRICE_ALERTS_PER_USER = 5;
+
+app.post('/api/price-alerts', (req, res) => {
+  const { token, origin, originName, destination, destinationName, date, maxPrice } = req.body || {};
+  const phone = sessions[token];
+  if (!phone || !accounts[phone]) return res.status(401).json({ error: 'Sessão inválida.' });
+  const originCode = (origin || '').trim().toUpperCase();
+  const destinationCode = (destination || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(originCode) || !/^[A-Z]{3}$/.test(destinationCode)) {
+    return res.status(400).json({ error: 'Indica códigos IATA de origem e destino válidos.' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data válida.' });
+  const price = Number(maxPrice);
+  if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Indica um preço-alvo válido.' });
+  if (priceAlerts.filter((a) => a.phone === phone).length >= MAX_PRICE_ALERTS_PER_USER) {
+    return res.status(400).json({ error: `Já tens o máximo de ${MAX_PRICE_ALERTS_PER_USER} alertas ativos — apaga um antes de criar outro.` });
+  }
+  const alert = {
+    id: 'pa' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    phone,
+    origin: originCode, originName: originName || originCode,
+    destination: destinationCode, destinationName: destinationName || destinationCode,
+    date, maxPrice: price, createdAt: Date.now()
+  };
+  priceAlerts.push(alert);
+  savePriceAlertsLocal();
+  res.json({ success: true, alert });
+});
+
+app.get('/api/price-alerts', (req, res) => {
+  const phone = sessions[req.query.token];
+  if (!phone) return res.status(401).json({ error: 'Sessão inválida.' });
+  res.json({ alerts: priceAlerts.filter((a) => a.phone === phone) });
+});
+
+app.delete('/api/price-alerts/:id', (req, res) => {
+  const phone = sessions[req.query.token];
+  if (!phone) return res.status(401).json({ error: 'Sessão inválida.' });
+  const before = priceAlerts.length;
+  priceAlerts = priceAlerts.filter((a) => !(a.id === req.params.id && a.phone === phone));
+  if (priceAlerts.length !== before) savePriceAlertsLocal();
+  res.json({ success: true });
+});
+
+async function checkPriceAlerts() {
+  if (!IGNAV_CONFIGURED() || !priceAlerts.length) return;
+  const stillActive = [];
+  for (const alert of priceAlerts) {
+    let fired = false;
+    try {
+      const offers = await fetchIgnavOffers(alert.origin, alert.destination, alert.date);
+      const cheapest = offers[0];
+      if (cheapest && cheapest.price != null && cheapest.price <= alert.maxPrice) {
+        await sendPushToPhone(alert.phone, {
+          title: '🎫 Alerta de preço!',
+          body: `${alert.originName} → ${alert.destinationName}: ${cheapest.price} ${cheapest.currency || 'EUR'} (alvo: ${alert.maxPrice})`
+        });
+        fired = true;
+      }
+    } catch (err) {
+      console.error('Erro ao verificar alerta de preço:', err.message);
+    }
+    if (!fired) stillActive.push(alert);
+  }
+  if (stillActive.length !== priceAlerts.length) {
+    priceAlerts = stillActive;
+    savePriceAlertsLocal();
+  }
+}
 
 // ==================== INCÊNDIOS EM TEMPO REAL (mundo inteiro) ====================
 // NASA FIRMS (Fire Information for Resource Management System) — focos de
@@ -5126,6 +5210,10 @@ connectDatabase().then(async () => {
     }
     if (anyChanged) saveRecurringExpensesLocal();
   }, 60 * 60 * 1000);
+
+  // Alertas de preço de voos: a cada 12h chega (a cota gratuita da Ignav não
+  // aguenta verificações mais frequentes com vários alertas ativos).
+  setInterval(() => checkPriceAlerts().catch((e) => console.error('Erro nos alertas de preço:', e.message)), 12 * 60 * 60 * 1000);
 
   // Chamada agendada: avisa as duas partes na hora marcada (push + evento em
   // tempo real) — nunca liga sozinha (ver comentário mais acima).
