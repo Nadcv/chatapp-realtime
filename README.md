@@ -104,7 +104,7 @@ As cores do app (fundo escuro, verde de destaque, bolhas de mensagem) já foram 
 ## Transportes em tempo real (🚌, no cabeçalho)
 
 Três separadores num mapa (Leaflet + OpenStreetMap, gratuito, sem chave):
-- **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave.
+- **🚌 Autocarros** — posição ao vivo de cada autocarro da Carris Metropolitana (Área Metropolitana de Lisboa), via API oficial gratuita e sem chave. Tem um alternador "Lisboa (ao vivo)" / "Guimarães (horários)" — Guimarães mostra horários programados da GUIMABUS (pesquisa de paragem + próximas partidas), via GTFS aberto; não tem posição ao vivo, só horário.
 - **✈️ Aviões** — tráfego aéreo ao vivo sobre Portugal e Espanha, via OpenSky Network (gratuita, sem chave, uso razoável).
 - **🚇 Metro/Comboio** — mostra a localização das estações de Metro de Lisboa e das estações de comboio, mas **sem posição ao vivo** dos veículos (nem o Metro de Lisboa nem a CP/Renfe têm uma API gratuita e sem registo para posição ao vivo). Tem uma **barra de pesquisa de horários da CP** (partidas programadas, não ao vivo — ver secção abaixo) e um **estado do serviço do Metro de Lisboa** (linha Azul/Amarela/Vermelha/Verde — normal, perturbada, etc.).
 
@@ -121,7 +121,10 @@ A fonte "oficial" original (dados.gov.pt → transporlis.pt) está **abandonada 
 
 Se nenhuma das duas estiver definida, ou se a fonte escolhida falhar, a pesquisa de comboios mostra um erro amigável — o resto da app continua a funcionar normalmente (autocarros e aviões não são afetados).
 
-**Limitação conhecida:** o GTFS representa horários depois da meia-noite como "25:10" (para a 01:10 do dia seguinte); esta versão trata isso como texto simples, por isso partidas mesmo à volta da meia-noite podem não aparecer pela ordem certa nessa janela específica. Não afeta o resto do dia.
+**Limitação conhecida:** o GTFS representa horários depois da meia-noite como "25:10" (para a 01:10 do dia seguinte); esta versão trata isso como texto simples, por isso partidas mesmo à volta da meia-noite podem não aparecer pela ordem certa nessa janela específica. Não afeta o resto do dia. Esta limitação aplica-se a qualquer feed GTFS usado pela app, incluindo o de Guimarães abaixo.
+
+### Autocarros de Guimarães (GUIMABUS) — como funciona
+Ao contrário da CP, este feed GTFS está mesmo a funcionar: dados publicados no nó regional de dados abertos do Minho ([Minho Access Point](https://minhoaccesspoint.eu)), encontrados através do portal [MAP da Ubiwhere](https://map.mobility.ubiwhere.com/dataset/operador-de-sptp-de-guimaraes). Usa o mesmo motor GTFS partilhado com a CP (cache de 24h em memória). Configurável por **`GUIMARAES_GTFS_URL`** (opcional — por omissão já aponta para o ficheiro correto). Se a fonte alguma vez ficar indisponível, mostra um erro amigável nessa secção; o resto da app não é afetado.
 
 ## Novidades nas mensagens
 

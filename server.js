@@ -756,29 +756,18 @@ app.get('/api/transport/train-stations', async (req, res) => {
   }
 });
 
-// ==================== HORÁRIOS DE COMBOIOS (CP) — GTFS ====================
-// As estações acima (Carris Metropolitana) só têm localização, e só cobrem a
-// área de Lisboa — sem horários, e sem o resto do país. A CP não tem posição
-// ao vivo dos comboios disponível gratuitamente, mas publica os HORÁRIOS
-// PROGRAMADOS em formato aberto GTFS (o mesmo formato-padrão usado por
-// transportes públicos no mundo inteiro) através do portal de dados abertos
-// português. Isto descarrega esse ficheiro (um .zip com vários .csv) uma vez
-// por dia, processa-o em memória, e responde a pesquisas de estação/partidas
-// a partir daí — nunca pede nada à CP em tempo real por pedido do utilizador.
-//
-// O URL exato do feed pode mudar sem aviso (é um portal de dados abertos, não
-// uma API versionada) — por isso fica configurável por variável de ambiente
-// (CP_GTFS_URL), com um valor por omissão que pode precisar de atualização;
-// ver README para onde encontrar o link correto se este parar de funcionar.
-const GTFS_TTL_MS = 24 * 60 * 60 * 1000; // os horários da CP não mudam a cada minuto — um dia chega
-let gtfsData = null;
-let gtfsLoadedAt = 0;
-let gtfsLoadPromise = null;
+// ==================== MOTOR GTFS GENÉRICO (partilhado entre feeds) ====================
+// Vários operadores publicam os seus horários programados em formato aberto GTFS (um
+// .zip com várias tabelas .csv) — este motor descarrega, processa em memória (com cache
+// por feed) e serve pesquisa de paragem/estação + próximas partidas a partir daí, para
+// qualquer feed que lhe seja apontado (CP, autocarros de Guimarães, etc.).
+const GTFS_TTL_MS = 24 * 60 * 60 * 1000; // os horários não mudam a cada minuto — um dia chega
+const gtfsFeedCache = new Map(); // feedKey -> {data, loadedAt, loadPromise}
 
-// Parser mínimo de uma linha CSV do GTFS — sem bibliotecas extra só para isto.
-// Só trata aspas simples à volta de campos com vírgulas lá dentro (o suficiente
-// para o GTFS real, que não costuma ter quebras de linha dentro de um campo).
-function parseCsvLine(line) {
+// Parser mínimo de uma linha CSV do GTFS — sem bibliotecas extra só para isto. Trata
+// aspas à volta de campos com vírgulas lá dentro (o suficiente para o GTFS real, que
+// não costuma ter quebras de linha dentro de um campo).
+function parseGtfsCsvLine(line) {
   const fields = [];
   let cur = '', inQuotes = false;
   for (let i = 0; i < line.length; i++) {
@@ -793,65 +782,25 @@ function parseCsvLine(line) {
   fields.push(cur);
   return fields;
 }
-function parseCsv(text) {
+function parseGtfsCsv(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.length);
   if (!lines.length) return [];
-  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
+  const headers = parseGtfsCsvLine(lines[0]).map((h) => h.trim());
   return lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
+    const values = parseGtfsCsvLine(line);
     const row = {};
     headers.forEach((h, i) => { row[h] = (values[i] || '').trim(); });
     return row;
   });
 }
-// A fonte antiga (dados.gov.pt / transporlis.pt) está morta há muito tempo — o arquivo
-// da Mobility Database mostrou que já devolvia um feed GTFS vazio em abril de 2024. Em
-// alternativa, se houver um MOBILITY_DB_REFRESH_TOKEN configurado, descobrimos aqui a
-// URL do ficheiro mais recente através da API pública da Mobility Database
-// (https://mobilitydatabase.org), que MobilityData mantém atualizada de forma independente.
-const MOBILITY_DB_FEED_ID = process.env.MOBILITY_DB_FEED_ID || 'mdb-1037';
-let mobilityDbAccessToken = null;
-let mobilityDbAccessTokenExpiresAt = 0;
-async function getMobilityDbAccessToken() {
-  if (mobilityDbAccessToken && Date.now() < mobilityDbAccessTokenExpiresAt) return mobilityDbAccessToken;
-  const refreshToken = process.env.MOBILITY_DB_REFRESH_TOKEN;
-  const resp = await fetch('https://api.mobilitydatabase.org/v1/tokens', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken })
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na Mobility Database — o MOBILITY_DB_REFRESH_TOKEN pode estar errado ou ter sido revogado.`);
-  const data = await resp.json();
-  if (!data.access_token) throw new Error('A Mobility Database não devolveu um access_token.');
-  mobilityDbAccessToken = data.access_token;
-  mobilityDbAccessTokenExpiresAt = Date.now() + 55 * 60 * 1000; // o token real dura 1h; renovamos com 5 min de margem
-  return mobilityDbAccessToken;
-}
-async function resolveGtfsUrl() {
-  if (process.env.CP_GTFS_URL) return process.env.CP_GTFS_URL;
-  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) {
-    throw new Error('Falta configurar CP_GTFS_URL ou MOBILITY_DB_REFRESH_TOKEN (ver README, secção "Horários da CP").');
-  }
-  const token = await getMobilityDbAccessToken();
-  const resp = await fetch(`https://api.mobilitydatabase.org/v1/gtfs_feeds/${MOBILITY_DB_FEED_ID}/datasets?latest=true`, {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao consultar a Mobility Database`);
-  const datasets = await resp.json();
-  const latest = Array.isArray(datasets) ? datasets[0] : null;
-  if (!latest || !latest.hosted_url) throw new Error(`A Mobility Database não tem nenhum ficheiro disponível para o feed "${MOBILITY_DB_FEED_ID}".`);
-  return latest.hosted_url;
-}
-async function loadGtfsData() {
+async function loadGtfsFeed(url, urlEnvVarName) {
   if (!AdmZip) throw new Error('O servidor não tem o pacote "adm-zip" instalado.');
-  const url = await resolveGtfsUrl();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   let resp;
   try {
-    // O portal dados.gov.pt (e outros à frente de CDNs/gateways) por vezes recusa ou
-    // devolve erro a pedidos que não se pareçam com um browser real — o mesmo problema
-    // já visto nas notícias/pré-visualizações de links, corrigido do mesmo modo.
+    // Alguns portais/CDNs recusam ou falham em pedidos sem User-Agent de browser real —
+    // o mesmo problema já visto nas notícias/pré-visualizações de links.
     resp = await fetch(url, {
       signal: controller.signal,
       headers: {
@@ -862,20 +811,20 @@ async function loadGtfsData() {
   } finally {
     clearTimeout(timeoutId);
   }
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao descarregar o GTFS da CP`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao descarregar o GTFS`);
   const buf = Buffer.from(await resp.arrayBuffer());
   const isZip = buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07);
-  if (!isZip) throw new Error(`A resposta de ${url} não é um ficheiro ZIP válido — a variável CP_GTFS_URL provavelmente está desatualizada ou aponta para a página errada (ver README).`);
+  if (!isZip) throw new Error(`A resposta de ${url} não é um ficheiro ZIP válido — a variável ${urlEnvVarName} provavelmente está desatualizada ou aponta para a página errada.`);
   let zip;
   try {
     zip = new AdmZip(buf);
   } catch (err) {
-    throw new Error(`Não foi possível ler o ZIP de ${url}: ${err.message} — a variável CP_GTFS_URL provavelmente está desatualizada (ver README).`);
+    throw new Error(`Não foi possível ler o ZIP de ${url}: ${err.message} — a variável ${urlEnvVarName} provavelmente está desatualizada.`);
   }
   const readCsv = (filename) => {
     const entry = zip.getEntry(filename);
     if (!entry) return [];
-    return parseCsv(zip.readAsText(entry));
+    return parseGtfsCsv(zip.readAsText(entry));
   };
 
   const stops = new Map(); // stop_id -> {id, name, lat, lon}
@@ -920,13 +869,15 @@ async function loadGtfsData() {
 
   return { stops, routes, trips, calendar, calendarExceptions, stopTimesByStop };
 }
-async function ensureGtfsLoaded() {
-  if (gtfsData && Date.now() - gtfsLoadedAt < GTFS_TTL_MS) return gtfsData;
-  if (gtfsLoadPromise) return gtfsLoadPromise;
-  gtfsLoadPromise = loadGtfsData()
-    .then((data) => { gtfsData = data; gtfsLoadedAt = Date.now(); return data; })
-    .finally(() => { gtfsLoadPromise = null; });
-  return gtfsLoadPromise;
+async function ensureGtfsFeedLoaded(feedKey, resolveUrl, urlEnvVarName) {
+  const entry = gtfsFeedCache.get(feedKey) || {};
+  if (entry.data && Date.now() - entry.loadedAt < GTFS_TTL_MS) return entry.data;
+  if (entry.loadPromise) return entry.loadPromise;
+  const loadPromise = (async () => loadGtfsFeed(await resolveUrl(), urlEnvVarName))()
+    .then((data) => { gtfsFeedCache.set(feedKey, { data, loadedAt: Date.now(), loadPromise: null }); return data; })
+    .catch((err) => { gtfsFeedCache.set(feedKey, {}); throw err; });
+  gtfsFeedCache.set(feedKey, { ...entry, loadPromise });
+  return loadPromise;
 }
 // service_id de um horário GTFS só se aplica em certos dias da semana, dentro de um
 // intervalo de datas — e pode ter exceções pontuais (feriados, dias especiais).
@@ -939,14 +890,78 @@ function isServiceActiveOnDate(gtfs, serviceId, dateObj) {
   if (dateStr < cal.start || dateStr > cal.end) return false;
   return !!cal.days[dateObj.getDay()];
 }
+function gtfsSearchStops(gtfs, q) {
+  let list = [...gtfs.stops.values()];
+  if (q) list = list.filter((s) => s.name.toLowerCase().includes(q));
+  return list.slice(0, 30).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon }));
+}
+function gtfsNextDepartures(gtfs, stationId) {
+  const station = gtfs.stops.get(stationId);
+  if (!station) return null;
+  const now = new Date();
+  // Nota: horas GTFS depois da meia-noite vêm como "25:10:00" etc. (ainda contam para o
+  // serviço do dia anterior) — esta comparação simples por string não lida com esse caso
+  // à volta da meia-noite, é uma simplificação aceitável para uma lista de "próximas partidas".
+  const nowHHMMSS = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+  const times = gtfs.stopTimesByStop.get(stationId) || [];
+  const departures = times
+    .filter((st) => st.departure >= nowHHMMSS)
+    .map((st) => {
+      const trip = gtfs.trips.get(st.tripId);
+      if (!trip || !isServiceActiveOnDate(gtfs, trip.serviceId, now)) return null;
+      const route = gtfs.routes.get(trip.routeId);
+      return { time: st.departure, headsign: trip.headsign || route?.longName || '', routeName: route?.shortName || '' };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.time.localeCompare(b.time))
+    .slice(0, 12);
+  return { stationName: station.name, departures };
+}
+
+// ==================== HORÁRIOS DE COMBOIOS (CP) ====================
+// A CP não tem posição ao vivo dos comboios disponível gratuitamente. A fonte GTFS
+// "oficial" (dados.gov.pt -> transporlis.pt) está morta há mais de um ano — confirmámos
+// que já devolvia um feed vazio em abril de 2024, e o mesmo se confirma na cópia mais
+// recente indexada pela Mobility Database. Fica documentado no README como indisponível;
+// o código mantém-se pronto a usar se a CP alguma vez publicar um feed a funcionar.
+const MOBILITY_DB_FEED_ID = process.env.MOBILITY_DB_FEED_ID || 'mdb-1037';
+let mobilityDbAccessToken = null;
+let mobilityDbAccessTokenExpiresAt = 0;
+async function getMobilityDbAccessToken() {
+  if (mobilityDbAccessToken && Date.now() < mobilityDbAccessTokenExpiresAt) return mobilityDbAccessToken;
+  const refreshToken = process.env.MOBILITY_DB_REFRESH_TOKEN;
+  const resp = await fetch('https://api.mobilitydatabase.org/v1/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken })
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na Mobility Database — o MOBILITY_DB_REFRESH_TOKEN pode estar errado ou ter sido revogado.`);
+  const data = await resp.json();
+  if (!data.access_token) throw new Error('A Mobility Database não devolveu um access_token.');
+  mobilityDbAccessToken = data.access_token;
+  mobilityDbAccessTokenExpiresAt = Date.now() + 55 * 60 * 1000; // o token real dura 1h; renovamos com 5 min de margem
+  return mobilityDbAccessToken;
+}
+async function resolveCpGtfsUrl() {
+  if (process.env.CP_GTFS_URL) return process.env.CP_GTFS_URL;
+  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) {
+    throw new Error('Falta configurar CP_GTFS_URL ou MOBILITY_DB_REFRESH_TOKEN (ver README, secção "Horários da CP").');
+  }
+  const token = await getMobilityDbAccessToken();
+  const resp = await fetch(`https://api.mobilitydatabase.org/v1/gtfs_feeds/${MOBILITY_DB_FEED_ID}/datasets?latest=true`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao consultar a Mobility Database`);
+  const datasets = await resp.json();
+  const latest = Array.isArray(datasets) ? datasets[0] : null;
+  if (!latest || !latest.hosted_url) throw new Error(`A Mobility Database não tem nenhum ficheiro disponível para o feed "${MOBILITY_DB_FEED_ID}".`);
+  return latest.hosted_url;
+}
 
 app.get('/api/trains/stations', async (req, res) => {
   try {
-    const gtfs = await ensureGtfsLoaded();
-    const q = (req.query.q || '').toLowerCase().trim();
-    let list = [...gtfs.stops.values()];
-    if (q) list = list.filter((s) => s.name.toLowerCase().includes(q));
-    res.json(list.slice(0, 30).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon })));
+    const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
   } catch (err) {
     console.error('Erro GTFS (estações CP):', err.message);
     res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
@@ -955,31 +970,45 @@ app.get('/api/trains/stations', async (req, res) => {
 
 app.get('/api/trains/departures', async (req, res) => {
   try {
-    const gtfs = await ensureGtfsLoaded();
-    const stationId = req.query.stationId;
-    const station = stationId && gtfs.stops.get(stationId);
-    if (!station) return res.status(400).json({ error: 'Estação inválida.' });
-    const now = new Date();
-    // Nota: horas GTFS depois da meia-noite vêm como "25:10:00" etc. (ainda contam para o
-    // serviço do dia anterior) — esta comparação simples por string não lida com esse caso
-    // à volta da meia-noite, é uma simplificação aceitável para uma lista de "próximas partidas".
-    const nowHHMMSS = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
-    const times = gtfs.stopTimesByStop.get(stationId) || [];
-    const departures = times
-      .filter((st) => st.departure >= nowHHMMSS)
-      .map((st) => {
-        const trip = gtfs.trips.get(st.tripId);
-        if (!trip || !isServiceActiveOnDate(gtfs, trip.serviceId, now)) return null;
-        const route = gtfs.routes.get(trip.routeId);
-        return { time: st.departure, headsign: trip.headsign || route?.longName || '', routeName: route?.shortName || '' };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.time.localeCompare(b.time))
-      .slice(0, 12);
-    res.json({ stationName: station.name, departures });
+    const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId);
+    if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+    res.json(result);
   } catch (err) {
     console.error('Erro GTFS (partidas CP):', err.message);
     res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
+  }
+});
+
+// ==================== AUTOCARROS DE GUIMARÃES (GUIMABUS) — GTFS ====================
+// Feed GTFS real e atual da GUIMABUS, publicado no nó regional de dados abertos do Minho
+// (Minho Access Point), encontrado através do dataset "Rede de Transporte Público
+// Guimabus" no portal MAP da Ubiwhere. Ao contrário da CP, esta fonte está mesmo a
+// funcionar (validade até final de 2026 à data de escrita deste código).
+const GUIMARAES_GTFS_URL_DEFAULT = 'https://minhoaccesspoint.eu/dataset/ee6d46e4-9f19-4f4a-ab93-1a3cd69df349/resource/8ccbc875-55ac-4adb-85e2-88294cd7e39e/download/xi_gmr_gtfs_complete.zip';
+async function resolveGuimaraesGtfsUrl() {
+  return process.env.GUIMARAES_GTFS_URL || GUIMARAES_GTFS_URL_DEFAULT;
+}
+
+app.get('/api/transport/guimaraes/stops', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('guimaraes', resolveGuimaraesGtfsUrl, 'GUIMARAES_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
+  } catch (err) {
+    console.error('Erro GTFS (paragens Guimarães):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de Guimarães agora: ' + err.message });
+  }
+});
+
+app.get('/api/transport/guimaraes/departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('guimaraes', resolveGuimaraesGtfsUrl, 'GUIMARAES_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId);
+    if (!result) return res.status(400).json({ error: 'Paragem inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro GTFS (partidas Guimarães):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de Guimarães agora: ' + err.message });
   }
 });
 
