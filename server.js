@@ -756,6 +756,77 @@ app.get('/api/transport/train-stations', async (req, res) => {
   }
 });
 
+// ==================== BICICLETAS PARTILHADAS (GIRA — Lisboa) ====================
+// Pediram para juntar GIRA + Lime + Bolt aqui. Só a GIRA entra: é o sistema
+// municipal (gerido pela EMEL/Câmara de Lisboa), com dados publicados no
+// portal de dados abertos oficial deles (dados.emel.pt, CKAN — o mesmo tipo
+// de plataforma já usado por outros municípios nesta app). A Lime e a Bolt
+// são empresas privadas que, tal como confirmado pelo próprio pedido ("API
+// não oficial"), não têm uma API pública genuína em Lisboa — só endpoints
+// internos das apps deles, sem documentação nem autorização para uso
+// externo. Seguindo o mesmo critério já aplicado a outras fontes nesta app
+// (rejeitámos LetsFG, a API não-oficial da CP, etc. pela mesma razão), não
+// fazemos scraping/engenharia reversa dessas duas.
+//
+// O portal é CKAN: primeiro perguntamos ao "package_show" quais os recursos
+// (ficheiros) do dataset, depois descarregamos o recurso certo — em vez de
+// apontar diretamente para um URL de recurso (que é um UUID que muda se o
+// dataset for republicado).
+const GIRA_CKAN_BASE = process.env.GIRA_CKAN_BASE || 'https://dados.emel.pt';
+const GIRA_DATASET_ID = process.env.GIRA_DATASET_ID || 'girastations';
+function firstNumber(...vals) {
+  for (const v of vals) {
+    const n = Number(v);
+    if (!Number.isNaN(n) && v !== null && v !== undefined && v !== '') return n;
+  }
+  return null;
+}
+function normalizeGiraStation(raw) {
+  // Nomes de campo não confirmados a partir deste ambiente (domínio .pt
+  // bloqueado) — tentamos várias hipóteses comuns em datasets CKAN
+  // portugueses e em GeoJSON, para não depender de acertar um nome exato.
+  const props = raw.properties || raw;
+  const geometry = raw.geometry;
+  const lat = firstNumber(props.lat, props.latitude, props.Latitude, props.y, geometry?.coordinates?.[1]);
+  const lon = firstNumber(props.lon, props.lng, props.longitude, props.Longitude, props.x, geometry?.coordinates?.[0]);
+  if (lat == null || lon == null) return null;
+  const name = props.name || props.Name || props.designacao || props.Designacao || props.station_name || 'Estação GIRA';
+  const bikes = firstNumber(props.bikes, props.available_bikes, props.num_bikes_available, props.docas_disponiveis, props.free_bikes);
+  const docks = firstNumber(props.docks, props.available_docks, props.num_docks_available, props.empty_slots, props.docas_livres);
+  const capacity = firstNumber(props.capacity, props.capacidade, props.total_docks);
+  return { id: props.id ?? props.station_id ?? `${lat},${lon}`, name, lat, lon, bikes, docks, capacity };
+}
+let giraResourceUrlCache = null;
+async function resolveGiraResourceUrl() {
+  const now = Date.now();
+  if (giraResourceUrlCache && (now - giraResourceUrlCache.t) < 24 * 60 * 60 * 1000) return giraResourceUrlCache.url;
+  const data = await cachedFetch('gira_package', `${GIRA_CKAN_BASE}/api/3/action/package_show?id=${GIRA_DATASET_ID}`, 24 * 60 * 60 * 1000, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' }
+  });
+  const resources = data?.result?.resources || [];
+  const preferredFormats = ['geojson', 'json'];
+  const resource = preferredFormats.map((fmt) => resources.find((r) => (r.format || '').toLowerCase() === fmt)).find(Boolean) || resources[0];
+  if (!resource?.url) throw new Error('O dataset da GIRA não tem nenhum recurso descarregável.');
+  giraResourceUrlCache = { t: now, url: resource.url };
+  return resource.url;
+}
+app.get('/api/transport/bikes/gira', async (req, res) => {
+  try {
+    const resourceUrl = await resolveGiraResourceUrl();
+    const data = await cachedFetch('gira_stations_data', resourceUrl, 5 * 60 * 1000, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' }
+    });
+    const rawList = Array.isArray(data) ? data : (data.features || data.stations || data.results || []);
+    const stations = rawList.map((raw) => {
+      try { return normalizeGiraStation(raw); } catch (err) { return null; }
+    }).filter(Boolean);
+    res.json({ stations });
+  } catch (err) {
+    console.error('Erro GIRA (bicicletas):', err.message);
+    res.status(502).json({ error: 'Não foi possível obter as estações da GIRA agora.' });
+  }
+});
+
 // ==================== MOTOR GTFS GENÉRICO (partilhado entre feeds) ====================
 // Vários operadores publicam os seus horários programados em formato aberto GTFS (um
 // .zip com várias tabelas .csv) — este motor descarrega, processa em memória (com cache
