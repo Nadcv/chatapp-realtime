@@ -1620,10 +1620,11 @@
                 <strong>🚌 Transportes em tempo real</strong>
                 <button onclick="closeTransportScreen()">✖️</button>
             </div>
-            <div style="display:flex;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <button class="btn-small transport-tab active" data-tab="bus" onclick="switchTransportTab('bus')" style="flex:1;">🚌 Autocarros</button>
                 <button class="btn-small transport-tab" data-tab="rail" onclick="switchTransportTab('rail')" style="flex:1;">🚇 Metro/Comboio</button>
                 <button class="btn-small transport-tab" data-tab="flight" onclick="switchTransportTab('flight')" style="flex:1;">✈️ Aviões</button>
+                <button class="btn-small transport-tab" data-tab="priceSearch" onclick="switchTransportTab('priceSearch')" style="flex:1;">💰 Preços</button>
             </div>
             <div id="railScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
@@ -1647,6 +1648,17 @@
             <div id="portoScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="portoSearchInput" placeholder="🔍 Pesquisar paragem/estação (Porto — STCP ou Metro)..." oninput="debouncePortoStopSearch()">
                 <div id="portoSearchResults"></div>
+            </div>
+            <div id="flightPriceSearchBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="flightOriginInput" placeholder="🛫 Cidade/aeroporto de origem..." oninput="debounceFlightCitySearch('origin')" autocomplete="off">
+                <div id="flightOriginResults"></div>
+                <input type="text" id="flightDestinationInput" placeholder="🛬 Cidade/aeroporto de destino..." oninput="debounceFlightCitySearch('destination')" autocomplete="off">
+                <div id="flightDestinationResults"></div>
+                <div style="display:flex;gap:6px;">
+                    <input type="date" id="flightDateInput" style="flex:1;">
+                    <button class="btn-small" onclick="searchFlightOffers()" style="flex-shrink:0;">🔍 Pesquisar preços</button>
+                </div>
+                <div id="flightOffersResults" style="max-height:280px;overflow-y:auto;"></div>
             </div>
             <div id="transportMap"></div>
             <div class="location-footer" id="transportStatus" style="font-size:12px;color:var(--text-secondary);">A carregar...</div>
@@ -8211,7 +8223,9 @@
         map: null,
         activeTab: 'bus',
         layers: { bus: null, rail: null, flight: null },
-        pollInterval: null
+        pollInterval: null,
+        flightOriginCode: null,
+        flightDestinationCode: null
     };
 
     function openTransportScreen() {
@@ -8376,23 +8390,31 @@
         document.getElementById('railScheduleBar').style.display = tab === 'rail' ? 'flex' : 'none';
         document.getElementById('busCityToggle').style.display = tab === 'bus' ? 'flex' : 'none';
         document.getElementById('flightFilterBar').style.display = tab === 'flight' ? 'flex' : 'none';
+        document.getElementById('flightPriceSearchBar').style.display = tab === 'priceSearch' ? 'flex' : 'none';
         Object.values(TRANSPORT.layers).forEach(layer => TRANSPORT.map.removeLayer(layer));
-        TRANSPORT.layers[tab].addTo(TRANSPORT.map);
+        if (TRANSPORT.layers[tab]) TRANSPORT.layers[tab].addTo(TRANSPORT.map);
         if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
         if (tab === 'bus') {
             switchBusCity(TRANSPORT.busCity || 'lisboa');
         } else if (tab === 'flight') {
             document.getElementById('transportMap').style.display = '';
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
+            document.getElementById('portoScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([39.5, -6.5], 6);
             loadFlights();
             TRANSPORT.pollInterval = setInterval(loadFlights, 15000);
         } else if (tab === 'rail') {
             document.getElementById('transportMap').style.display = '';
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
+            document.getElementById('portoScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([38.75, -9.15], 11);
             loadRailStations();
             loadMetroLineStatus();
+        } else if (tab === 'priceSearch') {
+            document.getElementById('transportMap').style.display = 'none';
+            document.getElementById('guimaraesScheduleBar').style.display = 'none';
+            document.getElementById('portoScheduleBar').style.display = 'none';
+            document.getElementById('transportStatus').textContent = 'Pesquisa preços de voos por cidade/aeroporto e data (Amadeus for Developers).';
         }
     }
     function switchBusCity(city) {
@@ -8495,6 +8517,80 @@
         });
         const suffix = filterRaw ? ` filtrados por "${filterRaw}" (de ${states.length} na área)` : ' na área visível do mapa';
         document.getElementById('transportStatus').textContent = `${shown} voos${suffix} (OpenSky Network) — mova/afaste o mapa e toque em 🔄 para atualizar`;
+    }
+
+    // ==================== PREÇOS DE VOOS (Amadeus for Developers) ====================
+    let flightCitySearchTimers = { origin: null, destination: null };
+    function debounceFlightCitySearch(field) {
+        clearTimeout(flightCitySearchTimers[field]);
+        flightCitySearchTimers[field] = setTimeout(() => runFlightCitySearch(field), 300);
+    }
+    async function runFlightCitySearch(field) {
+        const inputId = field === 'origin' ? 'flightOriginInput' : 'flightDestinationInput';
+        const resultsId = field === 'origin' ? 'flightOriginResults' : 'flightDestinationResults';
+        const q = document.getElementById(inputId).value.trim();
+        const box = document.getElementById(resultsId);
+        if (field === 'origin') TRANSPORT.flightOriginCode = null; else TRANSPORT.flightDestinationCode = null;
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/transport/flights-search/cities?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (data.configured === false) {
+                box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ Pesquisa de preços por configurar (falta AMADEUS_API_KEY/AMADEUS_API_SECRET no servidor).</p>';
+                return;
+            }
+            if (!data.results.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma cidade/aeroporto encontrado.</p>'; return; }
+            box.innerHTML = data.results.map(r => `
+                <div style="padding:6px 8px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='selectFlightCity(${JSON.stringify(field)}, ${JSON.stringify(r.code)}, ${JSON.stringify(r.city + " (" + r.code + ")")})'>
+                    ${escapeHtml(r.city)} (${escapeHtml(r.code)}) <span style="color:var(--text-secondary);font-size:12px;">${escapeHtml(r.country)}</span>
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:#e74c3c;font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    function selectFlightCity(field, code, label) {
+        const inputId = field === 'origin' ? 'flightOriginInput' : 'flightDestinationInput';
+        const resultsId = field === 'origin' ? 'flightOriginResults' : 'flightDestinationResults';
+        document.getElementById(inputId).value = label;
+        document.getElementById(resultsId).innerHTML = '';
+        if (field === 'origin') TRANSPORT.flightOriginCode = code; else TRANSPORT.flightDestinationCode = code;
+    }
+    async function searchFlightOffers() {
+        const box = document.getElementById('flightOffersResults');
+        const date = document.getElementById('flightDateInput').value;
+        if (!TRANSPORT.flightOriginCode || !TRANSPORT.flightDestinationCode) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma cidade/aeroporto de origem e destino a partir da lista (não basta escrever texto livre).</p>';
+            return;
+        }
+        if (!date) {
+            box.innerHTML = '<p style="color:#e74c3c;font-size:13px;padding:6px 0;">Escolhe uma data de partida.</p>';
+            return;
+        }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">A pesquisar preços...</p>';
+        try {
+            const params = new URLSearchParams({ origin: TRANSPORT.flightOriginCode, destination: TRANSPORT.flightDestinationCode, date });
+            const res = await fetch('/api/transport/flights-search/offers?' + params.toString());
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (data.configured === false) {
+                box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">⚠️ Pesquisa de preços por configurar (falta AMADEUS_API_KEY/AMADEUS_API_SECRET no servidor).</p>';
+                return;
+            }
+            if (!data.offers.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;padding:6px 0;">Nenhum voo encontrado para esta rota/data.</p>'; return; }
+            box.innerHTML = data.offers.map(o => {
+                const dep = o.departure ? new Date(o.departure) : null;
+                const arr = o.arrival ? new Date(o.arrival) : null;
+                const fmt = (d) => d ? d.toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                return `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${o.price != null ? o.price + ' ' + escapeHtml(o.currency || 'EUR') : '—'}</strong> · ${escapeHtml(o.airline || '')}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">${fmt(dep)} → ${fmt(arr)} ${o.stops > 0 ? `· ${o.stops} escala(s)` : '· direto'}</div>
+                </div>`;
+            }).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:#e74c3c;font-size:13px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
     }
 
     function loadRailStations() {

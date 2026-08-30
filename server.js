@@ -1168,6 +1168,120 @@ app.get('/api/transport/flights', async (req, res) => {
   }
 });
 
+// ==================== PREÇOS DE VOOS (Amadeus for Developers) ====================
+// Ao contrário do rastreamento ao vivo acima (OpenSky), pesquisar preços por
+// cidade+data exige uma fonte comercial de tarifas — não existe nenhuma API
+// verdadeiramente aberta e sem registo para isto (é dado valioso, ninguém dá de
+// graça sem pelo menos um email). A Amadeus for Developers tem um nível
+// Self-Service gratuito (só conta por email, sem cartão de crédito), mas corre
+// no ambiente de teste deles (test.api.amadeus.com), que por vezes devolve
+// tarifas de exemplo em vez de preços 100% ao vivo. Sem AMADEUS_API_KEY/
+// AMADEUS_API_SECRET configuradas, os endpoints respondem "configured: false"
+// e o cliente mostra um aviso a pedir configuração, em vez de rebentar.
+// test.api.amadeus.com = ambiente gratuito Self-Service; se um dia migrares
+// para acesso de produção aprovado pela Amadeus, define AMADEUS_API_BASE=
+// https://api.amadeus.com sem mudar mais nada.
+const AMADEUS_API_BASE = process.env.AMADEUS_API_BASE || 'https://test.api.amadeus.com';
+let amadeusAccessToken = null;
+let amadeusAccessTokenExpiresAt = 0;
+async function getAmadeusAccessToken() {
+  if (amadeusAccessToken && Date.now() < amadeusAccessTokenExpiresAt) return amadeusAccessToken;
+  const resp = await fetch(`${AMADEUS_API_BASE}/v1/security/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: process.env.AMADEUS_API_KEY,
+      client_secret: process.env.AMADEUS_API_SECRET
+    })
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ao autenticar na Amadeus — confirma AMADEUS_API_KEY/AMADEUS_API_SECRET.`);
+  const data = await resp.json();
+  if (!data.access_token) throw new Error('A Amadeus não devolveu um access_token.');
+  amadeusAccessToken = data.access_token;
+  amadeusAccessTokenExpiresAt = Date.now() + ((data.expires_in || 1800) - 60) * 1000;
+  return amadeusAccessToken;
+}
+const AMADEUS_CONFIGURED = () => !!(process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET);
+
+app.get('/api/transport/flights-search/cities', async (req, res) => {
+  if (!AMADEUS_CONFIGURED()) return res.json({ configured: false, results: [] });
+  const q = (req.query.q || '').trim();
+  if (q.length < 2) return res.json({ configured: true, results: [] });
+  try {
+    const token = await getAmadeusAccessToken();
+    const url = `${AMADEUS_API_BASE}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(q)}&page%5Blimit%5D=8`;
+    const data = await cachedFetch('amadeus_city_' + q.toLowerCase(), url, 24 * 60 * 60 * 1000, { headers: { Authorization: `Bearer ${token}` } });
+    const results = (data.data || [])
+      .filter((loc) => loc.iataCode)
+      .map((loc) => ({
+        code: loc.iataCode,
+        city: loc.address?.cityName || loc.name,
+        country: loc.address?.countryName || ''
+      }));
+    res.json({ configured: true, results });
+  } catch (err) {
+    console.error('Erro Amadeus (cidades):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar cidades agora: ' + err.message });
+  }
+});
+
+const amadeusOffersCache = {};
+app.get('/api/transport/flights-search/offers', async (req, res) => {
+  if (!AMADEUS_CONFIGURED()) return res.json({ configured: false, offers: [] });
+  const origin = (req.query.origin || '').trim().toUpperCase();
+  const destination = (req.query.destination || '').trim().toUpperCase();
+  const date = (req.query.date || '').trim();
+  if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
+    return res.status(400).json({ error: 'Escolhe uma cidade/aeroporto de origem e destino a partir da lista de pesquisa.' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Indica uma data de partida válida.' });
+  const cacheKey = `${origin}_${destination}_${date}`;
+  const now = Date.now();
+  if (amadeusOffersCache[cacheKey] && (now - amadeusOffersCache[cacheKey].t) < 10 * 60 * 1000) {
+    return res.json(amadeusOffersCache[cacheKey].data);
+  }
+  try {
+    const token = await getAmadeusAccessToken();
+    const params = new URLSearchParams({
+      originLocationCode: origin,
+      destinationLocationCode: destination,
+      departureDate: date,
+      adults: '1',
+      currencyCode: 'EUR',
+      max: '15'
+    });
+    const resp = await fetch(`${AMADEUS_API_BASE}/v2/shopping/flight-offers?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+    }
+    const data = await resp.json();
+    const carriers = data.dictionaries?.carriers || {};
+    const offers = (data.data || []).map((offer) => {
+      const segments = offer.itineraries?.[0]?.segments || [];
+      const first = segments[0];
+      const last = segments[segments.length - 1];
+      return {
+        price: offer.price?.total,
+        currency: offer.price?.currency,
+        airline: carriers[first?.carrierCode] || first?.carrierCode || '',
+        departure: first?.departure?.at,
+        arrival: last?.arrival?.at,
+        stops: Math.max(0, segments.length - 1)
+      };
+    });
+    const result = { configured: true, offers };
+    amadeusOffersCache[cacheKey] = { t: now, data: result };
+    res.json(result);
+  } catch (err) {
+    console.error('Erro Amadeus (pesquisa de voos):', err.message);
+    res.status(502).json({ error: 'Não foi possível pesquisar voos agora: ' + err.message });
+  }
+});
+
 // ==================== INCÊNDIOS EM TEMPO REAL (mundo inteiro) ====================
 // NASA FIRMS (Fire Information for Resource Management System) — focos de
 // incêndio/calor detetados por satélite (VIIRS), atualizados a cada poucas
