@@ -171,7 +171,7 @@ Investigámos várias fontes possíveis para outras ideias pendentes (estacionam
 - Fonte: `https://www.agendalx.pt/wp-json/agendalx/v1/events` — API oficial, aberta e **gratuita da Câmara Municipal de Lisboa**, sem chave nem registo.
 - **Só cobre eventos em Lisboa** — não encontrámos equivalente confirmado para o Porto ou outras cidades.
 - O servidor guarda a resposta em cache 1 hora (`cachedFetch`); a API não parece ter parâmetros confirmados de pesquisa/paginação, por isso o filtro por nome ou categoria é feito no cliente, sobre a lista completa já recebida.
-- Cada evento mostra título, subtítulo, datas, horário, local e um link "Ver mais" para a página do evento no site da Agenda Cultural.
+- Cada evento mostra título, subtítulo, descrição (o HTML da API é limpo antes de mostrar), datas, horário, local (com morada, quando a API a dá), categorias em etiquetas e um link "Ver mais" para a página do evento no site da Agenda Cultural.
 - **`AGENDALX_EVENTS_URL`** (opcional) — se definida, substitui o valor por omissão.
 - O pedido inclui um User-Agent de browser real (tal como já fazemos para a RTP e outros sites .pt) — sem isso, o primeiro deploy em produção mostrou "Não foi possível obter os eventos agora", sugerindo que o site recusa pedidos que pareçam vir de um robô/servidor.
 - Tal como a CP e o Metro de Lisboa, não foi possível confirmar a forma exata da resposta a partir deste ambiente de desenvolvimento (a rede aqui bloqueia praticamente todos os domínios `.pt`) — o formato usado foi inferido a partir de documentação e resultados de pesquisa públicos. Se a fonte falhar ou devolver campos inesperados, a secção mostra um erro amigável — o resto da app não é afetado. A confirmação definitiva só é possível já em produção.
