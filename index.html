@@ -1638,7 +1638,7 @@
                 <div id="railSearchResults"></div>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
                     <input type="checkbox" id="railEstimatedToggle" onchange="toggleEstimatedTrainPositions()">
-                    🚆 Ver comboios da CP em trânsito (estimado pelo horário — não é GPS ao vivo)
+                    🚆 Ver comboios da CP e Fertagus em trânsito (estimado pelo horário — não é GPS ao vivo)
                 </label>
                 <div id="railEstimatedStatus" style="font-size:11px;color:var(--text-secondary);"></div>
                 <div id="railTrainDetail" style="display:none;flex-direction:column;gap:4px;background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:12px;max-height:220px;overflow-y:auto;">
@@ -9279,7 +9279,7 @@
             }
             const icon = L.divIcon({ className: '', html: '<div style="font-size:20px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🚂</div>', iconSize: [20, 20], iconAnchor: [10, 10] });
             L.marker([t.lat, t.lon], { icon })
-                .bindPopup(`🚆 <strong>${escapeHtml(t.routeName || 'Comboio')}</strong>${t.headsign ? ' → ' + escapeHtml(t.headsign) : ''}<br>${statusText}<br><em style="font-size:11px;">📍 Posição estimada pelo horário — não é GPS ao vivo, pode não corresponder à posição real em caso de atraso.</em><br><a href="#" onclick="selectEstimatedTrain('${t.tripId}');return false;">🔎 Ver detalhes deste comboio</a>`)
+                .bindPopup(`🚆 <strong>${escapeHtml(t.routeName || 'Comboio')}</strong>${t.operator ? ' (' + escapeHtml(t.operator) + ')' : ''}${t.headsign ? ' → ' + escapeHtml(t.headsign) : ''}<br>${statusText}<br><em style="font-size:11px;">📍 Posição estimada pelo horário — não é GPS ao vivo, pode não corresponder à posição real em caso de atraso.</em><br><a href="#" onclick="selectEstimatedTrain('${t.tripId}');return false;">🔎 Ver detalhes deste comboio</a>`)
                 .addTo(TRANSPORT.layers.trainsEstimated);
         });
     }
@@ -9288,7 +9288,7 @@
         const t = railEstimatedTrainsCache.find(x => x.tripId === railSelectedTripId);
         if (!t) { box.style.display = 'none'; return; }
         box.style.display = 'flex';
-        document.getElementById('railTrainDetailTitle').textContent = `🚆 ${t.routeName || 'Comboio'}${t.headsign ? ' → ' + t.headsign : ''}`;
+        document.getElementById('railTrainDetailTitle').textContent = `🚆 ${t.routeName || 'Comboio'}${t.operator ? ' (' + t.operator + ')' : ''}${t.headsign ? ' → ' + t.headsign : ''}`;
         document.getElementById('railTrainDetailStatus').textContent = t.dwelling
             ? `Parado em ${t.fromStop}`
             : `Entre ${t.fromStop} e ${t.toStop} (chega em ~${t.etaMin} min) — estimado, não é GPS ao vivo`;
