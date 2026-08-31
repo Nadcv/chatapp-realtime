@@ -206,7 +206,7 @@ Pediram para juntar GIRA + Lime + Bolt num só ecrã de bicicletas/trotinetes. S
 - **Confirmação de leitura (✓/✓✓)** — ✓ cinzento quando enviada, ✓✓ azul quando a outra pessoa abre a conversa e lê.
 
 ### Ainda por vir
-Posição ao vivo de comboios/metro — sem solução gratuita e fiável disponível (ver secção de Transportes; já dá para ver horários programados da CP); PWA (instalar como app + notificações); foto de perfil.
+Posição ao vivo de comboios/metro — sem solução gratuita e fiável disponível (ver secção de Transportes; já dá para ver horários programados da CP); foto de perfil.
 
 Também ficaram de fora, por não termos encontrado uma API pública genuína (só scraping, engenharia reversa ou acesso B2B/vendas): estacionamento e mobilidade urbana (parquímetros/lugares livres), bicicletas e trotinetes partilhadas, marketplace de bilhetes de eventos e alertas de incidentes de trânsito em tempo real. Se um dia surgir uma fonte aberta e legítima para alguma destas, vale a pena reconsiderar.
 
@@ -367,12 +367,14 @@ Boas notícias: esta funcionalidade **já estava construída** (avatares em 3D, 
 Só quem **criou** o grupo (não basta ser administrador promovido) pode apagá-lo — botão 🗑️ no painel de gestão (👑), disponível só para o criador. Apaga o grupo e todo o histórico de mensagens dele, para sempre. Pede confirmação antes.
 
 
+## 📲 Instalar como app (PWA)
+
 O ChatApp agora pode ser **instalado no ecrã inicial** do telemóvel ou computador, como uma app nativa:
 - **Android (Chrome)**: menu (⋮) → "Instalar aplicação" ou "Adicionar ao ecrã principal"
 - **iPhone (Safari)**: botão de partilha → "Adicionar ao ecrã principal"
 - **Computador (Chrome/Edge)**: ícone de instalação na barra de endereço
 
-Depois de instalado, abre como uma janela própria (sem a barra do navegador) e já tem ícone.
+Depois de instalado, abre como uma janela própria (sem a barra do navegador) e já tem ícone. Tecnicamente: `manifest.json` (nome, ícones em 192px/512px, cor de tema, modo `standalone`) + `sw.js` (service worker — regista o "shell" da app em cache para funcionar melhor offline, e é ele que mostra as notificações push mesmo com a app fechada) + as meta tags do iOS (`apple-mobile-web-app-capable`, `apple-touch-icon`) para o Safari tratar isto como app instalável também.
 
 **Notificações push** — ao entrares na app, é pedida autorização para notificações; se aceitares, passas a receber um aviso mesmo com a app fechada quando alguém te manda uma mensagem, tanto em conversas 1-para-1 como em grupos. As chaves necessárias (VAPID) são geradas automaticamente pelo servidor na primeira vez que arranca — não precisas de configurar nada.
 
