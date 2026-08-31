@@ -1086,40 +1086,64 @@ async function getMobilityDbAccessToken() {
   mobilityDbAccessTokenExpiresAt = Date.now() + 55 * 60 * 1000; // o token real dura 1h; renovamos com 5 min de margem
   return mobilityDbAccessToken;
 }
-const CP_GTFS_URL_DEFAULT = 'https://publico.cp.pt/gtfs/gtfs.zip';
-async function resolveCpGtfsUrl() {
-  if (process.env.CP_GTFS_URL) return process.env.CP_GTFS_URL;
-  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) return CP_GTFS_URL_DEFAULT;
+async function resolveGtfsUrlViaMobilityDb(feedId) {
   const token = await getMobilityDbAccessToken();
-  const resp = await fetch(`https://api.mobilitydatabase.org/v1/gtfs_feeds/${MOBILITY_DB_FEED_ID}/datasets?latest=true`, {
+  const resp = await fetch(`https://api.mobilitydatabase.org/v1/gtfs_feeds/${feedId}/datasets?latest=true`, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status} ao consultar a Mobility Database`);
   const datasets = await resp.json();
   const latest = Array.isArray(datasets) ? datasets[0] : null;
-  if (!latest || !latest.hosted_url) throw new Error(`A Mobility Database não tem nenhum ficheiro disponível para o feed "${MOBILITY_DB_FEED_ID}".`);
+  if (!latest || !latest.hosted_url) throw new Error(`A Mobility Database não tem nenhum ficheiro disponível para o feed "${feedId}".`);
   return latest.hosted_url;
+}
+const CP_GTFS_URL_DEFAULT = 'https://publico.cp.pt/gtfs/gtfs.zip';
+async function resolveCpGtfsUrl() {
+  if (process.env.CP_GTFS_URL) return process.env.CP_GTFS_URL;
+  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) return CP_GTFS_URL_DEFAULT;
+  return resolveGtfsUrlViaMobilityDb(MOBILITY_DB_FEED_ID);
+}
+
+// ==================== FERTAGUS (comboio Lisboa <-> Península de Setúbal) ====================
+// A Fertagus é uma operadora diferente da CP (opera a travessia do Tejo entre Roma-
+// Areeiro/Sete Rios/Campolide e a Margem Sul — Pragal, Coina, Setúbal, etc.). O feed
+// publicado no portal transporlis.pt (o mesmo domínio que já vimos "morto" para a CP)
+// pode ter mudado de URL recentemente segundo o registo da Mobility Database (feed
+// mdb-1034) — por isso, tal como a CP, há um fallback via Mobility Database se o valor
+// por omissão deixar de funcionar.
+const FERTAGUS_GTFS_URL_DEFAULT = 'http://www.transporlis.pt/Portals/0/OpenData/gtfs/zip/13/gtfs_13.zip';
+const FERTAGUS_MOBILITY_DB_FEED_ID = process.env.FERTAGUS_MOBILITY_DB_FEED_ID || 'mdb-1034';
+async function resolveFertagusGtfsUrl() {
+  if (process.env.FERTAGUS_GTFS_URL) return process.env.FERTAGUS_GTFS_URL;
+  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) return FERTAGUS_GTFS_URL_DEFAULT;
+  return resolveGtfsUrlViaMobilityDb(FERTAGUS_MOBILITY_DB_FEED_ID);
 }
 
 app.get('/api/trains/stations', async (req, res) => {
-  try {
-    const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
-    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
-  } catch (err) {
-    console.error('Erro GTFS (estações CP):', err.message);
-    res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
-  }
+  const q = (req.query.q || '').toLowerCase().trim();
+  const [cpGtfs, fertagusGtfs] = await Promise.all([
+    ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL').catch((err) => { console.error('Erro GTFS (estações CP):', err.message); return null; }),
+    ensureGtfsFeedLoaded('fertagus', resolveFertagusGtfsUrl, 'FERTAGUS_GTFS_URL').catch((err) => { console.error('Erro GTFS (estações Fertagus):', err.message); return null; })
+  ]);
+  if (!cpGtfs && !fertagusGtfs) return res.status(503).json({ error: 'Não foi possível obter os horários de comboio agora.' });
+  const results = [];
+  if (cpGtfs) gtfsSearchStops(cpGtfs, q).forEach((s) => results.push({ ...s, type: 'cp', operatorName: 'CP' }));
+  if (fertagusGtfs) gtfsSearchStops(fertagusGtfs, q).forEach((s) => results.push({ ...s, type: 'fertagus', operatorName: 'Fertagus' }));
+  res.json(results.slice(0, 30));
 });
 
 app.get('/api/trains/departures', async (req, res) => {
+  const type = req.query.type === 'fertagus' ? 'fertagus' : 'cp';
   try {
-    const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
+    const gtfs = type === 'fertagus'
+      ? await ensureGtfsFeedLoaded('fertagus', resolveFertagusGtfsUrl, 'FERTAGUS_GTFS_URL')
+      : await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
     const result = gtfsNextDepartures(gtfs, req.query.stationId);
     if (!result) return res.status(400).json({ error: 'Estação inválida.' });
     res.json(result);
   } catch (err) {
-    console.error('Erro GTFS (partidas CP):', err.message);
-    res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
+    console.error(`Erro GTFS (partidas ${type === 'fertagus' ? 'Fertagus' : 'CP'}):`, err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de comboio agora: ' + err.message });
   }
 });
 

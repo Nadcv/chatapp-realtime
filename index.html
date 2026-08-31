@@ -1634,7 +1634,7 @@
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
                 <input type="text" id="metroLisboaSearchInput" placeholder="🔍 Pesquisar estação do Metro de Lisboa (horários)..." oninput="debounceMetroLisboaStationSearch()">
                 <div id="metroLisboaSearchResults"></div>
-                <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP)..." oninput="debounceRailStationSearch()">
+                <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP/Fertagus)..." oninput="debounceRailStationSearch()">
                 <div id="railSearchResults"></div>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
                     <input type="checkbox" id="railEstimatedToggle" onchange="toggleEstimatedTrainPositions()">
@@ -9387,20 +9387,20 @@
             if (!res.ok) throw new Error(data.error || 'Erro');
             if (!data.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma estação encontrada.</p>'; return; }
             box.innerHTML = data.map(s => `
-                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openTrainDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)})'>
-                    🚆 ${escapeHtml(s.name)}
+                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openTrainDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)}, ${JSON.stringify(s.type || "cp")})'>
+                    🚆 ${escapeHtml(s.name)}${s.operatorName ? ` <span style="color:var(--text-secondary);font-size:11px;">(${escapeHtml(s.operatorName)})</span>` : ''}
                 </div>`).join('');
         } catch (err) {
             box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
         }
     }
-    async function openTrainDeparturesModal(stationId, stationName) {
+    async function openTrainDeparturesModal(stationId, stationName, type) {
         document.getElementById('trainDeparturesTitle').textContent = `🚆 Próximas partidas — ${stationName}`;
         const list = document.getElementById('trainDeparturesList');
         list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">A carregar...</p>';
         document.getElementById('modalTrainDepartures').classList.add('active');
         try {
-            const res = await fetch('/api/trains/departures?stationId=' + encodeURIComponent(stationId));
+            const res = await fetch('/api/trains/departures?stationId=' + encodeURIComponent(stationId) + '&type=' + encodeURIComponent(type || 'cp'));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
             if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
