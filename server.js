@@ -932,13 +932,18 @@ async function loadGtfsFeed(url, urlEnvVarName) {
   });
 
   const stopTimesByStop = new Map(); // stop_id -> [{tripId, arrival, departure}]
+  const stopTimesByTrip = new Map(); // trip_id -> [{stopId, arrival, departure, sequence}], ordenado pela viagem
   readCsv('stop_times.txt').forEach((r) => {
     if (!r.stop_id || !r.trip_id) return;
+    const entry = { tripId: r.trip_id, arrival: r.arrival_time || '', departure: r.departure_time || r.arrival_time || '' };
     if (!stopTimesByStop.has(r.stop_id)) stopTimesByStop.set(r.stop_id, []);
-    stopTimesByStop.get(r.stop_id).push({ tripId: r.trip_id, arrival: r.arrival_time || '', departure: r.departure_time || r.arrival_time || '' });
+    stopTimesByStop.get(r.stop_id).push(entry);
+    if (!stopTimesByTrip.has(r.trip_id)) stopTimesByTrip.set(r.trip_id, []);
+    stopTimesByTrip.get(r.trip_id).push({ stopId: r.stop_id, arrival: entry.arrival, departure: entry.departure, sequence: Number(r.stop_sequence) || 0 });
   });
+  stopTimesByTrip.forEach((list) => list.sort((a, b) => a.sequence - b.sequence));
 
-  return { stops, routes, trips, calendar, calendarExceptions, stopTimesByStop };
+  return { stops, routes, trips, calendar, calendarExceptions, stopTimesByStop, stopTimesByTrip };
 }
 async function ensureGtfsFeedLoaded(feedKey, resolveUrl, urlEnvVarName) {
   const entry = gtfsFeedCache.get(feedKey) || {};
@@ -987,6 +992,66 @@ function gtfsNextDepartures(gtfs, stationId) {
     .sort((a, b) => a.time.localeCompare(b.time))
     .slice(0, 12);
   return { stationName: station.name, departures };
+}
+
+// Nenhum operador GTFS que usamos (CP, Guimarães, Metro/STCP do Porto) publica posição
+// ao vivo dos veículos gratuitamente — confirmado e documentado no README. Em vez de
+// nada, esta função ESTIMA a posição de cada viagem em curso por interpolação linear
+// entre as duas paragens do horário que envolvem a hora atual (ou a posição exata da
+// paragem, se o comboio estiver parado nela dentro da janela chegada→partida). Isto
+// NÃO é GPS real: assume que a viagem está a decorrer exatamente conforme o horário,
+// sem atrasos nem paragens não planeadas — por isso tem de ser sempre apresentado como
+// "estimativa", nunca como posição ao vivo verdadeira.
+function gtfsTimeToMinutesOfDay(t) {
+  const parts = (t || '').split(':').map(Number);
+  if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return null;
+  return parts[0] * 60 + parts[1] + (parts[2] || 0) / 60;
+}
+function getEstimatedTrainPositions(gtfs, dateObj) {
+  const nowMin = dateObj.getHours() * 60 + dateObj.getMinutes() + dateObj.getSeconds() / 60;
+  const positions = [];
+  for (const [tripId, stopsList] of gtfs.stopTimesByTrip.entries()) {
+    if (stopsList.length < 2) continue;
+    const trip = gtfs.trips.get(tripId);
+    if (!trip || !isServiceActiveOnDate(gtfs, trip.serviceId, dateObj)) continue;
+    const firstDep = gtfsTimeToMinutesOfDay(stopsList[0].departure);
+    const lastArr = gtfsTimeToMinutesOfDay(stopsList[stopsList.length - 1].arrival);
+    if (firstDep == null || lastArr == null || nowMin < firstDep || nowMin > lastArr) continue;
+    for (let i = 0; i < stopsList.length; i++) {
+      const s = stopsList[i];
+      const stop = gtfs.stops.get(s.stopId);
+      if (!stop) continue;
+      const arr = gtfsTimeToMinutesOfDay(s.arrival);
+      const dep = gtfsTimeToMinutesOfDay(s.departure);
+      if (arr != null && dep != null && nowMin >= arr && nowMin <= dep) {
+        const route = gtfs.routes.get(trip.routeId);
+        positions.push({
+          tripId, routeName: route?.longName || route?.shortName || '', headsign: trip.headsign || '',
+          lat: stop.lat, lon: stop.lon, fromStop: stop.name, toStop: stop.name, etaMin: 0, dwelling: true
+        });
+        break;
+      }
+      if (i < stopsList.length - 1 && dep != null) {
+        const next = stopsList[i + 1];
+        const nextStop = gtfs.stops.get(next.stopId);
+        const nextArr = gtfsTimeToMinutesOfDay(next.arrival);
+        if (nextStop && nextArr != null && nowMin > dep && nowMin < nextArr) {
+          const progresso = nextArr > dep ? (nowMin - dep) / (nextArr - dep) : 0;
+          const route = gtfs.routes.get(trip.routeId);
+          positions.push({
+            tripId, routeName: route?.longName || route?.shortName || '', headsign: trip.headsign || '',
+            lat: stop.lat + (nextStop.lat - stop.lat) * progresso,
+            lon: stop.lon + (nextStop.lon - stop.lon) * progresso,
+            fromStop: stop.name, toStop: nextStop.name,
+            etaMin: Math.max(0, Math.round(nextArr - nowMin)),
+            dwelling: false
+          });
+          break;
+        }
+      }
+    }
+  }
+  return positions;
 }
 
 // ==================== HORÁRIOS DE COMBOIOS (CP) ====================
@@ -1047,6 +1112,19 @@ app.get('/api/trains/departures', async (req, res) => {
   } catch (err) {
     console.error('Erro GTFS (partidas CP):', err.message);
     res.status(503).json({ error: 'Não foi possível obter os horários de comboio da CP agora: ' + err.message });
+  }
+});
+
+// Posição ESTIMADA (não é GPS real — ver aviso na função getEstimatedTrainPositions)
+// de cada comboio da CP atualmente "em viagem" segundo o horário oficial.
+app.get('/api/trains/positions-estimated', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
+    const trains = getEstimatedTrainPositions(gtfs, new Date());
+    res.json({ trains });
+  } catch (err) {
+    console.error('Erro GTFS (posições estimadas CP):', err.message);
+    res.status(503).json({ error: 'Não foi possível calcular as posições estimadas agora: ' + err.message });
   }
 });
 

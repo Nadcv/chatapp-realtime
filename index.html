@@ -1636,6 +1636,11 @@
                 <div id="metroLisboaSearchResults"></div>
                 <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP)..." oninput="debounceRailStationSearch()">
                 <div id="railSearchResults"></div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
+                    <input type="checkbox" id="railEstimatedToggle" onchange="toggleEstimatedTrainPositions()">
+                    🚆 Ver comboios da CP em trânsito (estimado pelo horário — não é GPS ao vivo)
+                </label>
+                <div id="railEstimatedStatus" style="font-size:11px;color:var(--text-secondary);"></div>
             </div>
             <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="flightAirlineFilterInput" placeholder="🔍 Filtrar por companhia (ex.: TAP, Ryanair, easyJet)..." oninput="onFlightAirlineFilterChange()">
@@ -8442,6 +8447,7 @@
             TRANSPORT.layers.rail = L.layerGroup();
             TRANSPORT.layers.flight = L.layerGroup();
             TRANSPORT.layers.bikes = L.layerGroup();
+            TRANSPORT.layers.trainsEstimated = L.layerGroup();
         }
         setTimeout(() => TRANSPORT.map.invalidateSize(), 200);
         switchTransportTab('bus');
@@ -8600,6 +8606,8 @@
         Object.values(TRANSPORT.layers).forEach(layer => TRANSPORT.map.removeLayer(layer));
         if (TRANSPORT.layers[tab]) TRANSPORT.layers[tab].addTo(TRANSPORT.map);
         if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
+        if (railEstimatedInterval) { clearInterval(railEstimatedInterval); railEstimatedInterval = null; }
+        if (tab !== 'rail') { const cb = document.getElementById('railEstimatedToggle'); if (cb) cb.checked = false; TRANSPORT.layers.trainsEstimated.clearLayers(); }
         if (tab === 'bus') {
             switchBusCity(TRANSPORT.busCity || 'lisboa');
         } else if (tab === 'flight') {
@@ -9204,6 +9212,43 @@
                     .addTo(TRANSPORT.layers.rail);
             });
             document.getElementById('transportStatus').textContent = `Estações de metro e comboio (localização) · Sem posição ao vivo dos comboios — ver cp.pt / metrolisboa.pt`;
+        });
+    }
+
+    // ==================== COMBOIOS DA CP EM TRÂNSITO (posição ESTIMADA pelo horário) ====================
+    // A CP não publica posição ao vivo (ver acima). Isto NÃO é GPS real — é uma
+    // estimativa por interpolação entre as duas paragens do horário GTFS que
+    // envolvem a hora atual, assumindo que a viagem decorre exatamente conforme
+    // planeado (sem atrasos). Por isso o popup de cada comboio deixa isso bem claro.
+    let railEstimatedInterval = null;
+    function toggleEstimatedTrainPositions() {
+        const on = document.getElementById('railEstimatedToggle').checked;
+        if (railEstimatedInterval) { clearInterval(railEstimatedInterval); railEstimatedInterval = null; }
+        TRANSPORT.layers.trainsEstimated.clearLayers();
+        if (on) {
+            TRANSPORT.layers.trainsEstimated.addTo(TRANSPORT.map);
+            loadEstimatedTrainPositions();
+            railEstimatedInterval = setInterval(loadEstimatedTrainPositions, 30000);
+        } else {
+            TRANSPORT.map.removeLayer(TRANSPORT.layers.trainsEstimated);
+            document.getElementById('railEstimatedStatus').textContent = '';
+        }
+    }
+    function loadEstimatedTrainPositions() {
+        fetch('/api/trains/positions-estimated').then(r => r.json()).then(data => {
+            TRANSPORT.layers.trainsEstimated.clearLayers();
+            const trains = data.trains || [];
+            trains.forEach(t => {
+                const statusText = t.dwelling ? `Parado em ${escapeHtml(t.fromStop)}` : `Entre ${escapeHtml(t.fromStop)} e ${escapeHtml(t.toStop)} (chega em ~${t.etaMin} min)`;
+                L.circleMarker([t.lat, t.lon], { radius: 7, color: '#f39c12', fillColor: '#f39c12', fillOpacity: 0.9, weight: 2 })
+                    .bindPopup(`🚆 <strong>${escapeHtml(t.routeName || 'Comboio')}</strong>${t.headsign ? ' → ' + escapeHtml(t.headsign) : ''}<br>${statusText}<br><em style="font-size:11px;">📍 Posição estimada pelo horário — não é GPS ao vivo, pode não corresponder à posição real em caso de atraso.</em>`)
+                    .addTo(TRANSPORT.layers.trainsEstimated);
+            });
+            document.getElementById('railEstimatedStatus').textContent = trains.length
+                ? `${trains.length} comboio(s) em trânsito (estimado) — atualizado agora`
+                : 'Nenhum comboio em trânsito agora (fora do horário de serviço).';
+        }).catch(err => {
+            document.getElementById('railEstimatedStatus').textContent = '⚠️ Não foi possível calcular as posições estimadas: ' + err.message;
         });
     }
 
