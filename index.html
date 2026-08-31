@@ -9087,6 +9087,9 @@
                 <div style="padding:4px 0;">🔎 Total de pesquisas: <strong>${data.totalSearches}</strong></div>
                 ${cheapest ? `<div style="padding:4px 0;">💰 Preço mais baixo encontrado: <strong>${cheapest.origin} → ${cheapest.destination}</strong> a ${cheapest.cheapestPrice} ${escapeHtml(cheapest.currency || '')}</div>` : ''}
                 ${data.mostSearchedRoute ? `<div style="padding:4px 0;">⭐ Rota mais pesquisada: <strong>${escapeHtml(data.mostSearchedRoute.route)}</strong> (${data.mostSearchedRoute.count}x)</div>` : ''}
+                ${data.totalDistanceKm > 0 ? `<div style="padding:4px 0;">📏 Distância pesquisada: <strong>~${data.totalDistanceKm} km</strong> (${data.earthCircumferencePercent}% da volta ao mundo)</div>` : ''}
+                ${data.totalCo2Kg > 0 ? `<div style="padding:4px 0;">🌱 CO₂ estimado dos voos pesquisados: <strong>~${data.totalCo2Kg} kg</strong></div>` : ''}
+                <div style="padding-top:6px;font-size:11px;color:var(--text-secondary);">Baseado nas tuas pesquisas de voos (Ignav) — não sabemos quais viagens fizeste mesmo. Distância/CO₂ só contam pesquisas feitas a partir de agora.</div>
             `;
         } catch (err) {
             box.innerHTML = `<p style="color:#e74c3c;padding:4px 0;">⚠️ ${escapeHtml(err.message)}</p>`;

@@ -1425,7 +1425,14 @@ app.get('/api/transport/flight-price/offers', async (req, res) => {
     const offers = await fetchIgnavOffers(origin, destination, date, returnDate);
     const phone = sessions[req.query.token];
     if (phone && offers.length) {
-      logFlightSearch(phone, { origin, destination, date, cheapestPrice: offers[0].price, currency: offers[0].currency, isRoundTrip: !!returnDate });
+      // Distância/CO2 só dá para calcular quando ambos os códigos são das
+      // cidades conhecidas do planeador (têm lat/lon) — pesquisas para
+      // outros códigos IATA ficam sem esse dado, sem rebentar o resto.
+      const originCity = PLANNER_CITIES[origin];
+      const destCity = PLANNER_CITIES[destination];
+      const distanceKm = (originCity && destCity) ? Math.round(haversineKm(originCity.lat, originCity.lon, destCity.lat, destCity.lon)) : null;
+      const co2Kg = distanceKm != null ? Math.round(distanceKm * FLIGHT_CO2_G_PER_KM) / 1000 : null;
+      logFlightSearch(phone, { origin, destination, date, cheapestPrice: offers[0].price, currency: offers[0].currency, isRoundTrip: !!returnDate, distanceKm, co2Kg });
     }
     res.json({ configured: true, offers });
   } catch (err) {
@@ -1446,10 +1453,21 @@ app.get('/api/travel-stats', (req, res) => {
     routeCounts[key] = (routeCounts[key] || 0) + 1;
   });
   const mostSearchedRoute = Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0];
+  // Distância/CO2 só existem em pesquisas feitas depois desta funcionalidade
+  // ter sido adicionada (pesquisas antigas não têm estes campos, contam como
+  // 0 em vez de rebentar a soma) — por isso o total pode não refletir TODO o
+  // histórico, só o que foi pesquisado a partir de agora.
+  const totalDistanceKm = Math.round(history.reduce((sum, h) => sum + (h.distanceKm || 0), 0));
+  const totalCo2Kg = Math.round(history.reduce((sum, h) => sum + (h.co2Kg || 0), 0) * 10) / 10;
+  const EARTH_CIRCUMFERENCE_KM = 40075;
+  const earthCircumferencePercent = totalDistanceKm > 0 ? Math.round((totalDistanceKm / EARTH_CIRCUMFERENCE_KM) * 1000) / 10 : 0;
   res.json({
     totalSearches: history.length,
     cheapestFound,
     mostSearchedRoute: mostSearchedRoute ? { route: mostSearchedRoute[0], count: mostSearchedRoute[1] } : null,
+    totalDistanceKm,
+    totalCo2Kg,
+    earthCircumferencePercent,
     recentSearches: history.slice(-10).reverse()
   });
 });
