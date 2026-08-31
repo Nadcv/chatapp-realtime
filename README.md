@@ -130,6 +130,8 @@ A fonte "oficial" original (dados.gov.pt → transporlis.pt) está abandonada h�
 
 Se a fonte escolhida falhar, a pesquisa de comboios mostra um erro amigável — o resto da app continua a funcionar normalmente (autocarros e aviões não são afetados).
 
+**Fertagus (comboio Lisboa ↔ Península de Setúbal)** entra pela mesma pesquisa: é uma operadora diferente da CP (Roma-Areeiro/Sete Rios/Campolide ↔ Pragal/Coina/Setúbal), com o seu próprio feed GTFS no mesmo portal `transporlis.pt`. Cada resultado da pesquisa mostra a operadora entre parêntesis (ex.: "Roma-Areeiro (Fertagus)"), e as partidas de cada uma vêm sempre do feed certo — nunca se misturam os horários dos dois operadores. Configurável por **`FERTAGUS_GTFS_URL`** (opcional), com o mesmo fallback via Mobility Database (`MOBILITY_DB_REFRESH_TOKEN` + feed `mdb-1034`, configurável via `FERTAGUS_MOBILITY_DB_FEED_ID`) usado para a CP — importante aqui porque a Mobility Database indicava, à data de escrita, que este feed tinha mudado de URL recentemente, por isso o valor por omissão pode ficar desatualizado mais cedo que o da CP. Se a Fertagus falhar, a pesquisa continua a mostrar as estações da CP normalmente (e vice-versa) — as duas fontes são independentes.
+
 **Limitação conhecida:** o GTFS representa horários depois da meia-noite como "25:10" (para a 01:10 do dia seguinte); esta versão trata isso como texto simples, por isso partidas mesmo à volta da meia-noite podem não aparecer pela ordem certa nessa janela específica. Não afeta o resto do dia. Esta limitação aplica-se a qualquer feed GTFS usado pela app, incluindo o de Guimarães abaixo.
 
 ### Comboios da CP "em trânsito" — posição ESTIMADA, não GPS ao vivo
