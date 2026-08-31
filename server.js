@@ -957,6 +957,24 @@ async function ensureGtfsFeedLoaded(feedKey, resolveUrl, urlEnvVarName) {
 }
 // service_id de um horário GTFS só se aplica em certos dias da semana, dentro de um
 // intervalo de datas — e pode ter exceções pontuais (feriados, dias especiais).
+// Os horários GTFS são sempre hora local de Portugal (WET/WEST) — mas o servidor
+// pode correr num fuso horário diferente (ex.: UTC no Railway). Sem isto, comparar
+// os horários do GTFS com `new Date()` diretamente dava resultados errados sempre
+// que o fuso do servidor não coincidisse com o de Portugal (ex.: verão em Portugal
+// é UTC+1, por isso um servidor em UTC ficava sistematicamente 1h atrasado).
+// Devolve um Date cujos "getters" locais (getHours, getDate, getDay, etc.) refletem
+// a hora de Lisboa, seja qual for o fuso horário real do processo.
+function nowInLisbon() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Lisbon',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  let hour = get('hour');
+  if (hour === 24) hour = 0; // o Intl às vezes devolve "24" para a meia-noite em vez de "00"
+  return new Date(get('year'), get('month') - 1, get('day'), hour, get('minute'), get('second'));
+}
 function isServiceActiveOnDate(gtfs, serviceId, dateObj) {
   const dateStr = dateObj.getFullYear() + String(dateObj.getMonth() + 1).padStart(2, '0') + String(dateObj.getDate()).padStart(2, '0');
   const exceptions = gtfs.calendarExceptions.get(serviceId);
@@ -974,7 +992,7 @@ function gtfsSearchStops(gtfs, q) {
 function gtfsNextDepartures(gtfs, stationId) {
   const station = gtfs.stops.get(stationId);
   if (!station) return null;
-  const now = new Date();
+  const now = nowInLisbon();
   // Nota: horas GTFS depois da meia-noite vêm como "25:10:00" etc. (ainda contam para o
   // serviço do dia anterior) — esta comparação simples por string não lida com esse caso
   // à volta da meia-noite, é uma simplificação aceitável para uma lista de "próximas partidas".
@@ -1150,14 +1168,16 @@ app.get('/api/trains/departures', async (req, res) => {
 // Posição ESTIMADA (não é GPS real — ver aviso na função getEstimatedTrainPositions)
 // de cada comboio da CP atualmente "em viagem" segundo o horário oficial.
 app.get('/api/trains/positions-estimated', async (req, res) => {
-  try {
-    const gtfs = await ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL');
-    const trains = getEstimatedTrainPositions(gtfs, new Date());
-    res.json({ trains });
-  } catch (err) {
-    console.error('Erro GTFS (posições estimadas CP):', err.message);
-    res.status(503).json({ error: 'Não foi possível calcular as posições estimadas agora: ' + err.message });
-  }
+  const now = nowInLisbon();
+  const [cpGtfs, fertagusGtfs] = await Promise.all([
+    ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL').catch((err) => { console.error('Erro GTFS (posições estimadas CP):', err.message); return null; }),
+    ensureGtfsFeedLoaded('fertagus', resolveFertagusGtfsUrl, 'FERTAGUS_GTFS_URL').catch((err) => { console.error('Erro GTFS (posições estimadas Fertagus):', err.message); return null; })
+  ]);
+  if (!cpGtfs && !fertagusGtfs) return res.status(503).json({ error: 'Não foi possível calcular as posições estimadas agora.' });
+  const trains = [];
+  if (cpGtfs) getEstimatedTrainPositions(cpGtfs, now).forEach((t) => trains.push({ ...t, operator: 'CP' }));
+  if (fertagusGtfs) getEstimatedTrainPositions(fertagusGtfs, now).forEach((t) => trains.push({ ...t, operator: 'Fertagus' }));
+  res.json({ trains });
 });
 
 // ==================== METRO DE LISBOA — GTFS ====================
