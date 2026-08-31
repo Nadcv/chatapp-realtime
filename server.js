@@ -1017,8 +1017,12 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
     const firstDep = gtfsTimeToMinutesOfDay(stopsList[0].departure);
     const lastArr = gtfsTimeToMinutesOfDay(stopsList[stopsList.length - 1].arrival);
     if (firstDep == null || lastArr == null || nowMin < firstDep || nowMin > lastArr) continue;
-    // Paragens todas da viagem, para desenhar a rota completa no mapa (não só o ponto do comboio).
-    const routeStops = stopsList.map((s) => gtfs.stops.get(s.stopId)).filter(Boolean).map((s) => ({ name: s.name, lat: s.lat, lon: s.lon }));
+    // Paragens todas da viagem, para desenhar a rota completa no mapa (não só o ponto do comboio),
+    // com a hora de horário de cada uma (para mostrar num popup por paragem).
+    const routeStops = stopsList.map((s) => {
+      const stop = gtfs.stops.get(s.stopId);
+      return stop ? { name: stop.name, lat: stop.lat, lon: stop.lon, arrival: s.arrival, departure: s.departure } : null;
+    }).filter(Boolean);
     for (let i = 0; i < stopsList.length; i++) {
       const s = stopsList[i];
       const stop = gtfs.stops.get(s.stopId);

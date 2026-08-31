@@ -9243,6 +9243,16 @@
                 if (t.routeStops && t.routeStops.length > 1) {
                     L.polyline(t.routeStops.map(s => [s.lat, s.lon]), { color: '#f39c12', weight: 2, opacity: 0.6, dashArray: '4,6' })
                         .addTo(TRANSPORT.layers.trainsEstimated);
+                    t.routeStops.forEach((s, i) => {
+                        const isOrigem = i === 0;
+                        const isDestino = i === t.routeStops.length - 1;
+                        const cor = isOrigem ? '#27ae60' : (isDestino ? '#e74c3c' : '#f39c12');
+                        const papel = isOrigem ? '🟢 Origem' : (isDestino ? '🔴 Destino' : '🔸 Paragem');
+                        const hora = isOrigem ? s.departure : (isDestino ? s.arrival : (s.arrival || s.departure));
+                        L.circleMarker([s.lat, s.lon], { radius: isOrigem || isDestino ? 5 : 3, color: cor, fillColor: cor, fillOpacity: 0.85, weight: 1 })
+                            .bindPopup(`<strong>${escapeHtml(s.name)}</strong><br>${papel}${hora ? ' · ' + escapeHtml(hora.slice(0, 5)) : ''}`)
+                            .addTo(TRANSPORT.layers.trainsEstimated);
+                    });
                 }
                 const icon = L.divIcon({ className: '', html: '<div style="font-size:20px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🚂</div>', iconSize: [20, 20], iconAnchor: [10, 10] });
                 L.marker([t.lat, t.lon], { icon })
