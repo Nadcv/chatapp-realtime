@@ -1641,6 +1641,14 @@
                     🚆 Ver comboios da CP em trânsito (estimado pelo horário — não é GPS ao vivo)
                 </label>
                 <div id="railEstimatedStatus" style="font-size:11px;color:var(--text-secondary);"></div>
+                <div id="railTrainDetail" style="display:none;flex-direction:column;gap:4px;background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:12px;max-height:220px;overflow-y:auto;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <strong id="railTrainDetailTitle"></strong>
+                        <button class="btn-small" onclick="deselectEstimatedTrain()" style="padding:2px 8px;">✖️</button>
+                    </div>
+                    <div id="railTrainDetailStatus" style="color:var(--text-secondary);"></div>
+                    <div id="railTrainDetailStops"></div>
+                </div>
             </div>
             <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="flightAirlineFilterInput" placeholder="🔍 Filtrar por companhia (ex.: TAP, Ryanair, easyJet)..." oninput="onFlightAirlineFilterChange()">
@@ -8607,7 +8615,7 @@
         if (TRANSPORT.layers[tab]) TRANSPORT.layers[tab].addTo(TRANSPORT.map);
         if (TRANSPORT.pollInterval) clearInterval(TRANSPORT.pollInterval);
         if (railEstimatedInterval) { clearInterval(railEstimatedInterval); railEstimatedInterval = null; }
-        if (tab !== 'rail') { const cb = document.getElementById('railEstimatedToggle'); if (cb) cb.checked = false; TRANSPORT.layers.trainsEstimated.clearLayers(); }
+        if (tab !== 'rail') { const cb = document.getElementById('railEstimatedToggle'); if (cb) cb.checked = false; TRANSPORT.layers.trainsEstimated.clearLayers(); railSelectedTripId = null; document.getElementById('railTrainDetail').style.display = 'none'; }
         if (tab === 'bus') {
             switchBusCity(TRANSPORT.busCity || 'lisboa');
         } else if (tab === 'flight') {
@@ -9221,10 +9229,14 @@
     // envolvem a hora atual, assumindo que a viagem decorre exatamente conforme
     // planeado (sem atrasos). Por isso o popup de cada comboio deixa isso bem claro.
     let railEstimatedInterval = null;
+    let railEstimatedTrainsCache = [];
+    let railSelectedTripId = null;
     function toggleEstimatedTrainPositions() {
         const on = document.getElementById('railEstimatedToggle').checked;
         if (railEstimatedInterval) { clearInterval(railEstimatedInterval); railEstimatedInterval = null; }
         TRANSPORT.layers.trainsEstimated.clearLayers();
+        railSelectedTripId = null;
+        document.getElementById('railTrainDetail').style.display = 'none';
         if (on) {
             TRANSPORT.layers.trainsEstimated.addTo(TRANSPORT.map);
             loadEstimatedTrainPositions();
@@ -9234,33 +9246,76 @@
             document.getElementById('railEstimatedStatus').textContent = '';
         }
     }
+    function selectEstimatedTrain(tripId) {
+        railSelectedTripId = tripId;
+        renderEstimatedTrainMarkers();
+        renderRailTrainDetail();
+    }
+    function deselectEstimatedTrain() {
+        railSelectedTripId = null;
+        document.getElementById('railTrainDetail').style.display = 'none';
+        renderEstimatedTrainMarkers();
+    }
+    // Só desenha a linha da rota + marcadores por paragem do comboio SELECIONADO
+    // (clicar num 🚂) — com vários comboios em trânsito ao mesmo tempo, mostrar
+    // a rota de todos de uma vez ficava confuso no mapa.
+    function renderEstimatedTrainMarkers() {
+        TRANSPORT.layers.trainsEstimated.clearLayers();
+        railEstimatedTrainsCache.forEach(t => {
+            const statusText = t.dwelling ? `Parado em ${escapeHtml(t.fromStop)}` : `Entre ${escapeHtml(t.fromStop)} e ${escapeHtml(t.toStop)} (chega em ~${t.etaMin} min)`;
+            if (t.tripId === railSelectedTripId && t.routeStops && t.routeStops.length > 1) {
+                L.polyline(t.routeStops.map(s => [s.lat, s.lon]), { color: '#f39c12', weight: 2, opacity: 0.6, dashArray: '4,6' })
+                    .addTo(TRANSPORT.layers.trainsEstimated);
+                t.routeStops.forEach((s, i) => {
+                    const isOrigem = i === 0;
+                    const isDestino = i === t.routeStops.length - 1;
+                    const cor = isOrigem ? '#27ae60' : (isDestino ? '#e74c3c' : '#f39c12');
+                    const papel = isOrigem ? '🟢 Origem' : (isDestino ? '🔴 Destino' : '🔸 Paragem');
+                    const hora = isOrigem ? s.departure : (isDestino ? s.arrival : (s.arrival || s.departure));
+                    L.circleMarker([s.lat, s.lon], { radius: isOrigem || isDestino ? 5 : 3, color: cor, fillColor: cor, fillOpacity: 0.85, weight: 1 })
+                        .bindPopup(`<strong>${escapeHtml(s.name)}</strong><br>${papel}${hora ? ' · ' + escapeHtml(hora.slice(0, 5)) : ''}`)
+                        .addTo(TRANSPORT.layers.trainsEstimated);
+                });
+            }
+            const icon = L.divIcon({ className: '', html: '<div style="font-size:20px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🚂</div>', iconSize: [20, 20], iconAnchor: [10, 10] });
+            L.marker([t.lat, t.lon], { icon })
+                .bindPopup(`🚆 <strong>${escapeHtml(t.routeName || 'Comboio')}</strong>${t.headsign ? ' → ' + escapeHtml(t.headsign) : ''}<br>${statusText}<br><em style="font-size:11px;">📍 Posição estimada pelo horário — não é GPS ao vivo, pode não corresponder à posição real em caso de atraso.</em><br><a href="#" onclick="selectEstimatedTrain('${t.tripId}');return false;">🔎 Ver detalhes deste comboio</a>`)
+                .addTo(TRANSPORT.layers.trainsEstimated);
+        });
+    }
+    function renderRailTrainDetail() {
+        const box = document.getElementById('railTrainDetail');
+        const t = railEstimatedTrainsCache.find(x => x.tripId === railSelectedTripId);
+        if (!t) { box.style.display = 'none'; return; }
+        box.style.display = 'flex';
+        document.getElementById('railTrainDetailTitle').textContent = `🚆 ${t.routeName || 'Comboio'}${t.headsign ? ' → ' + t.headsign : ''}`;
+        document.getElementById('railTrainDetailStatus').textContent = t.dwelling
+            ? `Parado em ${t.fromStop}`
+            : `Entre ${t.fromStop} e ${t.toStop} (chega em ~${t.etaMin} min) — estimado, não é GPS ao vivo`;
+        const stops = t.routeStops || [];
+        // A paragem "atual" é a de onde o comboio já partiu (fromStop) — tudo antes
+        // dela já passou, tudo a partir da próxima ainda está para vir.
+        const fromIndex = stops.findIndex(s => s.name === t.fromStop);
+        document.getElementById('railTrainDetailStops').innerHTML = stops.map((s, i) => {
+            const hora = i === 0 ? s.departure : (i === stops.length - 1 ? s.arrival : (s.arrival || s.departure));
+            const passou = fromIndex >= 0 && i < fromIndex;
+            const atual = i === fromIndex;
+            const estilo = passou ? 'color:var(--text-secondary);text-decoration:line-through;' : (atual ? 'font-weight:600;' : '');
+            const marca = atual ? '🚂 ' : (passou ? '✅ ' : '');
+            return `<div style="${estilo}">${marca}${escapeHtml(s.name)}${hora ? ' · ' + escapeHtml(hora.slice(0, 5)) : ''}</div>`;
+        }).join('');
+    }
     function loadEstimatedTrainPositions() {
         fetch('/api/trains/positions-estimated').then(r => r.json()).then(data => {
-            TRANSPORT.layers.trainsEstimated.clearLayers();
-            const trains = data.trains || [];
-            trains.forEach(t => {
-                const statusText = t.dwelling ? `Parado em ${escapeHtml(t.fromStop)}` : `Entre ${escapeHtml(t.fromStop)} e ${escapeHtml(t.toStop)} (chega em ~${t.etaMin} min)`;
-                if (t.routeStops && t.routeStops.length > 1) {
-                    L.polyline(t.routeStops.map(s => [s.lat, s.lon]), { color: '#f39c12', weight: 2, opacity: 0.6, dashArray: '4,6' })
-                        .addTo(TRANSPORT.layers.trainsEstimated);
-                    t.routeStops.forEach((s, i) => {
-                        const isOrigem = i === 0;
-                        const isDestino = i === t.routeStops.length - 1;
-                        const cor = isOrigem ? '#27ae60' : (isDestino ? '#e74c3c' : '#f39c12');
-                        const papel = isOrigem ? '🟢 Origem' : (isDestino ? '🔴 Destino' : '🔸 Paragem');
-                        const hora = isOrigem ? s.departure : (isDestino ? s.arrival : (s.arrival || s.departure));
-                        L.circleMarker([s.lat, s.lon], { radius: isOrigem || isDestino ? 5 : 3, color: cor, fillColor: cor, fillOpacity: 0.85, weight: 1 })
-                            .bindPopup(`<strong>${escapeHtml(s.name)}</strong><br>${papel}${hora ? ' · ' + escapeHtml(hora.slice(0, 5)) : ''}`)
-                            .addTo(TRANSPORT.layers.trainsEstimated);
-                    });
-                }
-                const icon = L.divIcon({ className: '', html: '<div style="font-size:20px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🚂</div>', iconSize: [20, 20], iconAnchor: [10, 10] });
-                L.marker([t.lat, t.lon], { icon })
-                    .bindPopup(`🚆 <strong>${escapeHtml(t.routeName || 'Comboio')}</strong>${t.headsign ? ' → ' + escapeHtml(t.headsign) : ''}<br>${statusText}<br><em style="font-size:11px;">📍 Posição estimada pelo horário — não é GPS ao vivo, pode não corresponder à posição real em caso de atraso.</em>`)
-                    .addTo(TRANSPORT.layers.trainsEstimated);
-            });
-            document.getElementById('railEstimatedStatus').textContent = trains.length
-                ? `${trains.length} comboio(s) em trânsito (estimado) — atualizado agora`
+            railEstimatedTrainsCache = data.trains || [];
+            if (railSelectedTripId && !railEstimatedTrainsCache.some(t => t.tripId === railSelectedTripId)) {
+                // O comboio selecionado já não está em trânsito (chegou ao destino) — fecha os detalhes.
+                deselectEstimatedTrain();
+            }
+            renderEstimatedTrainMarkers();
+            renderRailTrainDetail();
+            document.getElementById('railEstimatedStatus').textContent = railEstimatedTrainsCache.length
+                ? `${railEstimatedTrainsCache.length} comboio(s) em trânsito (estimado) — atualizado agora`
                 : 'Nenhum comboio em trânsito agora (fora do horário de serviço).';
         }).catch(err => {
             document.getElementById('railEstimatedStatus').textContent = '⚠️ Não foi possível calcular as posições estimadas: ' + err.message;
