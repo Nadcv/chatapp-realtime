@@ -1634,6 +1634,7 @@
                 <div style="display:flex;gap:6px;">
                     <button class="btn-small rail-country-tab active" data-country="pt" onclick="switchRailCountry('pt')" style="flex:1;">🇵🇹 Portugal</button>
                     <button class="btn-small rail-country-tab" data-country="madrid" onclick="switchRailCountry('madrid')" style="flex:1;">🇪🇸 Madrid</button>
+                    <button class="btn-small rail-country-tab" data-country="valencia" onclick="switchRailCountry('valencia')" style="flex:1;">🇪🇸 Valência</button>
                 </div>
                 <div id="railPortugalContent" style="display:flex;flex-direction:column;gap:6px;">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
@@ -1659,6 +1660,10 @@
                     <input type="text" id="railMadridSearchInput" placeholder="🔍 Pesquisar estação (Metro/Cercanías/Metro Ligero Madrid)..." oninput="debounceMadridRailStationSearch()">
                     <div id="railMadridSearchResults"></div>
                 </div>
+                <div id="railValenciaContent" style="display:none;flex-direction:column;gap:6px;">
+                    <input type="text" id="railValenciaSearchInput" placeholder="🔍 Pesquisar estação (Metrovalencia)..." oninput="debounceValenciaRailStationSearch()">
+                    <div id="railValenciaSearchResults"></div>
+                </div>
             </div>
             <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="flightAirlineFilterInput" placeholder="🔍 Filtrar por companhia (ex.: TAP, Ryanair, easyJet)..." oninput="onFlightAirlineFilterChange()">
@@ -1668,6 +1673,7 @@
                 <button class="btn-small bus-city-tab" data-city="guimaraes" onclick="switchBusCity('guimaraes')" style="flex:1;">📍 Guimarães (horários)</button>
                 <button class="btn-small bus-city-tab" data-city="porto" onclick="switchBusCity('porto')" style="flex:1;">📍 Porto</button>
                 <button class="btn-small bus-city-tab" data-city="madrid" onclick="switchBusCity('madrid')" style="flex:1;">📍 Madrid (EMT)</button>
+                <button class="btn-small bus-city-tab" data-city="valencia" onclick="switchBusCity('valencia')" style="flex:1;">📍 Valência (EMT)</button>
             </div>
             <div id="guimaraesScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="guimaraesSearchInput" placeholder="🔍 Pesquisar paragem (Guimarães)..." oninput="debounceGuimaraesStopSearch()">
@@ -1676,6 +1682,10 @@
             <div id="madridBusScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="madridBusSearchInput" placeholder="🔍 Pesquisar paragem (EMT Madrid)..." oninput="debounceMadridBusStopSearch()">
                 <div id="madridBusSearchResults"></div>
+            </div>
+            <div id="valenciaBusScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="valenciaBusSearchInput" placeholder="🔍 Pesquisar paragem (EMT Valência)..." oninput="debounceValenciaBusStopSearch()">
+                <div id="valenciaBusSearchResults"></div>
             </div>
             <div id="portoScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="portoSearchInput" placeholder="🔍 Pesquisar paragem/estação (Porto — STCP ou Metro)..." oninput="debouncePortoStopSearch()">
@@ -8638,6 +8648,7 @@
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
             document.getElementById('portoScheduleBar').style.display = 'none';
             document.getElementById('madridBusScheduleBar').style.display = 'none';
+            document.getElementById('valenciaBusScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([39.5, -6.5], 6);
             loadFlights();
             TRANSPORT.pollInterval = setInterval(loadFlights, 15000);
@@ -8646,6 +8657,7 @@
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
             document.getElementById('portoScheduleBar').style.display = 'none';
             document.getElementById('madridBusScheduleBar').style.display = 'none';
+            document.getElementById('valenciaBusScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([38.75, -9.15], 11);
             loadRailStations();
             loadMetroLineStatus();
@@ -8654,12 +8666,14 @@
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
             document.getElementById('portoScheduleBar').style.display = 'none';
             document.getElementById('madridBusScheduleBar').style.display = 'none';
+            document.getElementById('valenciaBusScheduleBar').style.display = 'none';
             document.getElementById('transportStatus').textContent = 'Pesquisa preços de comboio/autocarro na Europa por cidade/estação e data (Tictactrip).';
         } else if (tab === 'bikes') {
             document.getElementById('transportMap').style.display = '';
             document.getElementById('guimaraesScheduleBar').style.display = 'none';
             document.getElementById('portoScheduleBar').style.display = 'none';
             document.getElementById('madridBusScheduleBar').style.display = 'none';
+            document.getElementById('valenciaBusScheduleBar').style.display = 'none';
             TRANSPORT.map.setView([38.72, -9.14], 13);
             loadBikes();
             TRANSPORT.pollInterval = setInterval(loadBikes, 60000);
@@ -8672,6 +8686,7 @@
         document.getElementById('guimaraesScheduleBar').style.display = city === 'guimaraes' ? 'flex' : 'none';
         document.getElementById('portoScheduleBar').style.display = city === 'porto' ? 'flex' : 'none';
         document.getElementById('madridBusScheduleBar').style.display = city === 'madrid' ? 'flex' : 'none';
+        document.getElementById('valenciaBusScheduleBar').style.display = city === 'valencia' ? 'flex' : 'none';
         if (city === 'guimaraes') {
             document.getElementById('transportMap').style.display = 'none';
             document.getElementById('transportStatus').textContent = 'Horários da GUIMABUS (autocarros de Guimarães) — pesquisa uma paragem acima.';
@@ -8681,6 +8696,9 @@
         } else if (city === 'madrid') {
             document.getElementById('transportMap').style.display = 'none';
             document.getElementById('transportStatus').textContent = 'Horários da EMT Madrid (autocarros) — pesquisa uma paragem acima.';
+        } else if (city === 'valencia') {
+            document.getElementById('transportMap').style.display = 'none';
+            document.getElementById('transportStatus').textContent = 'Horários da EMT Valência (autocarros) — pesquisa uma paragem acima.';
         } else {
             document.getElementById('transportMap').style.display = '';
             TRANSPORT.map.setView([38.75, -9.15], 11);
@@ -9532,6 +9550,7 @@
         document.querySelectorAll('.rail-country-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.country === country));
         document.getElementById('railPortugalContent').style.display = country === 'pt' ? 'flex' : 'none';
         document.getElementById('railMadridContent').style.display = country === 'madrid' ? 'flex' : 'none';
+        document.getElementById('railValenciaContent').style.display = country === 'valencia' ? 'flex' : 'none';
     }
     let railMadridSearchTimer = null;
     function debounceMadridRailStationSearch() {
@@ -9564,6 +9583,96 @@
         document.getElementById('modalTrainDepartures').classList.add('active');
         try {
             const res = await fetch('/api/transport/madrid/rail-departures?stationId=' + encodeURIComponent(stationId) + '&type=' + encodeURIComponent(type));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
+            list.innerHTML = data.departures.map(d => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${escapeHtml((d.time || '').slice(0, 5))}</strong>${d.routeName ? ' · ' + escapeHtml(d.routeName) : ''}</div>
+                    <div style="color:var(--text-secondary);font-size:12px;text-align:right;">${escapeHtml(d.headsign || '')}</div>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = `<p style="color:var(--text-secondary);text-align:center;padding:20px;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    // ==================== VALÊNCIA (EMT — autocarros, via GTFS aberto) ====================
+    let valenciaBusSearchTimer = null;
+    function debounceValenciaBusStopSearch() {
+        clearTimeout(valenciaBusSearchTimer);
+        valenciaBusSearchTimer = setTimeout(runValenciaBusStopSearch, 300);
+    }
+    async function runValenciaBusStopSearch() {
+        const q = document.getElementById('valenciaBusSearchInput').value.trim();
+        const box = document.getElementById('valenciaBusSearchResults');
+        if (!q) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/transport/valencia/bus-stops?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma paragem encontrada.</p>'; return; }
+            box.innerHTML = data.map(s => `
+                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openValenciaBusDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)})'>
+                    🚌 ${escapeHtml(s.name)}
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    // Reaproveita o mesmo modal genérico de "próximas partidas" já usado para Guimarães/Madrid.
+    async function openValenciaBusDeparturesModal(stopId, stopName) {
+        document.getElementById('guimaraesDeparturesTitle').textContent = `🚌 Próximas partidas — ${stopName}`;
+        const list = document.getElementById('guimaraesDeparturesList');
+        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">A carregar...</p>';
+        document.getElementById('modalGuimaraesDepartures').classList.add('active');
+        try {
+            const res = await fetch('/api/transport/valencia/bus-departures?stationId=' + encodeURIComponent(stopId));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
+            list.innerHTML = data.departures.map(d => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${escapeHtml((d.time || '').slice(0, 5))}</strong>${d.routeName ? ' · ' + escapeHtml(d.routeName) : ''}</div>
+                    <div style="color:var(--text-secondary);font-size:12px;text-align:right;">${escapeHtml(d.headsign || '')}</div>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = `<p style="color:var(--text-secondary);text-align:center;padding:20px;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    // ==================== VALÊNCIA (Metrovalencia — metro/tram, via GTFS da FGV) ====================
+    let railValenciaSearchTimer = null;
+    function debounceValenciaRailStationSearch() {
+        clearTimeout(railValenciaSearchTimer);
+        railValenciaSearchTimer = setTimeout(runValenciaRailStationSearch, 300);
+    }
+    async function runValenciaRailStationSearch() {
+        const q = document.getElementById('railValenciaSearchInput').value.trim();
+        const box = document.getElementById('railValenciaSearchResults');
+        if (!q) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/transport/valencia/rail-stops?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma estação encontrada.</p>'; return; }
+            box.innerHTML = data.map(s => `
+                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openValenciaRailDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)})'>
+                    🚆 ${escapeHtml(s.name)}
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    // Reaproveita o mesmo modal genérico de partidas já usado para a CP/Fertagus/Madrid.
+    async function openValenciaRailDeparturesModal(stationId, stationName) {
+        document.getElementById('trainDeparturesTitle').textContent = `🚆 Próximas partidas — ${stationName}`;
+        const list = document.getElementById('trainDeparturesList');
+        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">A carregar...</p>';
+        document.getElementById('modalTrainDepartures').classList.add('active');
+        try {
+            const res = await fetch('/api/transport/valencia/rail-departures?stationId=' + encodeURIComponent(stationId));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
             if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
