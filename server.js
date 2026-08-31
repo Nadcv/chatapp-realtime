@@ -1450,6 +1450,64 @@ app.get('/api/transport/valencia/rail-departures', async (req, res) => {
   }
 });
 
+// ==================== RENFE (nacional) — Cercanías/Rodalies + AVE/Larga Distância ====================
+// Terceira e última expansão para Espanha pedida pelo utilizador. Ao contrário de
+// Madrid/Valência (redes de uma cidade), a Renfe é nacional — por isso entra como
+// mais uma opção no mesmo alternador "Portugal/Madrid/Valência" da aba Metro/Comboio,
+// não como uma cidade própria. As duas fontes vêm do portal de dados abertos da
+// própria Renfe (data.renfe.com), que é CKAN — o mesmo tipo de plataforma já usado
+// para a GIRA. Tal como na GIRA, resolvemos o URL do recurso via "package_show" em
+// vez de apontar direto para um link de recurso (UUID que muda se o dataset for
+// republicado); o "dataset ID" do pedido inicial ("horarios-viaje-...") estava
+// desatualizado — confirmámos por pesquisa o slug atual de cada dataset.
+const RENFE_CKAN_BASE = process.env.RENFE_CKAN_BASE || 'https://data.renfe.com';
+const RENFE_CERCANIAS_DATASET_ID = process.env.RENFE_CERCANIAS_DATASET_ID || 'horarios-cercanias';
+const RENFE_AVE_DATASET_ID = process.env.RENFE_AVE_DATASET_ID || 'horarios-de-alta-velocidad-larga-distancia-y-media-distancia';
+const renfeResourceUrlCache = new Map(); // datasetId -> { t, url }
+async function resolveRenfeResourceUrl(datasetId) {
+  const now = Date.now();
+  const cached = renfeResourceUrlCache.get(datasetId);
+  if (cached && (now - cached.t) < 24 * 60 * 60 * 1000) return cached.url;
+  const data = await cachedFetch(`renfe_package_${datasetId}`, `${RENFE_CKAN_BASE}/api/3/action/package_show?id=${datasetId}`, 24 * 60 * 60 * 1000, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' }
+  });
+  const resources = data?.result?.resources || [];
+  const resource = resources.find((r) => /\.zip$/i.test(r.url || '') || (r.format || '').toLowerCase().includes('gtfs')) || resources[0];
+  if (!resource?.url) throw new Error(`O dataset "${datasetId}" da Renfe não tem nenhum recurso descarregável.`);
+  renfeResourceUrlCache.set(datasetId, { t: now, url: resource.url });
+  return resource.url;
+}
+const RENFE_RAIL_FEEDS = {
+  cercanias: { key: 'renfe-cercanias', resolve: () => resolveRenfeResourceUrl(RENFE_CERCANIAS_DATASET_ID), envVar: 'RENFE_CERCANIAS_DATASET_ID', label: 'Cercanías/Rodalies' },
+  ave: { key: 'renfe-ave', resolve: () => resolveRenfeResourceUrl(RENFE_AVE_DATASET_ID), envVar: 'RENFE_AVE_DATASET_ID', label: 'AVE/Larga Distância' }
+};
+app.get('/api/transport/renfe/rail-stops', async (req, res) => {
+  const q = (req.query.q || '').toLowerCase().trim();
+  const loaded = await Promise.all(Object.entries(RENFE_RAIL_FEEDS).map(([type, f]) =>
+    ensureGtfsFeedLoaded(f.key, f.resolve, f.envVar)
+      .then((gtfs) => ({ type, label: f.label, gtfs }))
+      .catch((err) => { console.error(`Erro GTFS (${f.label} Renfe):`, err.message); return null; })
+  ));
+  const active = loaded.filter(Boolean);
+  if (!active.length) return res.status(503).json({ error: 'Não foi possível obter as estações da Renfe agora.' });
+  const results = [];
+  active.forEach(({ type, label, gtfs }) => gtfsSearchStops(gtfs, q).forEach((s) => results.push({ ...s, type, operatorName: label })));
+  res.json(results.slice(0, 30));
+});
+app.get('/api/transport/renfe/rail-departures', async (req, res) => {
+  const feed = RENFE_RAIL_FEEDS[req.query.type];
+  if (!feed) return res.status(400).json({ error: 'Tipo de rede inválido.' });
+  try {
+    const gtfs = await ensureGtfsFeedLoaded(feed.key, feed.resolve, feed.envVar);
+    const result = gtfsNextDepartures(gtfs, req.query.stationId, 'Europe/Madrid');
+    if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error(`Erro GTFS (partidas ${feed.label} Renfe):`, err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários da Renfe agora: ' + err.message });
+  }
+});
+
 // Estado do serviço do Metro de Lisboa — a API oficial (api.metrolisboa.pt) bloqueia
 // ligações vindas de servidores na nuvem (confirmado: a ligação é rejeitada mesmo com
 // credenciais corretas, tanto em desenvolvimento como no Railway). Em alternativa, usamos
