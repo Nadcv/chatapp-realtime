@@ -957,16 +957,19 @@ async function ensureGtfsFeedLoaded(feedKey, resolveUrl, urlEnvVarName) {
 }
 // service_id de um horário GTFS só se aplica em certos dias da semana, dentro de um
 // intervalo de datas — e pode ter exceções pontuais (feriados, dias especiais).
-// Os horários GTFS são sempre hora local de Portugal (WET/WEST) — mas o servidor
-// pode correr num fuso horário diferente (ex.: UTC no Railway). Sem isto, comparar
-// os horários do GTFS com `new Date()` diretamente dava resultados errados sempre
-// que o fuso do servidor não coincidisse com o de Portugal (ex.: verão em Portugal
-// é UTC+1, por isso um servidor em UTC ficava sistematicamente 1h atrasado).
-// Devolve um Date cujos "getters" locais (getHours, getDate, getDay, etc.) refletem
-// a hora de Lisboa, seja qual for o fuso horário real do processo.
-function nowInLisbon() {
+// Os horários de cada feed GTFS são sempre hora local DESSE país/rede (ex.:
+// Europe/Lisbon para os feeds portugueses, Europe/Madrid para os espanhóis —
+// que NÃO é o mesmo fuso: Espanha usa CET/CEST, uma hora à frente de Portugal
+// (WET/WEST), apesar de geograficamente estarem no mesmo fuso). O servidor
+// pode correr num fuso horário totalmente diferente de ambos (ex.: UTC no
+// Railway) — sem isto, comparar os horários do GTFS com `new Date()`
+// diretamente dava resultados errados sempre que o fuso do servidor não
+// coincidisse com o do feed. Devolve um Date cujos "getters" locais
+// (getHours, getDate, getDay, etc.) refletem a hora local do fuso pedido,
+// seja qual for o fuso horário real do processo.
+function nowInTimeZone(timeZone) {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Lisbon',
+    timeZone,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
   }).formatToParts(new Date());
@@ -975,6 +978,7 @@ function nowInLisbon() {
   if (hour === 24) hour = 0; // o Intl às vezes devolve "24" para a meia-noite em vez de "00"
   return new Date(get('year'), get('month') - 1, get('day'), hour, get('minute'), get('second'));
 }
+function nowInLisbon() { return nowInTimeZone('Europe/Lisbon'); }
 function isServiceActiveOnDate(gtfs, serviceId, dateObj) {
   const dateStr = dateObj.getFullYear() + String(dateObj.getMonth() + 1).padStart(2, '0') + String(dateObj.getDate()).padStart(2, '0');
   const exceptions = gtfs.calendarExceptions.get(serviceId);
@@ -989,10 +993,10 @@ function gtfsSearchStops(gtfs, q) {
   if (q) list = list.filter((s) => s.name.toLowerCase().includes(q));
   return list.slice(0, 30).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon }));
 }
-function gtfsNextDepartures(gtfs, stationId) {
+function gtfsNextDepartures(gtfs, stationId, timeZone = 'Europe/Lisbon') {
   const station = gtfs.stops.get(stationId);
   if (!station) return null;
-  const now = nowInLisbon();
+  const now = nowInTimeZone(timeZone);
   // Nota: horas GTFS depois da meia-noite vêm como "25:10:00" etc. (ainda contam para o
   // serviço do dia anterior) — esta comparação simples por string não lida com esse caso
   // à volta da meia-noite, é uma simplificação aceitável para uma lista de "próximas partidas".
@@ -1309,6 +1313,83 @@ app.get('/api/transport/porto/departures', async (req, res) => {
   } catch (err) {
     console.error('Erro Porto (partidas):', err.message);
     res.status(503).json({ error: 'Não foi possível obter os horários do Porto agora: ' + err.message });
+  }
+});
+
+// ==================== MADRID — EMT (autocarros) + CRTM (Metro/Cercanías/Metro Ligeiro) ====================
+// Todos os feeds geridos pela CRTM (Consórcio Regional de Transportes de Madrid),
+// publicados no próprio ArcGIS Online oficial deles (crtm.maps.arcgis.com) — downloads
+// diretos, sem registo. Confirmado através de projetos open-source que já os usam
+// (o dataset "GTFS Red de EMT" no portal de dados abertos da CRTM aponta para o mesmo
+// item). Só têm horários programados — nenhum destes tem posição ao vivo pública
+// confirmada (ao contrário da Carris/STCP em Portugal).
+const EMT_MADRID_GTFS_URL_DEFAULT = 'http://crtm.maps.arcgis.com/sharing/rest/content/items/868df0e58fca47e79b942902dffd7da0/data';
+async function resolveEmtMadridGtfsUrl() {
+  return process.env.EMT_MADRID_GTFS_URL || EMT_MADRID_GTFS_URL_DEFAULT;
+}
+const METRO_MADRID_GTFS_URL_DEFAULT = 'http://crtm.maps.arcgis.com/sharing/rest/content/items/5c7f2951962540d69ffe8f640d94c246/data';
+async function resolveMetroMadridGtfsUrl() {
+  return process.env.METRO_MADRID_GTFS_URL || METRO_MADRID_GTFS_URL_DEFAULT;
+}
+const METRO_LIGERO_MADRID_GTFS_URL_DEFAULT = 'http://crtm.maps.arcgis.com/sharing/rest/content/items/aaed26cc0ff64b0c947ac0bc3e033196/data';
+async function resolveMetroLigeroMadridGtfsUrl() {
+  return process.env.METRO_LIGERO_MADRID_GTFS_URL || METRO_LIGERO_MADRID_GTFS_URL_DEFAULT;
+}
+const CERCANIAS_MADRID_GTFS_URL_DEFAULT = 'http://crtm.maps.arcgis.com/sharing/rest/content/items/1a25440bf66f499bae2657ec7fb40144/data';
+async function resolveCercaniasMadridGtfsUrl() {
+  return process.env.CERCANIAS_MADRID_GTFS_URL || CERCANIAS_MADRID_GTFS_URL_DEFAULT;
+}
+
+app.get('/api/transport/madrid/bus-stops', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('emt-madrid', resolveEmtMadridGtfsUrl, 'EMT_MADRID_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
+  } catch (err) {
+    console.error('Erro GTFS (paragens EMT Madrid):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários da EMT Madrid agora: ' + err.message });
+  }
+});
+app.get('/api/transport/madrid/bus-departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('emt-madrid', resolveEmtMadridGtfsUrl, 'EMT_MADRID_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId, 'Europe/Madrid');
+    if (!result) return res.status(400).json({ error: 'Paragem inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro GTFS (partidas EMT Madrid):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários da EMT Madrid agora: ' + err.message });
+  }
+});
+
+const MADRID_RAIL_FEEDS = {
+  metro: { key: 'metro-madrid', resolve: resolveMetroMadridGtfsUrl, envVar: 'METRO_MADRID_GTFS_URL', label: 'Metro' },
+  'metro-ligero': { key: 'metro-ligero-madrid', resolve: resolveMetroLigeroMadridGtfsUrl, envVar: 'METRO_LIGERO_MADRID_GTFS_URL', label: 'Metro Ligero' },
+  cercanias: { key: 'cercanias-madrid', resolve: resolveCercaniasMadridGtfsUrl, envVar: 'CERCANIAS_MADRID_GTFS_URL', label: 'Cercanías' }
+};
+app.get('/api/transport/madrid/rail-stops', async (req, res) => {
+  const q = (req.query.q || '').toLowerCase().trim();
+  const loaded = await Promise.all(Object.entries(MADRID_RAIL_FEEDS).map(([type, f]) =>
+    ensureGtfsFeedLoaded(f.key, f.resolve, f.envVar)
+      .then((gtfs) => ({ type, label: f.label, gtfs }))
+      .catch((err) => { console.error(`Erro GTFS (${f.label} Madrid):`, err.message); return null; })
+  ));
+  const active = loaded.filter(Boolean);
+  if (!active.length) return res.status(503).json({ error: 'Não foi possível obter as estações de Madrid agora.' });
+  const results = [];
+  active.forEach(({ type, label, gtfs }) => gtfsSearchStops(gtfs, q).forEach((s) => results.push({ ...s, type, operatorName: label })));
+  res.json(results.slice(0, 30));
+});
+app.get('/api/transport/madrid/rail-departures', async (req, res) => {
+  const feed = MADRID_RAIL_FEEDS[req.query.type];
+  if (!feed) return res.status(400).json({ error: 'Tipo de rede inválido.' });
+  try {
+    const gtfs = await ensureGtfsFeedLoaded(feed.key, feed.resolve, feed.envVar);
+    const result = gtfsNextDepartures(gtfs, req.query.stationId, 'Europe/Madrid');
+    if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error(`Erro GTFS (partidas ${feed.label} Madrid):`, err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de Madrid agora: ' + err.message });
   }
 });
 
