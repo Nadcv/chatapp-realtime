@@ -2413,6 +2413,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSpaceScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛰️<span style="font-size:11px;">Espaço</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTransportScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚌<span style="font-size:11px;">Transportes</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openTourismScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗺️<span style="font-size:11px;">Turismo</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openMapSearchScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔎<span style="font-size:11px;">Mapa</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openEventsScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎭<span style="font-size:11px;">Eventos (Lisboa)</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openShoppingScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛒<span style="font-size:11px;">Compras</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRemindersScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔔<span style="font-size:11px;">Lembretes</span></button>
@@ -3031,6 +3032,22 @@
                 <button onclick="searchTourismHere()" style="position:absolute;top:10px;right:10px;z-index:500;padding:8px 14px;border-radius:20px;background:var(--bg-secondary);border:none;font-size:13px;cursor:pointer;box-shadow:var(--shadow);">🔍 Procurar aqui</button>
             </div>
             <div id="tourismStatus" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);text-align:center;background:var(--bg-secondary);">Escolhe uma cidade acima, navega no mapa, ou toca num ponto qualquer para explorar essa área.</div>
+        </div>
+
+        <!-- ============ MAPA (pesquisar um sítio e ver no mapa) ============ -->
+        <div class="location-screen" id="mapSearchScreen">
+            <div class="location-header">
+                <strong>🔎 Mapa</strong>
+                <button onclick="closeMapSearchScreen()">✖️</button>
+            </div>
+            <div style="position:relative;padding:8px 10px;background:var(--bg-secondary);">
+                <input type="text" id="mapSearchInput" placeholder="🔍 Procurar um sítio (morada, cidade, monumento...)..." oninput="debounceMapSearch()" style="width:100%;box-sizing:border-box;">
+                <div id="mapSearchResults" style="position:absolute;left:10px;right:10px;top:100%;z-index:600;background:var(--bg-secondary);border-radius:0 0 8px 8px;box-shadow:var(--shadow);max-height:260px;overflow-y:auto;"></div>
+            </div>
+            <div style="position:relative;flex:1;overflow:hidden;">
+                <div id="mapSearchMap" style="position:absolute;inset:0;"></div>
+            </div>
+            <div id="mapSearchStatus" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);text-align:center;background:var(--bg-secondary);">Escreve acima para procurar um sítio e vê-lo no mapa.</div>
         </div>
 
         <!-- ============ FICHA DE UM PONTO TURÍSTICO ============ -->
@@ -6192,6 +6209,70 @@
         closeModal('modalTourismPoi');
         closeTourismScreen();
         openTransportScreen();
+    }
+
+    // ==================== MAPA (pesquisar um sítio qualquer e ver no mapa) ====================
+    // Diferente do Turismo (que pesquisa pontos de interesse por categoria numa área)
+    // e da Navegação (focada em traçar rota): aqui é só escrever um sítio — morada,
+    // cidade, monumento — e vê-lo no mapa, sem mais nada. Reaproveita a mesma
+    // geocodificação (Nominatim, via /api/nav/geocode) já usada pela Navegação.
+    const MAPSEARCH = { map: null, marker: null };
+    function openMapSearchScreen() {
+        document.getElementById('mapSearchScreen').classList.add('active');
+        if (!MAPSEARCH.map) {
+            MAPSEARCH.map = L.map('mapSearchMap').setView([39.5, -8], 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(MAPSEARCH.map);
+        }
+        setTimeout(() => MAPSEARCH.map.invalidateSize(), 200);
+    }
+    function closeMapSearchScreen() {
+        document.getElementById('mapSearchScreen').classList.remove('active');
+    }
+    let mapSearchTimer = null;
+    function debounceMapSearch() {
+        clearTimeout(mapSearchTimer);
+        mapSearchTimer = setTimeout(runMapSearch, 400);
+    }
+    async function runMapSearch() {
+        const q = document.getElementById('mapSearchInput').value.trim();
+        const box = document.getElementById('mapSearchResults');
+        if (!q) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="padding:10px;color:var(--text-secondary);font-size:13px;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/nav/geocode?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha na pesquisa');
+            if (!data.length) { box.innerHTML = '<p style="padding:10px;color:var(--text-secondary);font-size:13px;">Nada encontrado para essa pesquisa.</p>'; return; }
+            box.innerHTML = data.map((r) => `
+                <div style="padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='selectMapSearchResult(${JSON.stringify(r.lat)}, ${JSON.stringify(r.lon)}, ${JSON.stringify(r.display_name)})'>
+                    📍 <strong>${escapeHtml((r.display_name || '').split(',')[0])}</strong><br>
+                    <span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(r.display_name || '')}</span>
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="padding:10px;color:var(--red);font-size:13px;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    function selectMapSearchResult(lat, lon, label) {
+        lat = parseFloat(lat); lon = parseFloat(lon);
+        document.getElementById('mapSearchResults').innerHTML = '';
+        document.getElementById('mapSearchInput').value = (label || '').split(',')[0];
+        document.getElementById('mapSearchStatus').textContent = label || '';
+        MAPSEARCH.map.setView([lat, lon], 16);
+        const popupHtml = `
+            <div style="text-align:center;min-width:160px;">
+                <strong>${escapeHtml((label || '').split(',')[0])}</strong>
+                <div style="margin-top:6px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+                    <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><button class="btn-small">🗺️ Google Maps</button></a>
+                    <button class="btn-small btn-accept" onclick='mapSearchGoToNav(${lat}, ${lon}, ${JSON.stringify(label || '')})'>🧭 Como chegar</button>
+                </div>
+            </div>`;
+        if (MAPSEARCH.marker) MAPSEARCH.map.removeLayer(MAPSEARCH.marker);
+        MAPSEARCH.marker = L.marker([lat, lon]).addTo(MAPSEARCH.map).bindPopup(popupHtml).openPopup();
+    }
+    function mapSearchGoToNav(lat, lon, label) {
+        closeMapSearchScreen();
+        openNavScreen();
+        selectNavResult(lat, lon, label);
     }
 
     // ==================== FAVORITOS DO TURISMO ====================
