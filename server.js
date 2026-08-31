@@ -1393,6 +1393,63 @@ app.get('/api/transport/madrid/rail-departures', async (req, res) => {
   }
 });
 
+// ==================== VALÊNCIA — EMT (autocarros) + Metrovalencia/FGV (metro/tram) ====================
+// EMT Valência: feed GTFS oficial publicado no portal de dados abertos da própria
+// câmara (opendata.vlci.valencia.es). Metrovalencia: o feed pedido inicialmente
+// (transitpdf.com/uran) era uma cópia "melhorada" de terceiros, não a fonte oficial —
+// confirmámos por pesquisa que a fonte real é a própria FGV (Ferrocarrils de la
+// Generalitat Valenciana), no mesmo padrão de URL estática já usado para o Metro de
+// Lisboa (metrolisboa.pt/google_transit) e para a CP (publico.cp.pt/gtfs).
+const EMT_VALENCIA_GTFS_URL_DEFAULT = 'https://opendata.vlci.valencia.es/dataset/ab058cf8-ad3e-4d9c-ac89-0c6367ecf351/resource/c81b69e6-c082-44dc-acc6-66fc417b4e66/download/google_transit.zip';
+async function resolveEmtValenciaGtfsUrl() {
+  return process.env.EMT_VALENCIA_GTFS_URL || EMT_VALENCIA_GTFS_URL_DEFAULT;
+}
+const METRO_VALENCIA_GTFS_URL_DEFAULT = 'http://www.metrovalencia.es/google_transit_feed/google_transit.zip';
+async function resolveMetroValenciaGtfsUrl() {
+  return process.env.METRO_VALENCIA_GTFS_URL || METRO_VALENCIA_GTFS_URL_DEFAULT;
+}
+
+app.get('/api/transport/valencia/bus-stops', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('emt-valencia', resolveEmtValenciaGtfsUrl, 'EMT_VALENCIA_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
+  } catch (err) {
+    console.error('Erro GTFS (paragens EMT Valência):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários da EMT Valência agora: ' + err.message });
+  }
+});
+app.get('/api/transport/valencia/bus-departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('emt-valencia', resolveEmtValenciaGtfsUrl, 'EMT_VALENCIA_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId, 'Europe/Madrid');
+    if (!result) return res.status(400).json({ error: 'Paragem inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro GTFS (partidas EMT Valência):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários da EMT Valência agora: ' + err.message });
+  }
+});
+app.get('/api/transport/valencia/rail-stops', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('metro-valencia', resolveMetroValenciaGtfsUrl, 'METRO_VALENCIA_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
+  } catch (err) {
+    console.error('Erro GTFS (estações Metrovalencia):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter as estações do Metrovalencia agora: ' + err.message });
+  }
+});
+app.get('/api/transport/valencia/rail-departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('metro-valencia', resolveMetroValenciaGtfsUrl, 'METRO_VALENCIA_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId, 'Europe/Madrid');
+    if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro GTFS (partidas Metrovalencia):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários do Metrovalencia agora: ' + err.message });
+  }
+});
+
 // Estado do serviço do Metro de Lisboa — a API oficial (api.metrolisboa.pt) bloqueia
 // ligações vindas de servidores na nuvem (confirmado: a ligação é rejeitada mesmo com
 // credenciais corretas, tanto em desenvolvimento como no Railway). Em alternativa, usamos
