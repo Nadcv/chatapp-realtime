@@ -219,6 +219,14 @@ Terceiro modo dentro da aba "🎫 Preços", que compara lado a lado as fontes j�
 - Quando o avião é a opção recomendada, e o destino tem uma ligação de transporte público conhecida e estável a partir do aeroporto (ex.: Metro Vermelho no Aeroporto de Lisboa, RER B no Charles de Gaulle), aparece como uma **nota informativa estática** — não é uma viagem calculada com horários/preços reais, só um facto conhecido e útil.
 - Cada perna só aparece se a fonte correspondente estiver configurada (`IGNAV_API_KEY`, `TICTACTRIP_API_TOKEN`) e tiver dados para essa rota — se nenhuma tiver, mostra um aviso a sugerir outra rota.
 
+## 🔎 Mapa (no menu "Mais") — pesquisar um sítio qualquer e ver
+
+Pedido do utilizador: um mapa "solto", separado do Turismo e da Navegação, só para escrever um sítio (morada, cidade, monumento) e vê-lo — sem ficar limitado a pontos turísticos por categoria (Turismo) nem obrigado a traçar uma rota (Navegação).
+
+- Reaproveita a mesma pesquisa/geocodificação já usada pela Navegação (`/api/nav/geocode`, Nominatim/OpenStreetMap — gratuito, sem chave) — sem nenhum endpoint novo no servidor.
+- Ao escolher um resultado, o mapa centra e mostra um marcador com um popup com o nome do sítio, um link **"🗺️ Google Maps"** e um botão **"🧭 Como chegar"** que fecha o Mapa e abre a Navegação já com esse destino escolhido (reaproveita `selectNavResult`, sem duplicar a lógica de geocodificação/rota).
+- Sem posição ao vivo nem lista de categorias — é intencionalmente o ecrã mais simples dos três (Turismo, Navegação, Mapa), cada um com um objetivo diferente.
+
 ## Eventos culturais (🎭, no menu "Mais")
 
 Investigámos várias fontes possíveis para outras ideias pendentes (estacionamento/mobilidade urbana, bicicletas/trotinetes partilhadas, marketplace de bilhetes, alertas de incidentes) e nenhuma tinha uma API pública e genuína sem exigir scraping ou engenharia reversa — por isso, para já, avançámos só com a que era claramente viável: a **Agenda Cultural de Lisboa**.
