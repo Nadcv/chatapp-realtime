@@ -9240,6 +9240,10 @@
             const trains = data.trains || [];
             trains.forEach(t => {
                 const statusText = t.dwelling ? `Parado em ${escapeHtml(t.fromStop)}` : `Entre ${escapeHtml(t.fromStop)} e ${escapeHtml(t.toStop)} (chega em ~${t.etaMin} min)`;
+                if (t.routeStops && t.routeStops.length > 1) {
+                    L.polyline(t.routeStops.map(s => [s.lat, s.lon]), { color: '#f39c12', weight: 2, opacity: 0.6, dashArray: '4,6' })
+                        .addTo(TRANSPORT.layers.trainsEstimated);
+                }
                 const icon = L.divIcon({ className: '', html: '<div style="font-size:20px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🚂</div>', iconSize: [20, 20], iconAnchor: [10, 10] });
                 L.marker([t.lat, t.lon], { icon })
                     .bindPopup(`🚆 <strong>${escapeHtml(t.routeName || 'Comboio')}</strong>${t.headsign ? ' → ' + escapeHtml(t.headsign) : ''}<br>${statusText}<br><em style="font-size:11px;">📍 Posição estimada pelo horário — não é GPS ao vivo, pode não corresponder à posição real em caso de atraso.</em>`)

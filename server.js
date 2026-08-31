@@ -1017,6 +1017,8 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
     const firstDep = gtfsTimeToMinutesOfDay(stopsList[0].departure);
     const lastArr = gtfsTimeToMinutesOfDay(stopsList[stopsList.length - 1].arrival);
     if (firstDep == null || lastArr == null || nowMin < firstDep || nowMin > lastArr) continue;
+    // Paragens todas da viagem, para desenhar a rota completa no mapa (não só o ponto do comboio).
+    const routeStops = stopsList.map((s) => gtfs.stops.get(s.stopId)).filter(Boolean).map((s) => ({ name: s.name, lat: s.lat, lon: s.lon }));
     for (let i = 0; i < stopsList.length; i++) {
       const s = stopsList[i];
       const stop = gtfs.stops.get(s.stopId);
@@ -1027,7 +1029,8 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
         const route = gtfs.routes.get(trip.routeId);
         positions.push({
           tripId, routeName: route?.longName || route?.shortName || '', headsign: trip.headsign || '',
-          lat: stop.lat, lon: stop.lon, fromStop: stop.name, toStop: stop.name, etaMin: 0, dwelling: true
+          lat: stop.lat, lon: stop.lon, fromStop: stop.name, toStop: stop.name, etaMin: 0, dwelling: true,
+          routeStops
         });
         break;
       }
@@ -1044,7 +1047,8 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
             lon: stop.lon + (nextStop.lon - stop.lon) * progresso,
             fromStop: stop.name, toStop: nextStop.name,
             etaMin: Math.max(0, Math.round(nextArr - nowMin)),
-            dwelling: false
+            dwelling: false,
+            routeStops
           });
           break;
         }
