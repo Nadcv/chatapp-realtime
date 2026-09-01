@@ -9403,6 +9403,17 @@
                         .bindPopup(`<strong>${escapeHtml(s.name)}</strong><br>${papel}${hora ? ' · ' + escapeHtml(hora.slice(0, 5)) : ''}`)
                         .addTo(TRANSPORT.layers.trainsEstimated);
                 });
+                // Margem de incerteza: não há forma honesta de saber o atraso real, por
+                // isso, em vez de um ponto exato, mostramos também onde o comboio podia
+                // estar se estivesse atrasado até t.uncertaintyMin minutos — sempre mais
+                // atrás na rota (nunca à frente do horário). Só desenhada se for
+                // suficientemente diferente do ponto "a horas", para não poluir o mapa
+                // quando a diferença é insignificante (ex.: viagem mesmo a começar).
+                if (typeof t.uncertainLat === 'number' && haversineMeters(t.lat, t.lon, t.uncertainLat, t.uncertainLon) > 30) {
+                    L.polyline([[t.lat, t.lon], [t.uncertainLat, t.uncertainLon]], { color: '#e74c3c', weight: 5, opacity: 0.3 })
+                        .bindPopup(`⚠️ Margem de incerteza: se houver atraso (não é possível saber quanto), o comboio pode ainda estar algures neste troço — até ${t.uncertaintyMin} min mais atrás do que o ponto "a horas".`)
+                        .addTo(TRANSPORT.layers.trainsEstimated);
+                }
             }
             const icon = L.divIcon({ className: '', html: '<div style="font-size:20px;filter:drop-shadow(0 0 3px rgba(0,0,0,0.6));">🚂</div>', iconSize: [20, 20], iconAnchor: [10, 10] });
             L.marker([t.lat, t.lon], { icon })
@@ -9416,9 +9427,10 @@
         if (!t) { box.style.display = 'none'; return; }
         box.style.display = 'flex';
         document.getElementById('railTrainDetailTitle').textContent = `🚆 ${t.routeName || 'Comboio'}${t.operator ? ' (' + t.operator + ')' : ''}${t.headsign ? ' → ' + t.headsign : ''}`;
-        document.getElementById('railTrainDetailStatus').textContent = t.dwelling
+        const margem = typeof t.uncertaintyMin === 'number' ? ` · pode estar até ${t.uncertaintyMin} min mais atrás se houver atraso (linha vermelha no mapa)` : '';
+        document.getElementById('railTrainDetailStatus').textContent = (t.dwelling
             ? `Parado em ${t.fromStop}`
-            : `Entre ${t.fromStop} e ${t.toStop} (chega em ~${t.etaMin} min) — estimado, não é GPS ao vivo`;
+            : `Entre ${t.fromStop} e ${t.toStop} (chega em ~${t.etaMin} min) — estimado, não é GPS ao vivo`) + margem;
         const stops = t.routeStops || [];
         // A paragem "atual" é a de onde o comboio já partiu (fromStop) — tudo antes
         // dela já passou, tudo a partir da próxima ainda está para vir.

@@ -1029,6 +1029,34 @@ function gtfsTimeToMinutesOfDay(t) {
   if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return null;
   return parts[0] * 60 + parts[1] + (parts[2] || 0) / 60;
 }
+// Não há forma honesta de saber atrasos reais (nenhuma fonte GTFS-RT gratuita
+// para CP/Fertagus/Madrid/Valência/Renfe) — em vez de inventar um número de
+// atraso, mostramos uma MARGEM DE INCERTEZA: além da posição "a horas"
+// (assumindo que a viagem decorre exatamente conforme o horário), calculamos
+// também onde o comboio seria capaz de estar se estivesse atrasado até
+// TRAIN_DELAY_UNCERTAINTY_MIN minutos — sempre mais atrás na rota, nunca mais
+// à frente (um comboio não chega adiantado). O cliente desenha as duas.
+const TRAIN_DELAY_UNCERTAINTY_MIN = 10;
+function interpolateTripPositionAt(stopsList, gtfs, atMin) {
+  for (let i = 0; i < stopsList.length; i++) {
+    const s = stopsList[i];
+    const stop = gtfs.stops.get(s.stopId);
+    if (!stop) continue;
+    const arr = gtfsTimeToMinutesOfDay(s.arrival);
+    const dep = gtfsTimeToMinutesOfDay(s.departure);
+    if (arr != null && dep != null && atMin >= arr && atMin <= dep) return { lat: stop.lat, lon: stop.lon };
+    if (i < stopsList.length - 1 && dep != null) {
+      const next = stopsList[i + 1];
+      const nextStop = gtfs.stops.get(next.stopId);
+      const nextArr = gtfsTimeToMinutesOfDay(next.arrival);
+      if (nextStop && nextArr != null && atMin > dep && atMin < nextArr) {
+        const progresso = nextArr > dep ? (atMin - dep) / (nextArr - dep) : 0;
+        return { lat: stop.lat + (nextStop.lat - stop.lat) * progresso, lon: stop.lon + (nextStop.lon - stop.lon) * progresso };
+      }
+    }
+  }
+  return null;
+}
 function getEstimatedTrainPositions(gtfs, dateObj) {
   const nowMin = dateObj.getHours() * 60 + dateObj.getMinutes() + dateObj.getSeconds() / 60;
   const positions = [];
@@ -1045,6 +1073,8 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
       const stop = gtfs.stops.get(s.stopId);
       return stop ? { name: stop.name, lat: stop.lat, lon: stop.lon, arrival: s.arrival, departure: s.departure } : null;
     }).filter(Boolean);
+    const uncertainAtMin = Math.max(firstDep, nowMin - TRAIN_DELAY_UNCERTAINTY_MIN);
+    const uncertainPos = interpolateTripPositionAt(stopsList, gtfs, uncertainAtMin);
     for (let i = 0; i < stopsList.length; i++) {
       const s = stopsList[i];
       const stop = gtfs.stops.get(s.stopId);
@@ -1056,7 +1086,8 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
         positions.push({
           tripId, routeName: route?.longName || route?.shortName || '', headsign: trip.headsign || '',
           lat: stop.lat, lon: stop.lon, fromStop: stop.name, toStop: stop.name, etaMin: 0, dwelling: true,
-          routeStops
+          routeStops,
+          uncertainLat: uncertainPos?.lat ?? stop.lat, uncertainLon: uncertainPos?.lon ?? stop.lon, uncertaintyMin: TRAIN_DELAY_UNCERTAINTY_MIN
         });
         break;
       }
@@ -1074,7 +1105,8 @@ function getEstimatedTrainPositions(gtfs, dateObj) {
             fromStop: stop.name, toStop: nextStop.name,
             etaMin: Math.max(0, Math.round(nextArr - nowMin)),
             dwelling: false,
-            routeStops
+            routeStops,
+            uncertainLat: uncertainPos?.lat ?? stop.lat, uncertainLon: uncertainPos?.lon ?? stop.lon, uncertaintyMin: TRAIN_DELAY_UNCERTAINTY_MIN
           });
           break;
         }
