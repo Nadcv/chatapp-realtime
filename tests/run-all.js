@@ -51,7 +51,8 @@ const BUILD_SCRIPTS = [
   'build_mock_valencia_gtfs.js',
   'build_mock_renfe_gtfs.js',
   'build_mock_gtfs_planner.js',
-  'build_mock_guimaraes_gtfs.js'
+  'build_mock_guimaraes_gtfs.js',
+  'build_mock_france_gtfs.js'
 ];
 
 // ---- 2) Mock servers a manter no ar durante toda a suite (portas fixas,
@@ -75,9 +76,10 @@ const MOCK_SERVERS = [
   'mock_tictactrip_server.js',      // 3010
   'mock_gtfs_planner_server.js',    // 3013 - não usado pelo server.js atual (o planeador
                                      // reaproveita o feed "cp"); mantido no ar por segurança
-  'mock_metro_server.js'            // 3004 - só usado diretamente por test_metro_auth_logic.js
+  'mock_metro_server.js',           // 3004 - só usado diretamente por test_metro_auth_logic.js
                                      // (testa lógica antiga do Metro Lisboa, substituída pela
                                      // UnderLX no server.js atual — ver README)
+  'mock_france_server.js'           // 3020 - França (Transilien, versão reduzida)
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -125,6 +127,7 @@ const BASE_ENV = {
   EMT_VALENCIA_GTFS_URL: 'http://localhost:3018/emt_valencia.zip',
   METRO_VALENCIA_GTFS_URL: 'http://localhost:3018/metro_valencia.zip',
   RENFE_CKAN_BASE: 'http://localhost:3019',
+  FRANCE_GTFS_URL: 'http://localhost:3020/gtfs_france.zip',
   GIRA_CKAN_BASE: 'http://localhost:3014',
   GIRA_DATASET_ID: 'girastations',
   AGENDALX_EVENTS_URL: 'http://localhost:3012/events',
