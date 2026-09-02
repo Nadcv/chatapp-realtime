@@ -14,7 +14,7 @@ const past = new Date(now.getTime() - 60 * 60000);
 
 const stops = 'stop_id,stop_name,stop_lat,stop_lon\nST_LISBOA,Lisboa Oriente,38.767,-9.099\nST_PORTO,Porto Campanha,41.149,-8.585\n';
 const routes = 'route_id,route_short_name,route_long_name\nR1,AP,Alfa Pendular\n';
-const trips = 'trip_id,route_id,service_id,trip_headsign\nT1,R1,SVC_WEEKDAY,Porto Campanha\nT2,R1,SVC_WEEKDAY,Lisboa Oriente\nT3,R1,SVC_WEEKDAY,Porto Campanha\n';
+const trips = 'trip_id,route_id,service_id,trip_headsign\nT1,R1,SVC_WEEKDAY,Porto Campanha\nT2,R1,SVC_WEEKDAY,Porto Campanha\nT3,R1,SVC_WEEKDAY,Porto Campanha\n';
 const calendar = 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nSVC_WEEKDAY,1,1,1,1,1,1,1,20200101,20301231\n';
 const calendarDates = 'service_id,date,exception_type\n';
 const stopTimes = 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\n' +
