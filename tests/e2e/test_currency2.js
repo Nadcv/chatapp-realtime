@@ -17,7 +17,8 @@ const { chromium } = require('playwright');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
 
-  await page.click('button[title^="Câmbio"]');
+  await page.click('button[title="Mais funcionalidades"]');
+  await page.click('#modalMoreFeatures button[onclick*="openCurrencyScreen"]');
   await page.waitForSelector('#currencyScreen.active');
   await page.waitForTimeout(300);
 

@@ -18,8 +18,10 @@ const { chromium } = require('playwright');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
 
-  // 1) Confirm the header button exists and is scrollable-into-view.
-  const btn = page.locator('button[onclick="openJamendoScreen()"]');
+  // 1) Confirm the button exists (now inside the "Media" menu, moved there since
+  // this test was first written — see the header consolidation in the README).
+  await page.click('#mediaBtn');
+  const btn = page.locator('#modalMediaFeatures button[onclick*="openJamendoScreen"]');
   await btn.scrollIntoViewIfNeeded();
   console.log('Button visible:', await btn.isVisible());
   await btn.click();

@@ -17,7 +17,8 @@ const { chromium } = require('playwright');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
 
-  await page.click('button[title^="Televisão em direto"]');
+  await page.click('#mediaBtn');
+  await page.click('#modalMediaFeatures button[onclick*="openTvScreen"]');
   await page.waitForSelector('#tvScreen.active');
   await page.waitForTimeout(500);
 

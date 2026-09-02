@@ -30,8 +30,10 @@ const { chromium } = require('playwright');
 
   await pageA.waitForTimeout(1500);
 
-  // Alice adds Bob as a contact (search by username)
-  await pageA.click('button[title="Procurar utilizador"]');
+  // Alice adds Bob as a contact (search by username) — agora dentro do menu
+  // "Grupos, chamadas e contactos" (consolidação de cabeçalho, ver README).
+  await pageA.click('button[title="Grupos, chamadas e contactos"]');
+  await pageA.click('#modalContactsFeatures button[onclick*="openSearchUserModal"]');
   await pageA.waitForSelector('#modalSearchUser.active');
   await pageA.fill('#searchUsernameInput', 'bob_bc_' + ts);
   await pageA.click('button:has-text("Procurar")');
@@ -42,8 +44,9 @@ const { chromium } = require('playwright');
   const chatsDebug = await pageA.evaluate(() => APP.chats.map(c => ({ id: c.id, type: c.type, name: c.name })));
   console.log('Alice APP.chats:', JSON.stringify(chatsDebug));
 
-  // Open broadcast screen
-  await pageA.click('button[title="Listas de transmissão"]');
+  // Open broadcast screen — mesma consolidação de menu.
+  await pageA.click('button[title="Grupos, chamadas e contactos"]');
+  await pageA.click('#modalContactsFeatures button[onclick*="openBroadcastScreen"]');
   await pageA.waitForSelector('#broadcastScreen.active');
   console.log('Broadcast screen opened OK');
 
