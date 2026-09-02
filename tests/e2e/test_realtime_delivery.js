@@ -70,13 +70,17 @@ async function registerUser(browser, label) {
   await bob.page.waitForTimeout(300);
 
   // THE KEY TEST: Alice sends a message. Does Bob's page receive it live (WITHOUT reload/re-click)?
-  await alice.page.fill('#messageInput', 'MENSAGEM_TESTE_TEMPO_REAL');
+  // (Sem underscores no texto — o formatador de mensagens estilo WhatsApp trata
+  // um par de "_..._" como itálico e engole os próprios underscores ao
+  // renderizar, o que fazia esta verificação falhar mesmo com a entrega em
+  // tempo real a funcionar perfeitamente.)
+  await alice.page.fill('#messageInput', 'MENSAGEM TESTE TEMPO REAL');
   await alice.page.press('#messageInput', 'Enter');
 
   // Wait up to 5s polling for live delivery, WITHOUT reloading or re-clicking the chat.
   let liveDelivered = false;
   for (let i = 0; i < 25; i++) {
-    liveDelivered = await bob.page.evaluate(() => document.getElementById('chatMessages')?.innerText.includes('MENSAGEM_TESTE_TEMPO_REAL'));
+    liveDelivered = await bob.page.evaluate(() => document.getElementById('chatMessages')?.innerText.includes('MENSAGEM TESTE TEMPO REAL'));
     if (liveDelivered) break;
     await bob.page.waitForTimeout(200);
   }

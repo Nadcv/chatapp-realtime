@@ -6,7 +6,13 @@ async function getLastEmail() {
   return data.lastMessage;
 }
 function extractCode(emailBody) {
-  const matches = [...emailBody.matchAll(/\d{6}/g)].map(m => m[0]);
+  // O boundary MIME (ex.: "--_NmP-a55cab6884976a3f-Part_1") é uma string
+  // hexadecimal aleatória que por vezes contém, por coincidência, uma
+  // sequência de 6 dígitos — e essa aparece no email MAIS vezes do que o
+  // código real (cabeçalho + delimitadores de cada parte). Por isso exigimos
+  // que o código esteja isolado por um caracter não-alfanumérico dos dois
+  // lados, o que exclui dígitos embutidos no meio de um token hexadecimal.
+  const matches = [...emailBody.matchAll(/(?<![a-zA-Z0-9])(\d{6})(?![a-zA-Z0-9])/g)].map(m => m[1]);
   const counts = {};
   matches.forEach(c => { counts[c] = (counts[c] || 0) + 1; });
   const repeated = Object.entries(counts).find(([, n]) => n >= 2);

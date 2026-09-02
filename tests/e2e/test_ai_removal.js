@@ -20,7 +20,7 @@ const { chromium } = require('playwright');
 
   const chatItems = await page.locator('#chatList .chat-item h4').allTextContents();
   console.log('Chat list entries:', chatItems);
-  console.log('Has old GitHub assistant contact:', chatItems.some(t => t.includes('Assistente IA')));
+  console.log('Old GitHub assistant contact no longer exists:', !chatItems.some(t => t.includes('Assistente IA')));
   console.log('Has Gemini contact:', chatItems.some(t => t.includes('Gemini')));
 
   // Open the Gemini chat and check the seed message + avatar/subtitle.

@@ -32,11 +32,11 @@ const { chromium } = require('playwright');
   const src1 = await page.getAttribute('#tvFrame', 'src');
   console.log('TVS (site) iframe src:', src1);
 
-  // Click RTTL to verify it still uses youtube embed
-  await page.click('#tvTabs button:has-text("RTTL")');
+  // Click Record News to verify it still uses youtube embed
+  await page.click('#tvTabs button:has-text("Record News")');
   await page.waitForTimeout(300);
   const src2 = await page.getAttribute('#tvFrame', 'src');
-  console.log('RTTL iframe src:', src2);
+  console.log('Record News iframe src:', src2);
 
   await browser.close();
 })().catch(e => { console.error('TEST FAILED:', e); process.exit(1); });

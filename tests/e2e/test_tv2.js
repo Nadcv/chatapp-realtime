@@ -31,11 +31,7 @@ const { chromium } = require('playwright');
   console.log('Channel tabs (filmes):', (await page.textContent('#tvTabs')).replace(/\s+/g, ' ').trim());
   console.log('Iframe src (filmes):', await page.getAttribute('#tvFrame', 'src'));
 
-  await page.click('#tvCategoryTabs button:has-text("Jogos")');
-  await page.waitForTimeout(300);
-  console.log('Channel tabs (jogos):', (await page.textContent('#tvTabs')).replace(/\s+/g, ' ').trim());
-  console.log('Iframe src (jogos):', await page.getAttribute('#tvFrame', 'src'));
-
+  // Só há duas categorias hoje (Notícias e Filmes) — "Jogos" nunca chegou a existir.
   await page.click('#tvCategoryTabs button:has-text("Notícias")');
   await page.waitForTimeout(300);
   console.log('Back to news, iframe src:', await page.getAttribute('#tvFrame', 'src'));

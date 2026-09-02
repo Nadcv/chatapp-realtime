@@ -35,14 +35,14 @@ const { chromium } = require('playwright');
   await page.waitForTimeout(300);
   console.log('Iframe after picking His Girl Friday:', await page.getAttribute('#tvFrame', 'src'));
 
-  await page.click('#tvTabs button:has-text("Terror")');
+  await page.click('#tvTabs button:has-text("Clássicos e Noir")');
   await page.waitForTimeout(300);
-  console.log('Movie list (terror):', (await page.textContent('#tvMovieList')).replace(/\s+/g, ' ').trim());
+  console.log('Movie list (clássicos e noir):', (await page.textContent('#tvMovieList')).replace(/\s+/g, ' ').trim());
   console.log('Iframe after switching genre (should reset to blank):', await page.getAttribute('#tvFrame', 'src'));
 
-  await page.click('#tvMovieList button:has-text("Nosferatu")');
+  await page.click('#tvMovieList button:has-text("Detour")');
   await page.waitForTimeout(300);
-  console.log('Iframe after picking Nosferatu:', await page.getAttribute('#tvFrame', 'src'));
+  console.log('Iframe after picking Detour:', await page.getAttribute('#tvFrame', 'src'));
 
   // Back to news
   await page.click('#tvCategoryTabs button:has-text("Notícias")');

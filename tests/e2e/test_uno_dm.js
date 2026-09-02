@@ -6,15 +6,16 @@ async function register(context, name, prefix) {
   await page.click('.login-switch');
   const ts = Date.now() + Math.floor(Math.random() * 1000);
   const phone = '+3519' + ts.toString().slice(-8);
+  const username = prefix + ts;
   await page.fill('#regName', name);
-  await page.fill('#regUsername', prefix + ts);
+  await page.fill('#regUsername', username);
   await page.fill('#regPhone', phone);
   await page.selectOption('#regCountry', 'Portugal');
   await page.fill('#regEmail', prefix + ts + '@test.com');
   await page.fill('#regPassword', 'senha123');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
-  return { page, phone };
+  return { page, phone, username };
 }
 
 (async () => {
@@ -26,19 +27,37 @@ async function register(context, name, prefix) {
   a.page.on('pageerror', err => console.log('A PAGE EXCEPTION:', err.message));
   b.page.on('pageerror', err => console.log('B PAGE EXCEPTION:', err.message));
 
-  await a.page.evaluate((bPhone) => {
-    const chatId = dmRoomId(APP.user.phone, bPhone);
-    APP.chats.push({ id: chatId, name: 'Uno B', phone: bPhone, type: 'user' });
-    renderChatList();
-  }, b.phone);
-  await b.page.evaluate((aPhone) => {
-    const chatId = dmRoomId(aPhone, APP.user.phone);
-    APP.chats.push({ id: chatId, name: 'Uno A', phone: aPhone, type: 'user' });
-    renderChatList();
-  }, a.phone);
-
-  await a.page.click('.chat-item:has-text("Uno B")');
+  // Um jogo em tempo real só funciona entre contactos de verdade — o servidor
+  // recusa entrar na sala (join_room) e recusa a mensagem que cria o jogo se
+  // A e B não forem contactos um do outro (isDmRoomAllowedForPhone em
+  // server.js). Em vez de fabricar a conversa só do lado do cliente, A
+  // procura B pelo nome de utilizador (fluxo real de "Procurar utilizador"),
+  // que trata o add_contact dos dois lados e abre a conversa automaticamente.
+  await a.page.click('button[title="Grupos, chamadas e contactos"]');
+  await a.page.click('#modalContactsFeatures button[onclick*="openSearchUserModal"]');
+  await a.page.waitForSelector('#modalSearchUser.active');
+  await a.page.fill('#searchUsernameInput', b.username);
+  await a.page.click('button:has-text("Procurar")');
+  await a.page.waitForSelector('#searchUserResult button:has-text("Iniciar conversa")', { timeout: 8000 });
+  await a.page.click('#searchUserResult button:has-text("Iniciar conversa")');
+  await a.page.waitForFunction(() => APP.currentChatId && APP.currentChatId.startsWith('dm_'), null, { timeout: 8000 });
   await a.page.waitForTimeout(300);
+
+  // O UNO cria o jogo por um caminho próprio no servidor (start_uno), que ao
+  // contrário do send_message não junta A e B automaticamente como
+  // contactos um do outro — por isso B também tem de procurar A e abrir a
+  // conversa (o que faz o socket de B entrar mesmo na sala) antes de A
+  // começar o jogo, senão a mensagem nunca chega a B.
+  await b.page.click('button[title="Grupos, chamadas e contactos"]');
+  await b.page.click('#modalContactsFeatures button[onclick*="openSearchUserModal"]');
+  await b.page.waitForSelector('#modalSearchUser.active');
+  await b.page.fill('#searchUsernameInput', a.username);
+  await b.page.click('button:has-text("Procurar")');
+  await b.page.waitForSelector('#searchUserResult button:has-text("Iniciar conversa")', { timeout: 8000 });
+  await b.page.click('#searchUserResult button:has-text("Iniciar conversa")');
+  await b.page.waitForFunction(() => APP.currentChatId && APP.currentChatId.startsWith('dm_'), null, { timeout: 8000 });
+  await b.page.waitForTimeout(300);
+
   await a.page.click('#gamesBtn');
   await a.page.waitForSelector('#modalGameChooser.active');
   await a.page.click('button:has-text("UNO")');
@@ -47,9 +66,9 @@ async function register(context, name, prefix) {
   const aHand = await a.page.evaluate(() => APP.messages[APP.currentChatId].find(m => m.game)?.game?.myHand);
   console.log('A got own 7-card hand:', Array.isArray(aHand) && aHand.length === 7);
 
-  await b.page.click('.chat-item:has-text("Uno A")');
-  await b.page.waitForTimeout(500);
-  const bGame = await b.page.evaluate(() => APP.messages[APP.currentChatId].find(m => m.game)?.game);
+  // B já estava na sala quando A começou o jogo, por isso vê-o ao vivo, sem
+  // precisar de reabrir a conversa.
+  const bGame = await b.page.evaluate(() => APP.messages[APP.currentChatId]?.find(m => m.game)?.game);
   console.log('B sees the game with own hand:', Array.isArray(bGame?.myHand) && bGame.myHand.length === 7);
   console.log('B CANNOT see A hand (privacy):', bGame && !('hands' in bGame));
   console.log('B sees handCounts (public info):', bGame?.handCounts && Object.keys(bGame.handCounts).length === 2);

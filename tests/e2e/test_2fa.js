@@ -11,9 +11,12 @@ async function getLastEmail() {
 function extractCode(emailBody) {
   // The email has a plain-text AND an html part, both carrying the real code
   // — picking whichever 6-digit run appears TWICE avoids false matches from
-  // headers/MIME boundaries (Message-ID, Date, etc.) that also contain
-  // incidental digit runs.
-  const matches = [...emailBody.matchAll(/\d{6}/g)].map(m => m[0]);
+  // headers/MIME boundaries (Message-ID, Date, etc.). The random MIME
+  // boundary hex string can itself contain a 6-digit run embedded between
+  // letters (e.g. "...cab6884976a3f...") that shows up MORE often than the
+  // real code (once per part delimiter) — requiring non-alphanumeric
+  // characters on both sides excludes digits embedded inside such a token.
+  const matches = [...emailBody.matchAll(/(?<![a-zA-Z0-9])(\d{6})(?![a-zA-Z0-9])/g)].map(m => m[1]);
   const counts = {};
   matches.forEach(c => { counts[c] = (counts[c] || 0) + 1; });
   const repeated = Object.entries(counts).find(([, n]) => n >= 2);

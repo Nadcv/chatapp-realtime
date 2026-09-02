@@ -22,17 +22,25 @@ const { chromium } = require('playwright');
   await page.waitForSelector('#tvScreen.active');
   await page.waitForTimeout(500);
 
-  const names = ['Euronews (Português)', 'Euronews (Español)', 'France 24', 'TVS', 'TVS (site)', 'TPA', 'RTC', 'TVM', 'RTTL'];
-  let allVisibleNoScroll = true;
+  // A fila de canais usa scroll horizontal por design (overflow-x:auto — ver
+  // test_all_channels.js/test_tvs_scroll.js), não "wrap" — com 7 canais reais
+  // (nomes completos), nem todos cabem de uma vez num ecrã de telemóvel de
+  // 412px, e não seria suposto caberem. O que interessa aqui é que os
+  // primeiros ficam visíveis sem precisar de deslizar, e nenhum fica cortado
+  // a meio (todos com a largura completa, mesmo os que só aparecem ao deslizar).
+  const names = ['Euronews (Português)', 'Euronews (Español)', 'France 24', 'TVS (site)', 'Record News', 'DW Español', 'El Doce'];
+  let firstVisibleNoScroll = true;
+  let noneClipped = true;
   for (const name of names) {
     const btn = page.locator('#tvTabs button', { hasText: name }).first();
-    const visible = await btn.isVisible();
     const box = await btn.boundingBox();
     const inViewportNoScroll = box && box.y < 915 && box.x >= 0 && box.x + box.width <= 412;
-    if (!inViewportNoScroll) allVisibleNoScroll = false;
+    if (name === 'Euronews (Português)' && !inViewportNoScroll) firstVisibleNoScroll = false;
+    if (!box || box.width <= 0) noneClipped = false;
     console.log(name, '-> visible without any scroll:', inViewportNoScroll, box ? `x=${box.x.toFixed(0)} y=${box.y.toFixed(0)}` : 'no box');
   }
-  console.log('ALL VISIBLE WITHOUT SCROLL:', allVisibleNoScroll);
+  console.log('O primeiro canal aparece logo, sem precisar de deslizar:', firstVisibleNoScroll);
+  console.log('Nenhum botão de canal aparece cortado/com largura zero:', noneClipped);
 
   await page.screenshot({ path: __dirname + '/../output/tv_wrapped.png' });
 

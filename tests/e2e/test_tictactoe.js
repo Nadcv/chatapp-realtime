@@ -7,15 +7,16 @@ async function register(context, name, prefix) {
   await page.click('.login-switch');
   const ts = Date.now() + Math.floor(Math.random() * 1000);
   const phone = '+3512' + ts.toString().slice(-8);
+  const username = prefix + ts;
   await page.fill('#regName', name);
-  await page.fill('#regUsername', prefix + ts);
+  await page.fill('#regUsername', username);
   await page.fill('#regPhone', phone);
   await page.selectOption('#regCountry', 'Portugal');
   await page.fill('#regEmail', prefix + ts + '@test.com');
   await page.fill('#regPassword', 'senha123');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
-  return { page, phone };
+  return { page, phone, username };
 }
 
 (async () => {
@@ -26,32 +27,34 @@ async function register(context, name, prefix) {
   const a = await register(ctxA, 'Galo A', 'galo_a_');
   const b = await register(ctxB, 'Galo B', 'galo_b_');
 
-  // Inject the DM chat entry into both users directly (bypassing the contact
-  // search/add UI flow, which isn't what this test is about) so they share
-  // the same dmRoomId and can both open the same conversation.
-  await a.page.evaluate((bPhone) => {
-    const chatId = dmRoomId(APP.user.phone, bPhone);
-    APP.chats.push({ id: chatId, name: 'Galo B', phone: bPhone, type: 'user' });
-    renderChatList();
-  }, b.phone);
-  await b.page.evaluate((aPhone) => {
-    const chatId = dmRoomId(aPhone, APP.user.phone);
-    APP.chats.push({ id: chatId, name: 'Galo A', phone: aPhone, type: 'user' });
-    renderChatList();
-  }, a.phone);
-
-  await a.page.click('.chat-item:has-text("Galo B")');
+  // Um jogo em tempo real só funciona entre contactos de verdade — o servidor
+  // recusa silenciosamente a mensagem que cria o jogo se A e B não forem
+  // contactos um do outro (isDmRoomAllowedForPhone em server.js). Em vez de
+  // fabricar a conversa só do lado do cliente, A procura B pelo nome de
+  // utilizador (fluxo real de "Procurar utilizador"), que trata o add_contact
+  // dos dois lados e abre a conversa automaticamente.
+  await a.page.click('button[title="Grupos, chamadas e contactos"]');
+  await a.page.click('#modalContactsFeatures button[onclick*="openSearchUserModal"]');
+  await a.page.waitForSelector('#modalSearchUser.active');
+  await a.page.fill('#searchUsernameInput', b.username);
+  await a.page.click('button:has-text("Procurar")');
+  await a.page.waitForSelector('#searchUserResult button:has-text("Iniciar conversa")', { timeout: 8000 });
+  await a.page.click('#searchUserResult button:has-text("Iniciar conversa")');
+  await a.page.waitForFunction(() => APP.currentChatId && APP.currentChatId.startsWith('dm_'), null, { timeout: 8000 });
   await a.page.waitForTimeout(300);
-  const gameBtnVisible = await a.page.locator('#ticTacToeBtn').evaluate(el => getComputedStyle(el).display !== 'none');
+  const gameBtnVisible = await a.page.locator('#gamesBtn').evaluate(el => getComputedStyle(el).display !== 'none');
   console.log('Game button visible in a 1-to-1 chat:', gameBtnVisible);
 
-  await a.page.click('#ticTacToeBtn');
+  await a.page.click('#gamesBtn');
+  await a.page.waitForSelector('#modalGameChooser.active');
+  await a.page.click('#gameChooserTicTacToeBtn');
   await a.page.waitForTimeout(400);
 
   const boardHtmlA = await a.page.evaluate(() => document.getElementById('chatMessages').innerHTML);
   console.log('Board rendered on A (9 cells):', (boardHtmlA.match(/data-cell="/g) || []).length === 9);
   console.log('A sees "A tua vez" (X starts, A created it):', boardHtmlA.includes('A tua vez'));
 
+  await b.page.waitForSelector('.chat-item:has-text("Galo A")', { timeout: 8000 });
   await b.page.click('.chat-item:has-text("Galo A")');
   await b.page.waitForTimeout(500);
   const boardHtmlB = await b.page.evaluate(() => document.getElementById('chatMessages').innerHTML);

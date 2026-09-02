@@ -1,5 +1,10 @@
 const { chromium } = require('playwright');
 
+// Cobre o resto do sub-modo "✈️ Voos" (dentro da aba Preços) que
+// test_flight_price_search.js não cobre: ida-e-volta, "voos baratos"
+// (varredura de destinos), alertas de preço e estatísticas — mais a
+// regressão da aba "Aviões" (rastreio ao vivo), que é uma funcionalidade
+// completamente diferente e não deve ser afetada por nada disto.
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const page = await browser.newPage();
@@ -29,37 +34,88 @@ const { chromium } = require('playwright');
 
   await page.evaluate(() => openTransportScreen());
   await page.click('.transport-tab[data-tab="priceSearch"]');
+  await page.click('.price-mode-tab[data-mode="flight"]');
+  await page.waitForTimeout(200);
+
+  // --- Ida e volta: LIS -> MAD com data de volta ---
+  await page.selectOption('#fpOriginInput', 'LIS');
+  await page.selectOption('#fpDestinationInput', 'MAD');
+  await page.fill('#fpDateInput', '2026-09-15');
+  await page.fill('#fpReturnDateInput', '2026-09-20');
+  await page.click('button:has-text("🔍 Pesquisar voos")');
+  await page.waitForTimeout(600);
+  const roundTripText = await page.evaluate(() => document.getElementById('fpResults').textContent);
+  console.log('Mostra o preço 150 do voo de ida-e-volta (mock round-trip):', roundTripText.includes('150'));
+  console.log('Indica "(ida e volta)" no resultado:', roundTripText.includes('ida e volta'));
+
+  // --- Voos baratos (varredura a partir de LIS) ---
+  await page.click('button:has-text("💸 Voos baratos")');
+  await page.waitForTimeout(3000);
+  const dealsText = await page.evaluate(() => document.getElementById('fpResults').textContent);
+  console.log('"Voos baratos" mostra pelo menos um destino:', /Madrid|Barcelona|Londres|Paris|Roma/.test(dealsText));
+  const dealsSorted = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#fpResults > div')];
+    const prices = rows.map(r => {
+      const m = r.textContent.match(/(\d+(?:\.\d+)?)\s*EUR/);
+      return m ? parseFloat(m[1]) : null;
+    }).filter(p => p != null);
+    return prices.every((p, i) => i === 0 || p >= prices[i - 1]);
+  });
+  console.log('"Voos baratos" vem ordenado do mais barato ao mais caro:', dealsSorted);
+
+  // Clicar num destino preenche o destino e volta a pesquisar essa rota específica.
+  await page.click('#fpResults > div:first-child');
+  await page.waitForTimeout(600);
+  const destAfterDealClick = await page.evaluate(() => document.getElementById('fpDestinationInput').value);
+  console.log('Clicar num destino barato preenche o destino e pesquisa essa rota:', !!destAfterDealClick);
+
+  // --- Alertas de preço ---
+  // Origem/destino/data são campos partilhados que vivem na secção "Pesquisar"
+  // (escondida com display:none nos outros sub-separadores) — têm de ser
+  // preenchidos ANTES de mudar para o separador "Alertas".
+  await page.selectOption('#fpOriginInput', 'LIS');
+  await page.selectOption('#fpDestinationInput', 'MAD');
+  await page.fill('#fpDateInput', '2026-09-15');
+  await page.click('.flight-sub-tab[data-sub="alerts"]');
   await page.waitForTimeout(300);
+  await page.fill('#fpAlertMaxPriceInput', '100');
+  await page.click('button:has-text("🔔 Criar alerta")');
+  await page.waitForTimeout(400);
+  const alertsListText = await page.evaluate(() => document.getElementById('fpAlertsList').textContent);
+  console.log('Alerta criado aparece na lista (LIS -> MAD, abaixo de 100 €):', alertsListText.includes('LIS') && alertsListText.includes('MAD') && alertsListText.includes('100'));
 
-  await page.fill('#flightOriginInput', 'lis');
-  await page.waitForTimeout(500);
-  const originResults = await page.evaluate(() => document.getElementById('flightOriginResults').textContent);
-  console.log('Resultados de origem mostram Lisboa:', originResults.includes('Lisboa'));
-  await page.click('#flightOriginResults div:has-text("Lisboa")');
-  const originValue = await page.evaluate(() => document.getElementById('flightOriginInput').value);
-  console.log('Input de origem preenchido com "Lisboa (LIS)":', originValue.includes('LIS'));
+  await page.click('#fpAlertsList button:has-text("🗑️")');
+  await page.waitForTimeout(400);
+  const alertsListAfterDelete = await page.evaluate(() => document.getElementById('fpAlertsList').textContent.trim());
+  console.log('Apagar o alerta remove-o da lista:', alertsListAfterDelete === '');
 
-  await page.fill('#flightDestinationInput', 'mad');
-  await page.waitForTimeout(500);
-  await page.click('#flightDestinationResults div:has-text("Madrid")');
-  const destValue = await page.evaluate(() => document.getElementById('flightDestinationInput').value);
-  console.log('Input de destino preenchido com "Madrid (MAD)":', destValue.includes('MAD'));
+  // --- Estatísticas (já feitas várias pesquisas acima, deve haver histórico) ---
+  await page.click('.flight-sub-tab[data-sub="stats"]');
+  await page.waitForTimeout(400);
+  const statsText = await page.evaluate(() => document.getElementById('fpStatsBox').textContent);
+  console.log('Estatísticas mostram o total de pesquisas feitas:', /Total de pesquisas/.test(statsText));
+  console.log('Estatísticas mostram o preço mais baixo encontrado:', /mais baixo encontrado/.test(statsText));
 
-  await page.fill('#flightDateInput', '2026-09-15');
-  await page.click('button:has-text("Pesquisar preços")');
-  await page.waitForTimeout(500);
-  const offersText = await page.evaluate(() => document.getElementById('flightOffersResults').textContent);
-  console.log('Mostra o preço 89.9:', offersText.includes('89.9'));
-  console.log('Mostra a companhia TAP Air Portugal:', offersText.includes('TAP Air Portugal'));
-  console.log('Mostra a companhia Ryanair:', offersText.includes('Ryanair'));
-  console.log('Mostra "1 escala(s)" para o voo com ligação:', offersText.includes('1 escala'));
-  console.log('Mostra "direto" para o voo sem escalas:', offersText.includes('direto'));
+  // --- Link de reserva ---
+  // window.open() para um domínio externo real (example-airline.test) não
+  // resolve dentro da sandbox (proxy de rede bloqueia-o) — em vez de esperar
+  // por uma navegação real, interceta-se a própria chamada a window.open
+  // para confirmar só o URL que a app tentou abrir.
+  await page.evaluate(() => { window.__openedUrls = []; window.open = (url) => window.__openedUrls.push(url); });
+  await page.click('.flight-sub-tab[data-sub="search"]');
+  await page.waitForTimeout(200);
+  await page.click('button:has-text("🔍 Pesquisar voos")');
+  await page.waitForTimeout(600);
+  await page.click('#fpResults button:has-text("Ver opções de reserva")');
+  await page.waitForTimeout(400);
+  const openedUrls = await page.evaluate(() => window.__openedUrls);
+  console.log('Botão de reserva abre o link de reserva da companhia:', openedUrls.some(u => /example-airline\.test/.test(u)));
 
-  // Regression: flight filter tab (companies) still works
+  // --- Regressão: a aba "Aviões" (rastreio ao vivo) não tem nada a ver com isto e continua a funcionar ---
   await page.click('.transport-tab[data-tab="flight"]');
   await page.waitForTimeout(300);
   const flightFilterVisible = await page.evaluate(() => document.getElementById('flightFilterBar').style.display === 'flex');
-  console.log('Aba Aviões (filtro companhia) continua a funcionar:', flightFilterVisible);
+  console.log('Aba Aviões (rastreio ao vivo) continua a funcionar:', flightFilterVisible);
 
   await browser.close();
 })().catch(e => { console.error('TEST FAILED:', e); process.exit(1); });

@@ -29,7 +29,10 @@ const { chromium } = require('playwright');
     const btn = document.querySelector('.chat-input-area button.btn-icon');
     return { width: btn.offsetWidth, height: btn.offsetHeight };
   });
-  console.log('Compose icons shrunk to 34px (was 42px):', iconSize.width === 34 && iconSize.height === 34);
+  // Encolheram mais uma vez desde que este teste foi escrito (42px -> 34px ->
+  // 28px hoje) — o que importa é continuarem pequenos o suficiente para
+  // caberem no ecrã estreito, não um valor exato específico.
+  console.log('Compose icons continuam pequenos (28px):', iconSize.width === 28 && iconSize.height === 28);
 
   const composeAreaFits = await page.evaluate(() => {
     const area = document.querySelector('.chat-input-area');

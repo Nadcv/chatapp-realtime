@@ -69,8 +69,10 @@ async function register(context, name, prefix) {
 
   await a.page.click('#gamesBtn');
   await a.page.waitForSelector('#modalGameChooser.active');
+  // Jogo do Galo passou a suportar grupos também (escolhe-se o adversário,
+  // tal como já acontecia com as Damas) — deixou de fazer sentido escondê-lo.
   const ticTacToeVisible = await a.page.evaluate(() => document.getElementById('gameChooserTicTacToeBtn').style.display !== 'none');
-  console.log('Jogo do Galo hidden in group (2-player-only game):', !ticTacToeVisible);
+  console.log('Jogo do Galo continua visível num grupo (agora escolhe-se o adversário):', ticTacToeVisible);
   await a.page.click('button:has-text("UNO")');
   await a.page.waitForSelector('#modalUnoGroupPicker.active');
   await a.page.check(`#unoGroupMemberPicker input[value="${b.phone}"]`);

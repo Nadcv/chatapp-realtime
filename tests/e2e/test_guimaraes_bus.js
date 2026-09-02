@@ -46,9 +46,6 @@ const { chromium } = require('playwright');
   console.log('Barra de pesquisa de Guimarães aparece:', scheduleBarVisible);
 
   // --- Check 3: searching a stop shows results ---
-  // Dados reais da GUIMABUS (fixture tests/mocks/fixtures/guimaraes_gtfs.zip, maior que um
-  // mock sintético) — em máquinas mais lentas o debounce de 300ms + fetch podem passar
-  // ligeiramente de 600ms, por isso a espera é mais generosa que nos outros testes.
   await page.fill('#guimaraesSearchInput', 'campo da feira');
   await page.waitForTimeout(1200);
   const resultsText = await page.evaluate(() => document.getElementById('guimaraesSearchResults').textContent);

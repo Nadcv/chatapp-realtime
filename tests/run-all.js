@@ -50,7 +50,8 @@ const BUILD_SCRIPTS = [
   'build_mock_madrid_gtfs.js',
   'build_mock_valencia_gtfs.js',
   'build_mock_renfe_gtfs.js',
-  'build_mock_gtfs_planner.js'
+  'build_mock_gtfs_planner.js',
+  'build_mock_guimaraes_gtfs.js'
 ];
 
 // ---- 2) Mock servers a manter no ar durante toda a suite (portas fixas,
@@ -78,6 +79,12 @@ const MOCK_SERVERS = [
                                      // (testa lógica antiga do Metro Lisboa, substituída pela
                                      // UnderLX no server.js atual — ver README)
 ];
+
+// SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
+// email correrem o código real de envio de email (nodemailer) — em vez de o
+// simular, o server.js liga-se mesmo a este servidor. Porta SMTP 2525,
+// porta HTTP 2526 para o teste ir buscar o último email "enviado".
+const FAKE_SMTP_ARGS = ['2525', '2526'];
 
 const SERVER_PORT = 3000;
 
@@ -127,6 +134,18 @@ const BASE_ENV = {
   TICTACTRIP_API_TOKEN: 'mock-tictactrip-token'
 };
 
+// Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por
+// email, redefinição de senha) — test_2fa_fallback.js testa precisamente o
+// comportamento com o servidor de email por CONFIGURAR, por isso não pode
+// correr com estas variáveis no ambiente geral (BASE_ENV).
+const EMAIL_ENV_OVERRIDES = {
+  EMAIL_USER: 'test@example.com',
+  EMAIL_PASS: 'testpass',
+  SMTP_HOST: '127.0.0.1',
+  SMTP_PORT: FAKE_SMTP_ARGS[0]
+};
+const EMAIL_BATCH_FILES = new Set(['test_2fa.js', 'test_password_reset.js']);
+
 // Testes que exigem o dataset "em trânsito" da CP (ver nota acima) — correm
 // num 2º lote, com o server.js reiniciado só para trocar o CP_GTFS_URL.
 const BATCH2_FILES = new Set(['test_estimated_trains.js', 'test_fertagus.js']);
@@ -175,6 +194,9 @@ function runBuildScripts() {
 
 function startMockServers() {
   MOCK_SERVERS.forEach((script) => spawnPersistent('node', [path.join(MOCKS_DIR, script)], { cwd: MOCKS_DIR }));
+  spawnPersistent('node', [path.join(MOCKS_DIR, 'fake_smtp.js'), ...FAKE_SMTP_ARGS], { cwd: MOCKS_DIR });
+  // Servidor de imagem "sem CORS" (porta 3001) para test_photo_editor_tainted.js.
+  spawnPersistent('node', [path.join(MOCKS_DIR, 'tainted_image_server.js'), '3001'], { cwd: MOCKS_DIR });
 }
 
 function startMainServer(envOverrides) {
@@ -236,13 +258,15 @@ async function main() {
   await new Promise((r) => setTimeout(r, 1000));
 
   const allFiles = listTestFiles();
-  const batch1Files = allFiles.filter((f) => !BATCH2_FILES.has(f));
+  const batch1Files = allFiles.filter((f) => !BATCH2_FILES.has(f) && !EMAIL_BATCH_FILES.has(f));
   const batch2Files = allFiles.filter((f) => BATCH2_FILES.has(f));
+  const emailBatchFiles = allFiles.filter((f) => EMAIL_BATCH_FILES.has(f));
 
   const results = [];
   try {
     results.push(...await runBatch(batch1Files, {}, 'geral'));
     results.push(...await runBatch(batch2Files, { CP_GTFS_URL: 'http://localhost:3015/gtfs_transit.zip' }, 'comboios em trânsito (CP)'));
+    results.push(...await runBatch(emailBatchFiles, EMAIL_ENV_OVERRIDES, 'email (2FA / redefinir senha)'));
   } finally {
     killAll();
   }

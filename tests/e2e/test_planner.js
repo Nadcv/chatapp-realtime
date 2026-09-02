@@ -50,7 +50,12 @@ const { chromium } = require('playwright');
   console.log('Mostra a opção de Comboio/Autocarro (Tictactrip):', resultsText.includes('Comboio/Autocarro'));
   console.log('Mostra a opção de Comboio direto (CP):', resultsText.includes('Comboio direto'));
   console.log('Mostra a nota de que o preço do comboio CP não está disponível:', resultsText.includes('Preço não disponível'));
-  console.log('Mostra o horário real do comboio CP (07:00:00 → 09:50:00):', resultsText.includes('07:00:00') && resultsText.includes('09:50:00'));
+  // Os horários do mock da CP são relativos a "agora" (ver build_mock_gtfs.js —
+  // precisam de ser sempre "daqui a uns minutos", não valores fixos), por isso
+  // aqui só confirmamos que aparecem duas horas num formato real (partida e
+  // chegada), não um valor específico.
+  const cpTimeMatches = resultsText.match(/\d{2}:\d{2}(:\d{2})?/g) || [];
+  console.log('Mostra o horário real do comboio CP (partida e chegada, formato HH:MM):', cpTimeMatches.length >= 2);
   console.log('Mostra CO2 estimado com "~" e rótulo (estimativa) para o voo:', resultsText.includes('~') && resultsText.includes('(estimativa)'));
   console.log('Mostra uma recomendação:', resultsText.includes('Recomendação'));
 

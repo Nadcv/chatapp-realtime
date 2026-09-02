@@ -6,9 +6,14 @@ const { chromium } = require('playwright');
   const consoleErrors = [];
   page.on('pageerror', err => consoleErrors.push('PAGE EXCEPTION: ' + err.message));
   page.on('console', msg => {
-    // ERR_TUNNEL_CONNECTION_FAILED = CDNs (Leaflet/Three.js) bloqueados pelo proxy
-    // deste sandbox — não tem nada a ver com a PWA, acontece em qualquer teste aqui.
-    if (msg.type() === 'error' && !msg.text().includes('ERR_TUNNEL_CONNECTION_FAILED')) consoleErrors.push('CONSOLE ERROR: ' + msg.text());
+    // ERR_TUNNEL_CONNECTION_FAILED (CDNs bloqueados pelo proxy deste sandbox) e
+    // respostas 404/502 de APIs externas (notícias, meteorologia, etc., também
+    // bloqueadas aqui) não têm nada a ver com a PWA — acontecem em qualquer
+    // teste nesta suite, independentemente do que está a ser testado.
+    const text = msg.text();
+    const isKnownSandboxNoise = text.includes('ERR_TUNNEL_CONNECTION_FAILED')
+      || /Failed to load resource: the server responded with a status of (404|502)/.test(text);
+    if (msg.type() === 'error' && !isKnownSandboxNoise) consoleErrors.push('CONSOLE ERROR: ' + text);
   });
 
   await page.goto('http://localhost:3000');

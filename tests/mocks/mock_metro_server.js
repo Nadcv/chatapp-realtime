@@ -8,7 +8,7 @@ http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', () => {
       const auth = req.headers['authorization'] || '';
-      if (!auth.startsWith('Basic ')) { res.writeHead(401); return res.end('{"error":"no basic auth"}'); }
+      if (auth !== 'Basic ZmFrZTpmYWtl') { res.writeHead(401); return res.end('{"error":"invalid credentials"}'); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ access_token: 'mocktoken_' + tokenCallCount, expires_in: 2 }));
     });

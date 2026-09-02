@@ -5,22 +5,23 @@ const { chromium } = require('playwright');
   const page = await browser.newPage();
   page.on('console', msg => { if (msg.type() === 'error') console.log('PAGE ERROR:', msg.text()); });
 
-  // Mock the /api/currency/rates response since the real external API is blocked in this sandbox
-  await page.route('**/*', async (route) => {
-    if (!route.request().url().includes('/api/currency/rates')) return route.continue();
-    console.log('MOCK INTERCEPTED:', route.request().url());
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        base: 'EUR',
-        updated: 'Tue, 18 Aug 2026 00:00:00 GMT',
-        rates: { EUR: 1, USD: 1.08, BRL: 5.83, AOA: 990.5, CVE: 110.27, MZN: 68.9, STN: 24.5, GBP: 0.855 }
-      })
-    });
-  });
-
   await page.goto('http://localhost:3000');
+  // A API real de câmbio está bloqueada nesta sandbox — simula-se a resposta
+  // substituindo window.fetch (page.route não intercepta de forma fiável
+  // pedidos same-origin feitos por fetch() neste ambiente; este é o mesmo
+  // padrão já usado com sucesso noutros testes desta suite).
+  await page.evaluate(() => {
+    window.fetch = ((realFetch) => (url, opts) => {
+      if (String(url).startsWith('/api/currency/rates')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          base: 'EUR',
+          updated: 'Tue, 18 Aug 2026 00:00:00 GMT',
+          rates: { EUR: 1, USD: 1.08, BRL: 5.83, AOA: 990.5, CVE: 110.27, MZN: 68.9, STN: 24.5, GBP: 0.855 }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return realFetch(url, opts);
+    })(window.fetch.bind(window));
+  });
   await page.click('.login-switch');
   const ts = Date.now();
   await page.fill('#regName', 'Cambio Teste');

@@ -1,8 +1,9 @@
 const http = require('http');
 const fs = require('fs');
-// Ficheiro GTFS real da GUIMABUS (dados abertos, sem informação sensível),
-// guardado como fixture do projeto em vez de depender de um upload da sessão.
-const zipPath = __dirname + '/fixtures/guimaraes_gtfs.zip';
+// Dados sintéticos (ver build_mock_guimaraes_gtfs.js) — um excerto real da
+// GUIMABUS tem horários fixos do dia e fica sem partidas a certas horas,
+// tornando os testes de "próxima partida" instáveis consoante a hora do dia.
+const zipPath = __dirname + '/mock_guimaraes.zip';
 http.createServer((req, res) => {
   const buf = fs.readFileSync(zipPath);
   res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': buf.length });

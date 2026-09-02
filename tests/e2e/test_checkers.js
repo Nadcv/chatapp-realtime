@@ -7,15 +7,16 @@ async function register(context, name, prefix) {
   await page.click('.login-switch');
   const ts = Date.now() + Math.floor(Math.random() * 1000);
   const phone = '+3516' + ts.toString().slice(-8);
+  const username = prefix + ts;
   await page.fill('#regName', name);
-  await page.fill('#regUsername', prefix + ts);
+  await page.fill('#regUsername', username);
   await page.fill('#regPhone', phone);
   await page.selectOption('#regCountry', 'Portugal');
   await page.fill('#regEmail', prefix + ts + '@test.com');
   await page.fill('#regPassword', 'senha123');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
-  return { page, phone };
+  return { page, phone, username };
 }
 
 (async () => {
@@ -26,18 +27,20 @@ async function register(context, name, prefix) {
   const a = await register(ctxA, 'Damas A', 'damas_a_');
   const b = await register(ctxB, 'Damas B', 'damas_b_');
 
-  await a.page.evaluate((bPhone) => {
-    const chatId = dmRoomId(APP.user.phone, bPhone);
-    APP.chats.push({ id: chatId, name: 'Damas B', phone: bPhone, type: 'user' });
-    renderChatList();
-  }, b.phone);
-  await b.page.evaluate((aPhone) => {
-    const chatId = dmRoomId(aPhone, APP.user.phone);
-    APP.chats.push({ id: chatId, name: 'Damas A', phone: aPhone, type: 'user' });
-    renderChatList();
-  }, a.phone);
-
-  await a.page.click('.chat-item:has-text("Damas B")');
+  // Um jogo em tempo real só funciona entre contactos de verdade — o servidor
+  // recusa silenciosamente a mensagem que cria o jogo se A e B não forem
+  // contactos um do outro (isDmRoomAllowedForPhone em server.js). Em vez de
+  // fabricar a conversa só do lado do cliente, A procura B pelo nome de
+  // utilizador (fluxo real de "Procurar utilizador"), que trata o add_contact
+  // dos dois lados e abre a conversa automaticamente.
+  await a.page.click('button[title="Grupos, chamadas e contactos"]');
+  await a.page.click('#modalContactsFeatures button[onclick*="openSearchUserModal"]');
+  await a.page.waitForSelector('#modalSearchUser.active');
+  await a.page.fill('#searchUsernameInput', b.username);
+  await a.page.click('button:has-text("Procurar")');
+  await a.page.waitForSelector('#searchUserResult button:has-text("Iniciar conversa")', { timeout: 8000 });
+  await a.page.click('#searchUserResult button:has-text("Iniciar conversa")');
+  await a.page.waitForFunction(() => APP.currentChatId && APP.currentChatId.startsWith('dm_'), null, { timeout: 8000 });
   await a.page.waitForTimeout(300);
 
   await a.page.click('#gamesBtn');
@@ -45,13 +48,21 @@ async function register(context, name, prefix) {
   await a.page.click('button:has-text("Damas")');
   await a.page.waitForTimeout(400);
 
+  // Conta só as células do tabuleiro (data-cell), não a legenda por baixo —
+  // essa também tem um 🔴 e um ⚪ de exemplo, que inflacionava a contagem.
+  const pieceCounts = await a.page.evaluate(() => {
+    const cells = [...document.querySelectorAll('#chatMessages [data-cell]')];
+    return {
+      red: cells.filter(c => c.textContent.includes('🔴') && !c.textContent.includes('👑')).length,
+      white: cells.filter(c => c.textContent.includes('⚪') && !c.textContent.includes('👑')).length
+    };
+  });
   const boardHtmlA = await a.page.evaluate(() => document.getElementById('chatMessages').innerHTML);
-  const redCount = (boardHtmlA.match(/🔴(?!👑)/g) || []).length;
-  const whiteCount = (boardHtmlA.match(/⚪(?!👑)/g) || []).length;
-  console.log('Initial setup: 12 red pieces:', redCount === 12);
-  console.log('Initial setup: 12 white pieces:', whiteCount === 12);
+  console.log('Initial setup: 12 red pieces:', pieceCounts.red === 12);
+  console.log('Initial setup: 12 white pieces:', pieceCounts.white === 12);
   console.log('A (creator) sees "A tua vez":', boardHtmlA.includes('A tua vez'));
 
+  await b.page.waitForSelector('.chat-item:has-text("Damas A")', { timeout: 8000 });
   await b.page.click('.chat-item:has-text("Damas A")');
   await b.page.waitForTimeout(500);
   const boardHtmlB = await b.page.evaluate(() => document.getElementById('chatMessages').innerHTML);

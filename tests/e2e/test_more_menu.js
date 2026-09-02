@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
   const directButtons = ['openTransportScreen()', 'openDriveListenScreen()', 'openNavScreen()', 'openFiresScreen()', 'openSpaceScreen()', 'openCurrencyScreen()', 'openCalcScreen()'];
   for (const fn of directButtons) {
     const count = await page.locator(`.header-actions > button[onclick="${fn}"]`).count();
-    console.log(`Header still has direct button for ${fn}:`, count > 0);
+    console.log(`Header no longer has a direct button for ${fn}:`, count === 0);
   }
 
   // Open the "Mais" modal and verify all 7 are inside it, functional.

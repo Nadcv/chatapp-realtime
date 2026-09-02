@@ -3,6 +3,7 @@ const { chromium } = require('playwright');
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const page = await browser.newPage();
+  page.on('pageerror', err => console.log('PAGE EXCEPTION:', err.message));
   await page.goto('http://localhost:3000');
   await page.click('.login-switch');
   const ts = Date.now();
@@ -27,8 +28,21 @@ const { chromium } = require('playwright');
   await page.click(`.chat-item:has-text("${groupName}")`);
   await page.waitForTimeout(300);
 
-  const visible = await page.locator('#ticTacToeBtn').evaluate(el => getComputedStyle(el).display !== 'none');
-  console.log('Game button hidden in group chats:', !visible);
+  // O Jogo do Galo passou a suportar grupos (escolhe-se o adversário, tal
+  // como já acontecia com as Damas) — deixou de fazer sentido esconder o
+  // botão de jogos ou a opção "Jogo do Galo" dentro de um grupo.
+  const gamesBtnVisible = await page.locator('#gamesBtn').evaluate(el => getComputedStyle(el).display !== 'none');
+  console.log('Botão de jogos visível num grupo:', gamesBtnVisible);
+
+  await page.click('#gamesBtn');
+  await page.waitForSelector('#modalGameChooser.active');
+  const ticTacToeVisible = await page.evaluate(() => getComputedStyle(document.getElementById('gameChooserTicTacToeBtn')).display !== 'none');
+  console.log('Opção "Jogo do Galo" visível no seletor de jogos num grupo:', ticTacToeVisible);
+
+  await page.click('#gameChooserTicTacToeBtn');
+  await page.waitForSelector('#modalOpponentPicker.active');
+  const pickerTitle = await page.evaluate(() => document.getElementById('opponentPickerTitle').textContent);
+  console.log('Escolher "Jogo do Galo" num grupo abre o seletor de adversário certo:', pickerTitle.includes('Jogo do Galo'));
 
   await browser.close();
 })().catch(e => { console.error('TEST FAILED:', e); process.exit(1); });
