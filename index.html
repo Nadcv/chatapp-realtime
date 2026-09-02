@@ -1636,6 +1636,7 @@
                     <button class="btn-small rail-country-tab" data-country="madrid" onclick="switchRailCountry('madrid')" style="flex:1;">🇪🇸 Madrid</button>
                     <button class="btn-small rail-country-tab" data-country="valencia" onclick="switchRailCountry('valencia')" style="flex:1;">🇪🇸 Valência</button>
                     <button class="btn-small rail-country-tab" data-country="renfe" onclick="switchRailCountry('renfe')" style="flex:1;">🇪🇸 Espanha (Renfe)</button>
+                    <button class="btn-small rail-country-tab" data-country="france" onclick="switchRailCountry('france')" style="flex:1;">🇫🇷 França (Transilien)</button>
                 </div>
                 <div id="railPortugalContent" style="display:flex;flex-direction:column;gap:6px;">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
@@ -1645,7 +1646,7 @@
                 <div id="railSearchResults"></div>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
                     <input type="checkbox" id="railEstimatedToggle" onchange="toggleEstimatedTrainPositions()">
-                    🚆 Ver comboios da CP e Fertagus em trânsito (estimado pelo horário — não é GPS ao vivo)
+                    🚆 Ver comboios de Portugal (CP/Fertagus) e Espanha (Renfe) em trânsito (estimado pelo horário — não é GPS ao vivo)
                 </label>
                 <div id="railEstimatedStatus" style="font-size:11px;color:var(--text-secondary);"></div>
                 <div id="railTrainDetail" style="display:none;flex-direction:column;gap:4px;background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:12px;max-height:220px;overflow-y:auto;">
@@ -1668,6 +1669,10 @@
                 <div id="railRenfeContent" style="display:none;flex-direction:column;gap:6px;">
                     <input type="text" id="railRenfeSearchInput" placeholder="🔍 Pesquisar estação (Renfe Cercanías/AVE, toda a Espanha)..." oninput="debounceRenfeRailStationSearch()">
                     <div id="railRenfeSearchResults"></div>
+                </div>
+                <div id="railFranceContent" style="display:none;flex-direction:column;gap:6px;">
+                    <input type="text" id="railFranceSearchInput" placeholder="🔍 Pesquisar estação (SNCF Transilien, Paris/Île-de-France)..." oninput="debounceFranceRailStationSearch()">
+                    <div id="railFranceSearchResults"></div>
                 </div>
             </div>
             <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
@@ -9650,6 +9655,7 @@
         document.getElementById('railMadridContent').style.display = country === 'madrid' ? 'flex' : 'none';
         document.getElementById('railValenciaContent').style.display = country === 'valencia' ? 'flex' : 'none';
         document.getElementById('railRenfeContent').style.display = country === 'renfe' ? 'flex' : 'none';
+        document.getElementById('railFranceContent').style.display = country === 'france' ? 'flex' : 'none';
     }
     let railMadridSearchTimer = null;
     function debounceMadridRailStationSearch() {
@@ -9817,6 +9823,51 @@
         document.getElementById('modalTrainDepartures').classList.add('active');
         try {
             const res = await fetch('/api/transport/renfe/rail-departures?stationId=' + encodeURIComponent(stationId) + '&type=' + encodeURIComponent(type));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }
+            list.innerHTML = data.departures.map(d => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div><strong>${escapeHtml((d.time || '').slice(0, 5))}</strong>${d.routeName ? ' · ' + escapeHtml(d.routeName) : ''}</div>
+                    <div style="color:var(--text-secondary);font-size:12px;text-align:right;">${escapeHtml(d.headsign || '')}</div>
+                </div>`).join('');
+        } catch (err) {
+            list.innerHTML = `<p style="color:var(--text-secondary);text-align:center;padding:20px;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    // ==================== FRANÇA (SNCF Transilien — Paris/Île-de-França) ====================
+    let railFranceSearchTimer = null;
+    function debounceFranceRailStationSearch() {
+        clearTimeout(railFranceSearchTimer);
+        railFranceSearchTimer = setTimeout(runFranceRailStationSearch, 300);
+    }
+    async function runFranceRailStationSearch() {
+        const q = document.getElementById('railFranceSearchInput').value.trim();
+        const box = document.getElementById('railFranceSearchResults');
+        if (!q) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">A procurar...</p>';
+        try {
+            const res = await fetch('/api/transport/france/rail-stops?q=' + encodeURIComponent(q));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro');
+            if (!data.length) { box.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">Nenhuma estação encontrada.</p>'; return; }
+            box.innerHTML = data.map(s => `
+                <div style="padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08);" onclick='openFranceRailDeparturesModal(${JSON.stringify(s.id)}, ${JSON.stringify(s.name)})'>
+                    🚆 ${escapeHtml(s.name)}
+                </div>`).join('');
+        } catch (err) {
+            box.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;padding:6px 0;">⚠️ ${escapeHtml(err.message)}</p>`;
+        }
+    }
+    // Reaproveita o mesmo modal genérico de partidas já usado para a CP/Fertagus/Madrid/Valência/Renfe.
+    async function openFranceRailDeparturesModal(stationId, stationName) {
+        document.getElementById('trainDeparturesTitle').textContent = `🚆 Próximas partidas — ${stationName}`;
+        const list = document.getElementById('trainDeparturesList');
+        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">A carregar...</p>';
+        document.getElementById('modalTrainDepartures').classList.add('active');
+        try {
+            const res = await fetch('/api/transport/france/rail-departures?stationId=' + encodeURIComponent(stationId));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro');
             if (!data.departures.length) { list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">Sem mais partidas hoje.</p>'; return; }

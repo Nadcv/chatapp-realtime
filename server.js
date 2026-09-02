@@ -1205,14 +1205,22 @@ app.get('/api/trains/departures', async (req, res) => {
 // de cada comboio da CP atualmente "em viagem" segundo o horário oficial.
 app.get('/api/trains/positions-estimated', async (req, res) => {
   const now = nowInLisbon();
-  const [cpGtfs, fertagusGtfs] = await Promise.all([
+  // Espanha usa CET/CEST (Europe/Madrid), uma hora à frente de Portugal — os
+  // horários do GTFS da Renfe são hora local de Espanha, por isso não dá para
+  // reutilizar `now` (hora de Lisboa) ao calcular as posições estimadas da Renfe.
+  const nowMadrid = nowInTimeZone('Europe/Madrid');
+  const [cpGtfs, fertagusGtfs, renfeCercaniasGtfs, renfeAveGtfs] = await Promise.all([
     ensureGtfsFeedLoaded('cp', resolveCpGtfsUrl, 'CP_GTFS_URL').catch((err) => { console.error('Erro GTFS (posições estimadas CP):', err.message); return null; }),
-    ensureGtfsFeedLoaded('fertagus', resolveFertagusGtfsUrl, 'FERTAGUS_GTFS_URL').catch((err) => { console.error('Erro GTFS (posições estimadas Fertagus):', err.message); return null; })
+    ensureGtfsFeedLoaded('fertagus', resolveFertagusGtfsUrl, 'FERTAGUS_GTFS_URL').catch((err) => { console.error('Erro GTFS (posições estimadas Fertagus):', err.message); return null; }),
+    ensureGtfsFeedLoaded(RENFE_RAIL_FEEDS.cercanias.key, RENFE_RAIL_FEEDS.cercanias.resolve, RENFE_RAIL_FEEDS.cercanias.envVar).catch((err) => { console.error('Erro GTFS (posições estimadas Renfe Cercanías):', err.message); return null; }),
+    ensureGtfsFeedLoaded(RENFE_RAIL_FEEDS.ave.key, RENFE_RAIL_FEEDS.ave.resolve, RENFE_RAIL_FEEDS.ave.envVar).catch((err) => { console.error('Erro GTFS (posições estimadas Renfe AVE):', err.message); return null; })
   ]);
-  if (!cpGtfs && !fertagusGtfs) return res.status(503).json({ error: 'Não foi possível calcular as posições estimadas agora.' });
+  if (!cpGtfs && !fertagusGtfs && !renfeCercaniasGtfs && !renfeAveGtfs) return res.status(503).json({ error: 'Não foi possível calcular as posições estimadas agora.' });
   const trains = [];
   if (cpGtfs) getEstimatedTrainPositions(cpGtfs, now).forEach((t) => trains.push({ ...t, operator: 'CP' }));
   if (fertagusGtfs) getEstimatedTrainPositions(fertagusGtfs, now).forEach((t) => trains.push({ ...t, operator: 'Fertagus' }));
+  if (renfeCercaniasGtfs) getEstimatedTrainPositions(renfeCercaniasGtfs, nowMadrid).forEach((t) => trains.push({ ...t, operator: 'Renfe Cercanías' }));
+  if (renfeAveGtfs) getEstimatedTrainPositions(renfeAveGtfs, nowMadrid).forEach((t) => trains.push({ ...t, operator: 'Renfe AVE' }));
   res.json({ trains });
 });
 
@@ -1537,6 +1545,40 @@ app.get('/api/transport/renfe/rail-departures', async (req, res) => {
   } catch (err) {
     console.error(`Erro GTFS (partidas ${feed.label} Renfe):`, err.message);
     res.status(503).json({ error: 'Não foi possível obter os horários da Renfe agora: ' + err.message });
+  }
+});
+
+// ==================== FRANÇA (SNCF Transilien — Paris/Île-de-França) ====================
+// O feed nacional da SNCF (TER + Intercités + TGV, todo o país, janela rolante de
+// ~150 dias) é enorme — dezenas/centenas de MB, pesado demais só para uma
+// funcionalidade secundária de horários no meio de uma app de chat. Em vez disso,
+// arrancamos com a Transilien (comboios suburbanos de Paris/Île-de-França: ~342
+// estações, 28 linhas), um recorte MUITO mais leve do mesmo país, tal como Fertagus
+// é um recorte leve para a área de Lisboa. Configurável por FRANCE_GTFS_URL se
+// preferires apontar para outra rede (ex.: um TER regional específico do portal
+// transport.data.gouv.fr) — o motor GTFS é o mesmo para qualquer feed válido.
+const FRANCE_GTFS_URL_DEFAULT = 'https://eu.ftp.opendatasoft.com/sncf/gtfs/transilien-gtfs.zip';
+async function resolveFranceGtfsUrl() {
+  return process.env.FRANCE_GTFS_URL || FRANCE_GTFS_URL_DEFAULT;
+}
+app.get('/api/transport/france/rail-stops', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('france', resolveFranceGtfsUrl, 'FRANCE_GTFS_URL');
+    res.json(gtfsSearchStops(gtfs, (req.query.q || '').toLowerCase().trim()));
+  } catch (err) {
+    console.error('Erro GTFS (estações França):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de França agora: ' + err.message });
+  }
+});
+app.get('/api/transport/france/rail-departures', async (req, res) => {
+  try {
+    const gtfs = await ensureGtfsFeedLoaded('france', resolveFranceGtfsUrl, 'FRANCE_GTFS_URL');
+    const result = gtfsNextDepartures(gtfs, req.query.stationId, 'Europe/Paris');
+    if (!result) return res.status(400).json({ error: 'Estação inválida.' });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro GTFS (partidas França):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter os horários de França agora: ' + err.message });
   }
 });
 

@@ -37,11 +37,21 @@ const { chromium } = require('playwright');
   await page.check('#railEstimatedToggle');
   await page.waitForTimeout(600);
   const status1 = await page.evaluate(() => document.getElementById('railEstimatedStatus').textContent);
-  // O endpoint /api/trains/positions-estimated combina CP e Fertagus — além dos
-  // 2 comboios de CP em trânsito neste mock (T_TRAVELING, T_DWELLING), o mock da
-  // Fertagus tem sempre o seu próprio FT2 "em trânsito agora" (ver
-  // build_mock_fertagus_gtfs.js), por isso o total real é 3, não 2.
-  console.log('Mostra "3 comboio(s) em trânsito" (2 CP + 1 Fertagus):', status1.includes('3 comboio'));
+  // O endpoint /api/trains/positions-estimated combina CP, Fertagus e Renfe
+  // (Cercanías + AVE) — além dos 2 comboios de CP em trânsito neste mock
+  // (T_TRAVELING, T_DWELLING), o mock da Fertagus tem sempre o seu próprio FT2
+  // "em trânsito agora" (ver build_mock_fertagus_gtfs.js), e os mocks da Renfe
+  // têm RCT2 (Cercanías) e RAT2 (AVE), cada um também sempre "em trânsito agora"
+  // (ver build_mock_renfe_gtfs.js) — por isso o total real é 5, não 2.
+  console.log('Mostra "5 comboio(s) em trânsito" (2 CP + 1 Fertagus + 2 Renfe):', status1.includes('5 comboio'));
+
+  const operatorsPresent = await page.evaluate(async () => {
+    const r = await fetch('/api/trains/positions-estimated');
+    const data = await r.json();
+    return (data.trains || []).map(t => t.operator);
+  });
+  console.log('Inclui um comboio da Renfe Cercanías:', operatorsPresent.includes('Renfe Cercanías'));
+  console.log('Inclui um comboio da Renfe AVE:', operatorsPresent.includes('Renfe AVE'));
 
   const routeStopsCheck = await page.evaluate(async () => {
     const res = await fetch('/api/trains/positions-estimated');
