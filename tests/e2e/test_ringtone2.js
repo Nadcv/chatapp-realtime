@@ -1,12 +1,25 @@
 const { chromium } = require('playwright');
 
-async function registerUser(context, name, usernamePrefix) {
+// Espelha ringFrequencyForUser() do index.html — só 5 tons possíveis, por
+// isso dois telefones AO ACASO têm ~20% de hipótese de colidir no mesmo tom
+// (não é um bug, é só a cardinalidade do hash). Em vez de arriscar esse falso
+// negativo, escolhe-se o telefone da 2ª conta de forma a garantir um tom
+// diferente do da 1ª — testando assim a propriedade real (o algoritmo
+// consegue mesmo distinguir contas), não a sorte de duas chamadas aleatórias.
+function ringFrequencyForPhone(phone) {
+  let hash = 0;
+  for (let i = 0; i < phone.length; i++) hash = (hash * 31 + phone.charCodeAt(i)) >>> 0;
+  const tones = [780, 880, 950, 1040, 1120];
+  return tones[hash % tones.length];
+}
+
+async function registerUser(context, name, usernamePrefix, phone) {
   const page = await context.newPage();
   page.on('pageerror', err => console.log(`PAGE EXCEPTION [${name}]:`, err.message));
   await page.goto('http://localhost:3000');
   await page.click('.login-switch');
   const ts = Date.now() + Math.floor(Math.random() * 1000);
-  const phone = '+3517' + ts.toString().slice(-8);
+  if (!phone) phone = '+3517' + ts.toString().slice(-8);
   await page.fill('#regName', name);
   await page.fill('#regUsername', usernamePrefix + ts);
   await page.fill('#regPhone', phone);
@@ -27,7 +40,12 @@ async function registerUser(context, name, usernamePrefix) {
   const ctxB = await browser.newContext({ permissions: ['microphone', 'camera'] });
 
   const a = await registerUser(ctxA, 'Nadiel Teste', 'nadiel_');
-  const b = await registerUser(ctxB, 'Luis Teste', 'luis_');
+  const freqA0 = ringFrequencyForPhone(a.phone);
+  let bPhone;
+  do {
+    bPhone = '+3517' + (Date.now() + Math.floor(Math.random() * 1000000)).toString().slice(-8);
+  } while (ringFrequencyForPhone(bPhone) === freqA0);
+  const b = await registerUser(ctxB, 'Luis Teste', 'luis_', bPhone);
   await a.page.waitForTimeout(500);
   await b.page.waitForTimeout(500);
 
