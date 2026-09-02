@@ -7,7 +7,8 @@
     "node": "20.x"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node tests/run-all.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -20,5 +21,8 @@
     "qrcode": "^1.5.4",
     "socket.io": "^4.7.5",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

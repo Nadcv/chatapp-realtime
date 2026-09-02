@@ -12,6 +12,29 @@ npm start
 
 Acesse `http://localhost:3000`.
 
+## Testes automatizados
+
+```bash
+npm install
+npm test
+```
+
+Corre toda a suite de testes de ponta a ponta (Playwright + Chromium, já incluído — não precisa de mais nada instalado). Um único comando faz tudo o que antes era manual:
+
+1. Gera de novo todas as fixtures GTFS de mentira (`tests/mocks/build_mock_*.js`), sempre com horários "daqui a alguns minutos" — nunca fixtures antigas com horas já passadas.
+2. Arranca todos os mock servers das fontes externas (GTFS, CKAN, APIs de preços/eventos) em portas fixas, para os testes nunca dependerem da rede real nem dos sites originais estarem no ar.
+3. Arranca o `server.js` principal com as variáveis de ambiente já todas apontadas para esses mocks.
+4. Corre todos os ficheiros `tests/e2e/test_*.js` (cada um abre um browser Chromium de verdade e usa a app como uma pessoa usaria), em paralelo (`--concurrency=N`, por omissão 6).
+5. No final, mostra um resumo — quantos ficheiros passaram, quantos tiveram alguma falha, quantos rebentaram com uma exceção — e o código de saída reflete isso (útil para gates de CI no futuro).
+
+O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não commitado); o terminal só mostra o resumo, para não inundar com milhares de linhas.
+
+**Quatro notas sobre como isto está organizado:**
+- Há três "lotes", cada um com o `server.js` reiniciado com variáveis de ambiente diferentes (o resto do ambiente mantém-se igual entre eles): o lote "geral" (a maioria dos testes), o lote "comboios em trânsito (CP)" (a CP tem dois conjuntos de dados de mentira diferentes para a mesma variável `CP_GTFS_URL` — partidas próximas fixas vs. viagens "em trânsito agora" — e como o servidor só lê essa variável uma vez e guarda o resultado em cache, é preciso reiniciar só para trocá-la) e o lote "email" (2FA por email e redefinição de senha, com `EMAIL_USER`/`EMAIL_PASS`/`SMTP_HOST`/`SMTP_PORT` só ligados aqui — os testes do "fallback sem servidor de email configurado" precisam mesmo dessas variáveis ausentes no lote geral, por isso não podem partilhar ambiente com os testes de email a sério).
+- Todos os feeds GTFS de mentira (incluindo o de Guimarães, que antes usava um excerto real da GUIMABUS) usam dados **sintéticos** com uma partida "daqui a 5 minutos" gerada a cada corrida — um excerto de horário real tem partidas fixas do dia e fica sem nenhuma a certas horas (ex.: de madrugada), o que tornava os testes de "próxima partida" instáveis consoante a hora do dia em que a suite corresse.
+- O runner apaga os ficheiros de persistência local (`pins.json`, `blocked.json`, etc. — os mesmos usados quando `MONGO_URI` não está definida) antes de cada corrida. Alguns testes usam o mesmo ID fixo para uma conversa/mensagem em todas as execuções; sem esta limpeza, esse estado ficava a acumular-se de corrida para corrida e alguns testes passavam a falhar por causa de dados residuais, não de um bug.
+- Os testes de 2FA/redefinição de senha por email correm o código real de envio de email (`nodemailer`) contra um servidor SMTP falso local (`tests/mocks/fake_smtp.js`, sem AUTH/TLS, com um inspetor HTTP na porta 2526 para o teste ir buscar o último email "enviado" e extrair o código de verificação) — em vez de simular esse envio, exercitam o caminho real do servidor de ponta a ponta.
+
 ## Deploy no Railway (recomendado, mais simples)
 
 1. Crie uma conta em https://railway.app
