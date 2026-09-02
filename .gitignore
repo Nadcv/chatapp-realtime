@@ -26,3 +26,5 @@ pinned-chats.json
 price-alerts.json
 travel-history.json
 package-lock.json
+tests/output/
+tests/mocks/*.zip

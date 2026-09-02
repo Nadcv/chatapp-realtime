@@ -12,6 +12,27 @@ npm start
 
 Acesse `http://localhost:3000`.
 
+## Testes automatizados
+
+```bash
+npm install
+npm test
+```
+
+Corre toda a suite de testes de ponta a ponta (Playwright + Chromium, já incluído — não precisa de mais nada instalado). Um único comando faz tudo o que antes era manual:
+
+1. Gera de novo todas as fixtures GTFS de mentira (`tests/mocks/build_mock_*.js`), sempre com horários "daqui a alguns minutos" — nunca fixtures antigas com horas já passadas.
+2. Arranca todos os mock servers das fontes externas (GTFS, CKAN, APIs de preços/eventos) em portas fixas, para os testes nunca dependerem da rede real nem dos sites originais estarem no ar.
+3. Arranca o `server.js` principal com as variáveis de ambiente já todas apontadas para esses mocks.
+4. Corre todos os ficheiros `tests/e2e/test_*.js` (cada um abre um browser Chromium de verdade e usa a app como uma pessoa usaria), em paralelo (`--concurrency=N`, por omissão 6).
+5. No final, mostra um resumo — quantos ficheiros passaram, quantos tiveram alguma falha, quantos rebentaram com uma exceção — e o código de saída reflete isso (útil para gates de CI no futuro).
+
+O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não commitado); o terminal só mostra o resumo, para não inundar com milhares de linhas.
+
+**Duas notas sobre como isto está organizado:**
+- Há dois "lotes": a CP tem dois conjuntos de dados de mentira diferentes para a mesma variável `CP_GTFS_URL` — um com partidas próximas fixas (para os testes de pesquisa de horários) e outro com viagens "em trânsito agora" (para os testes de posição estimada/Fertagus). Como o servidor só lê essa variável uma vez e guarda o resultado em cache, o runner reinicia o `server.js` entre os dois lotes só para trocar essa variável — o resto do ambiente mantém-se igual.
+- `tests/mocks/fixtures/guimaraes_gtfs.zip` é um ficheiro GTFS **real** da GUIMABUS (dados abertos, sem informação sensível) em vez de dados sintéticos — os outros feeds usam dados inventados porque precisam de horários sempre "daqui a uns minutos" para os testes de partidas próximas funcionarem em qualquer altura do dia.
+
 ## Deploy no Railway (recomendado, mais simples)
 
 1. Crie uma conta em https://railway.app
