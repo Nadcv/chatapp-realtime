@@ -3,8 +3,11 @@
 // exercises the REAL email-sending code path, not a mocked/bypassed one.
 const { chromium } = require('playwright');
 
-async function getLastEmail() {
-  const res = await fetch('http://127.0.0.1:2526/');
+async function getLastEmail(to) {
+  // Filtra pelo destinatário — o servidor SMTP falso é PARTILHADO com outros
+  // testes de email (ex.: test_password_reset.js) que podem correr em
+  // paralelo, e sem este filtro um teste podia ler o email do outro.
+  const res = await fetch('http://127.0.0.1:2526/?to=' + encodeURIComponent(to));
   const data = await res.json();
   return data.lastMessage;
 }
@@ -83,7 +86,7 @@ function extractCode(emailBody) {
   console.log('Mostra o email mascarado (não o email completo):', maskedEmailShown.includes('*') && !maskedEmailShown.includes(email));
 
   await page2.waitForTimeout(500);
-  const emailBody = await getLastEmail();
+  const emailBody = await getLastEmail(email);
   console.log('Um email real foi mesmo enviado pelo servidor (via SMTP fake) com um código:', !!emailBody && /\d{6}/.test(emailBody));
   const code = extractCode(emailBody);
 

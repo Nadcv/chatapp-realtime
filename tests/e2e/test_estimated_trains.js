@@ -37,7 +37,11 @@ const { chromium } = require('playwright');
   await page.check('#railEstimatedToggle');
   await page.waitForTimeout(600);
   const status1 = await page.evaluate(() => document.getElementById('railEstimatedStatus').textContent);
-  console.log('Mostra "2 comboio(s) em trânsito":', status1.includes('2 comboio'));
+  // O endpoint /api/trains/positions-estimated combina CP e Fertagus — além dos
+  // 2 comboios de CP em trânsito neste mock (T_TRAVELING, T_DWELLING), o mock da
+  // Fertagus tem sempre o seu próprio FT2 "em trânsito agora" (ver
+  // build_mock_fertagus_gtfs.js), por isso o total real é 3, não 2.
+  console.log('Mostra "3 comboio(s) em trânsito" (2 CP + 1 Fertagus):', status1.includes('3 comboio'));
 
   const routeStopsCheck = await page.evaluate(async () => {
     const res = await fetch('/api/trains/positions-estimated');

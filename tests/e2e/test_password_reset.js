@@ -1,7 +1,10 @@
 const { chromium } = require('playwright');
 
-async function getLastEmail() {
-  const res = await fetch('http://127.0.0.1:2526/');
+async function getLastEmail(to) {
+  // Filtra pelo destinatário — o servidor SMTP falso é PARTILHADO com outros
+  // testes de email (ex.: test_2fa.js) que podem correr em paralelo, e sem
+  // este filtro um teste podia ler o email do outro.
+  const res = await fetch('http://127.0.0.1:2526/?to=' + encodeURIComponent(to));
   const data = await res.json();
   return data.lastMessage;
 }
@@ -70,7 +73,7 @@ function extractCode(emailBody) {
   console.log('Mostra o email mascarado (não completo):', maskedShown.includes('*') && !maskedShown.includes(email));
 
   await page.waitForTimeout(500);
-  const emailBody = await getLastEmail();
+  const emailBody = await getLastEmail(email);
   // Nota: o Subject vem codificado em MIME (RFC2047, por causa do emoji/acentos)
   // e não aparece como texto literal — o corpo em texto simples (ASCII puro,
   // sem acentos nessa frase) é o sinal fiável de que o email certo foi enviado.

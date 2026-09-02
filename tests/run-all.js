@@ -150,6 +150,13 @@ const EMAIL_BATCH_FILES = new Set(['test_2fa.js', 'test_password_reset.js']);
 // num 2º lote, com o server.js reiniciado só para trocar o CP_GTFS_URL.
 const BATCH2_FILES = new Set(['test_estimated_trains.js', 'test_fertagus.js']);
 
+// A 1ª conta registada no servidor fica "admin" (firstRegisteredPhone, gravado
+// em users.json e recarregado no arranque) — este teste só é fiável se for
+// mesmo a primeira conta a existir. Corre sozinho, num lote à parte, ANTES de
+// qualquer outro (que também regista contas em paralelo e "roubaria" o
+// estatuto de admin).
+const ADMIN_BATCH_FILES = new Set(['test_admin_delete_account.js']);
+
 function listTestFiles() {
   let files = fs.readdirSync(E2E_DIR).filter((f) => f.endsWith('.js')).sort();
   if (FILTER) files = files.filter((f) => f.includes(FILTER));
@@ -258,12 +265,14 @@ async function main() {
   await new Promise((r) => setTimeout(r, 1000));
 
   const allFiles = listTestFiles();
-  const batch1Files = allFiles.filter((f) => !BATCH2_FILES.has(f) && !EMAIL_BATCH_FILES.has(f));
+  const adminBatchFiles = allFiles.filter((f) => ADMIN_BATCH_FILES.has(f));
+  const batch1Files = allFiles.filter((f) => !BATCH2_FILES.has(f) && !EMAIL_BATCH_FILES.has(f) && !ADMIN_BATCH_FILES.has(f));
   const batch2Files = allFiles.filter((f) => BATCH2_FILES.has(f));
   const emailBatchFiles = allFiles.filter((f) => EMAIL_BATCH_FILES.has(f));
 
   const results = [];
   try {
+    results.push(...await runBatch(adminBatchFiles, {}, 'admin (tem de correr primeiro e sozinho)'));
     results.push(...await runBatch(batch1Files, {}, 'geral'));
     results.push(...await runBatch(batch2Files, { CP_GTFS_URL: 'http://localhost:3015/gtfs_transit.zip' }, 'comboios em trânsito (CP)'));
     results.push(...await runBatch(emailBatchFiles, EMAIL_ENV_OVERRIDES, 'email (2FA / redefinir senha)'));
