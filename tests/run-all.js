@@ -81,6 +81,27 @@ const MOCK_SERVERS = [
 
 const SERVER_PORT = 3000;
 
+// Ficheiros de persistência local (usados quando MONGO_URI não está definida —
+// ver README) que o server.js vai lendo/escrevendo durante os testes. Alguns
+// testes usam IDs fixos (não únicos por execução) para chats/mensagens fixadas/
+// conversas bloqueadas/etc.; se estes ficheiros sobreviverem de uma corrida
+// anterior da suite, esse estado residual (ex.: uma mensagem já fixada doutra
+// vez) faz esses testes falharem por um motivo que nada tem a ver com a app —
+// foi exatamente o que aconteceu com test_multi_pin.js. Para a suite ser
+// sempre reprodutível, apagamos estes ficheiros mesmo antes de arrancar o
+// servidor, garantindo sempre um estado limpo.
+const LOCAL_DATA_FILES = [
+  'messages.json', 'users.json', 'groups.json', 'activities.json', 'todos.json',
+  'notes.json', 'pins.json', 'disappearing.json', 'statuses.json', 'calllog.json',
+  'scheduled.json', 'muted.json', 'archived.json', 'blocked.json', 'roadalerts.json',
+  'broadcasts.json', 'folders.json', 'tourism-favorites.json', 'shopping-list.json',
+  'reminders.json', 'recurring-expenses.json', 'scheduled-calls.json',
+  'pinned-chats.json', 'price-alerts.json', 'travel-history.json'
+];
+function wipeLocalDataFiles() {
+  LOCAL_DATA_FILES.forEach((f) => { try { fs.unlinkSync(path.join(ROOT, f)); } catch (e) {} });
+}
+
 const BASE_ENV = {
   ...process.env,
   PORT: String(SERVER_PORT),
@@ -206,6 +227,8 @@ async function runBatch(files, envOverrides, label) {
 }
 
 async function main() {
+  console.log('A limpar dados locais residuais de corridas anteriores...');
+  wipeLocalDataFiles();
   console.log('A gerar fixtures GTFS frescas...');
   runBuildScripts();
   console.log('A arrancar os mock servers...');

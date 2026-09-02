@@ -17,16 +17,21 @@ const { chromium } = require('playwright');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
 
-  // Set up a group chat with several messages to pin.
-  await page.evaluate(() => {
-    APP.chats.push({ id: 'pintestgroup_43131990', type: 'group', name: 'Grupo Pin' });
-    APP.messages['pintestgroup_43131990'] = [
+  // Set up a group chat with several messages to pin. O ID inclui "ts" (só desta
+  // execução) porque as mensagens fixadas ficam guardadas server-side (pins.json,
+  // ou Mongo em produção) indexadas por este ID — um ID fixo faria este teste
+  // herdar pins de execuções anteriores da suite e falhar por causa disso, não de
+  // um bug real. As referências seguintes usam APP.currentChatId em vez de repetir
+  // o ID, já que o chat aberto não muda durante o resto do teste.
+  await page.evaluate((groupId) => {
+    APP.chats.push({ id: groupId, type: 'group', name: 'Grupo Pin' });
+    APP.messages[groupId] = [
       { id: 'p1', sender: 'Ana', text: 'Primeira mensagem', time: '10:00', type: 'received' },
       { id: 'p2', sender: 'Bruno', text: 'Segunda mensagem', time: '10:01', type: 'received' },
       { id: 'p3', sender: 'Carla', text: 'Terceira mensagem', time: '10:02', type: 'received' }
     ];
-    openChat('pintestgroup_43131990');
-  });
+    openChat(groupId);
+  }, 'pintestgroup_' + ts);
   await page.waitForTimeout(300);
 
   const bannerHiddenInitially = await page.evaluate(() => document.getElementById('pinnedBanner').style.display === 'none');
@@ -57,7 +62,7 @@ const { chromium } = require('playwright');
   console.log('Banner shows "3 mensagens fixadas" when multiple pins exist:', bannerShowsCount.label.includes('3 mensagens fixadas'));
   console.log('Banner hides the single-unpin button when multiple pins exist:', bannerShowsCount.unpinBtnHidden);
 
-  const pinCount = await page.evaluate(() => APP.pinnedByChatId['pintestgroup_43131990'].length);
+  const pinCount = await page.evaluate(() => APP.pinnedByChatId[APP.currentChatId].length);
   console.log('Exactly 3 pins tracked in state:', pinCount === 3);
 
   // Clicking the banner with multiple pins opens the list modal.
@@ -74,7 +79,7 @@ const { chromium } = require('playwright');
   // Unpin one from inside the modal.
   await page.evaluate(() => unpinMessage('p2'));
   await page.waitForTimeout(300);
-  const countAfterUnpinOne = await page.evaluate(() => APP.pinnedByChatId['pintestgroup_43131990'].length);
+  const countAfterUnpinOne = await page.evaluate(() => APP.pinnedByChatId[APP.currentChatId].length);
   console.log('After unpinning one via the modal, 2 pins remain:', countAfterUnpinOne === 2);
   const modalRefreshedAfterUnpin = await page.evaluate(() => !document.getElementById('pinnedMessagesList').textContent.includes('Segunda mensagem'));
   console.log('Modal list refreshes live after an unpin (no stale entry):', modalRefreshedAfterUnpin);
@@ -99,14 +104,14 @@ const { chromium } = require('playwright');
   await page.waitForTimeout(300);
   const bannerHiddenAfterAllUnpinned = await page.evaluate(() => document.getElementById('pinnedBanner').style.display === 'none');
   console.log('Banner hides after all pins removed:', bannerHiddenAfterAllUnpinned);
-  const noPinsLeft = await page.evaluate(() => !APP.pinnedByChatId['pintestgroup_43131990']);
+  const noPinsLeft = await page.evaluate(() => !APP.pinnedByChatId[APP.currentChatId]);
   console.log('No pins remain tracked in state:', noPinsLeft);
 
   // Cap test: pin up to the max (10), then a rejection should occur for the 11th.
   await page.evaluate(() => {
-    APP.messages['pintestgroup_43131990'] = [];
+    APP.messages[APP.currentChatId] = [];
     for (let i = 0; i < 11; i++) {
-      APP.messages['pintestgroup_43131990'].push({ id: 'cap' + i, sender: 'Cap', text: 'msg' + i, time: '10:00', type: 'received' });
+      APP.messages[APP.currentChatId].push({ id: 'cap' + i, sender: 'Cap', text: 'msg' + i, time: '10:00', type: 'received' });
     }
   });
   let rejectionSeen = false;
@@ -116,13 +121,13 @@ const { chromium } = require('playwright');
     await page.evaluate((i) => pinMessage('cap' + i), i);
     await page.waitForTimeout(120);
   }
-  const cappedAtMax = await page.evaluate(() => APP.pinnedByChatId['pintestgroup_43131990'].length);
+  const cappedAtMax = await page.evaluate(() => APP.pinnedByChatId[APP.currentChatId].length);
   console.log('Pin count is capped at the server-side max (10):', cappedAtMax === 10);
   console.log('An alert with "máximo" was shown when trying to exceed the cap:', rejectionSeen);
 
   // XSS safety in the pinned list modal.
   await page.evaluate(() => {
-    APP.messages['pintestgroup_43131990'].push({ id: 'xsspin', sender: '<img src=x onerror=alert(1)>', text: '<script>alert(2)</script>', time: '10:05', type: 'received' });
+    APP.messages[APP.currentChatId].push({ id: 'xsspin', sender: '<img src=x onerror=alert(1)>', text: '<script>alert(2)</script>', time: '10:05', type: 'received' });
   });
   await page.evaluate(() => unpinMessage('cap0')); // free a slot
   await page.waitForTimeout(200);
