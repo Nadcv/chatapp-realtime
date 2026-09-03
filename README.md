@@ -1105,6 +1105,13 @@ Também no perfil, em "⚠️ Zona de perigo": um botão "📥 Exportar os meus 
 
 "🗑️ Apagar conta" pede a tua senha outra vez (para não bastar alguém pegar num aparelho destrancado) e é permanente — apaga a conta, o perfil e todos os dados pessoais acima. Tal como no WhatsApp, mensagens que já enviaste continuam nas conversas de quem as recebeu (apagar a tua conta não reescreve o histórico de outras pessoas). Se tiveres outro dispositivo com sessão iniciada na mesma conta, é desligado automaticamente com um aviso.
 
+### 📤 Restaurar a partir de um ficheiro
+
+Ao lado do botão de exportar há agora "📤 Restaurar a partir de um ficheiro" — usa o próprio `.json` já exportado para trazer dados de volta a uma conta (o cenário real: reinstalaste a app, trocaste de aparelho, ou apagaste a conta sem querer e recriaste-a). Propositadamente **não restaura tudo o que está no ficheiro**:
+
+- **Traz de volta**: idioma preferido, aniversário, chave Pix, contactos (readiciona quem ainda tem conta), lembretes e favoritos de turismo (juntam-se aos já existentes, sem apagar nada — por id), e a lista de compras (só se ainda não houver nenhuma, para não misturar duas listas de origens diferentes de forma confusa).
+- **Fica de fora, sempre**: nome, telefone, nome de utilizador e senha (identificam a própria conta — restaurá-los por cima de uma conta já com sessão iniciada não faz sentido e podia confundir-se com roubo de identidade); mensagens (já vivem no servidor associadas à conversa real entre as duas contas, e nunca são apagadas quando uma conta é apagada — "restaurá-las" só duplicaria histórico ou criaria mensagens fantasma sem correspondência do outro lado); dispositivos ligados e histórico de chamadas (específicos do aparelho/momento); mensagens agendadas (podiam disparar tarde de mais, com uma hora já passada há muito tempo).
+
 ## 🚫 Bloquear/desbloquear e denunciar
 
 No menu "⋯" de uma conversa 1-para-1, "🚫 Bloquear" impede essa pessoa de te escrever ou ligar — ao contrário do WhatsApp, sem aviso explícito de "fostes bloqueado" para a outra pessoa. "⚠️ Denunciar" pede o motivo e bloqueia automaticamente.

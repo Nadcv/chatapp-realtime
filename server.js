@@ -405,7 +405,7 @@ app.get('/api/account/export', (req, res) => {
       nome: user.name, telefone: user.phone, nomeDeUtilizador: user.username || null, pais: user.country,
       email: user.email || null, aniversario: user.birthday || null, criadaEm: user.createdAt,
       linguaPreferida: user.preferredLang || null, verificacaoEmDuasEtapas: !!user.twoFactorEnabled,
-      tempoTotalNaAppSegundos: user.totalTimeSpentSec || 0
+      tempoTotalNaAppSegundos: user.totalTimeSpentSec || 0, pixKey: user.pixKey || null
     },
     dispositivosLigados: user.devices || [],
     contactos: user.contacts || [],
@@ -418,6 +418,85 @@ app.get('/api/account/export', (req, res) => {
   };
   res.setHeader('Content-Disposition', 'attachment; filename="os-meus-dados-chatapp.json"');
   res.json(exportData);
+});
+
+// Restaura dados pessoais a partir de um ficheiro já exportado por
+// /api/account/export (ex.: depois de reinstalar a app, trocar de aparelho,
+// ou reaproveitar o backup de uma conta apagada por engano). Propositadamente
+// NÃO restaura tudo o que está no ficheiro:
+// - Nome/telefone/nome de utilizador/senha ficam de fora — esses identificam
+//   a própria conta, não fazem sentido "restaurar" por cima de uma conta já
+//   com sessão iniciada (poderia confundir-se com roubo de identidade).
+// - Mensagens ficam de fora — já vivem no servidor associadas à conversa
+//   real entre as duas contas (nunca são apagadas quando uma conta é
+//   apagada, ver performAccountDeletion acima); "restaurá-las" duplicaria
+//   histórico ou criaria mensagens fantasma sem correspondência do outro lado.
+// - Dispositivos ligados e histórico de chamadas ficam de fora — são
+//   específicos do aparelho/momento, sem sentido reaproveitar.
+// - Mensagens agendadas ficam de fora — podiam disparar tarde de mais e sem
+//   aviso, com uma hora já passada há muito tempo.
+// O resto (idioma, aniversário, chave Pix, contactos, lembretes, lista de
+// compras, favoritos de turismo) é seguro reaproveitar: contactos só
+// readicionam quem ainda tem conta (mesmo addContact do fluxo normal),
+// lembretes/favoritos juntam-se aos já existentes sem apagar nada (por id),
+// e a lista de compras só entra se ainda não houver nenhuma.
+app.post('/api/account/import', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Ficheiro inválido — exporta os teus dados de novo e tenta com esse ficheiro.' });
+
+  const resumo = { perfil: false, contactos: 0, lembretes: 0, listaDeCompras: false, favoritosDeTurismo: 0 };
+
+  if (data.perfil && typeof data.perfil === 'object') {
+    const p = data.perfil;
+    if (typeof p.linguaPreferida === 'string') user.preferredLang = p.linguaPreferida;
+    if (typeof p.aniversario === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.aniversario)) user.birthday = p.aniversario;
+    if (typeof p.pixKey === 'string') user.pixKey = p.pixKey.slice(0, 140) || null;
+    resumo.perfil = true;
+  }
+
+  if (Array.isArray(data.contactos)) {
+    for (const contactPhone of data.contactos) {
+      if (typeof contactPhone === 'string' && await addContact(phone, contactPhone)) resumo.contactos++;
+    }
+  }
+
+  if (Array.isArray(data.lembretes)) {
+    if (!remindersByPhone[phone]) remindersByPhone[phone] = [];
+    const existingIds = new Set(remindersByPhone[phone].map((r) => r.id));
+    data.lembretes.forEach((r) => {
+      if (r && r.id && !existingIds.has(r.id)) { remindersByPhone[phone].push(r); existingIds.add(r.id); resumo.lembretes++; }
+    });
+    saveRemindersLocal();
+  }
+
+  if (data.listaDeCompras && typeof data.listaDeCompras === 'object' && Array.isArray(data.listaDeCompras.items)) {
+    if (!shoppingListByPhone[phone] || !shoppingListByPhone[phone].items.length) {
+      shoppingListByPhone[phone] = { items: data.listaDeCompras.items, history: data.listaDeCompras.history || [] };
+      saveShoppingListLocal();
+      resumo.listaDeCompras = true;
+    }
+  }
+
+  if (Array.isArray(data.favoritosDeTurismo)) {
+    if (!tourismFavoritesByPhone[phone]) tourismFavoritesByPhone[phone] = [];
+    const existingIds = new Set(tourismFavoritesByPhone[phone].map((f) => f.id));
+    data.favoritosDeTurismo.forEach((f) => {
+      if (f && f.id && !existingIds.has(f.id)) { tourismFavoritesByPhone[phone].push(f); existingIds.add(f.id); resumo.favoritosDeTurismo++; }
+    });
+    saveTourismFavoritesLocal();
+  }
+
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { preferredLang: user.preferredLang, birthday: user.birthday, pixKey: user.pixKey }).catch((e) => console.error('Erro Mongo (importar dados):', e.message));
+  } else {
+    saveUsers();
+  }
+  sendContactsTo(phone);
+  res.json({ success: true, resumo, user: publicUser(user) });
 });
 
 // Apagar a conta é permanente — pede a senha outra vez (não basta estar

@@ -2733,9 +2733,14 @@
                     <button class="btn-small" style="width:100%;" onclick="closeModal('modalProfile');openMyStatsModal()">📊 As minhas estatísticas</button>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
-                    <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#e74c3c;">⚠️ Zona de perigo</div>
                     <button class="btn-small" style="width:100%;" onclick="exportMyData()">📥 Exportar os meus dados</button>
-                    <button class="btn-small" style="width:100%;margin-top:8px;background:#e74c3c;color:#fff;" onclick="closeModal('modalProfile');openDeleteAccountModal()">🗑️ Apagar conta</button>
+                    <input type="file" id="importDataFileInput" accept="application/json" style="display:none;" onchange="handleImportDataFileSelected(this)">
+                    <button class="btn-small" style="width:100%;margin-top:8px;" onclick="document.getElementById('importDataFileInput').click()">📤 Restaurar a partir de um ficheiro</button>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">Usa um ficheiro já exportado por "Exportar os meus dados" para trazer de volta idioma, aniversário, chave Pix, contactos, lembretes, lista de compras e favoritos de turismo (nunca mensagens, senha ou nome de utilizador).</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#e74c3c;">⚠️ Zona de perigo</div>
+                    <button class="btn-small" style="width:100%;background:#e74c3c;color:#fff;" onclick="closeModal('modalProfile');openDeleteAccountModal()">🗑️ Apagar conta</button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalProfile')">Fechar</button>
@@ -4024,7 +4029,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled, pixKey: user.pixKey || null };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -4827,6 +4832,38 @@
             a.click();
             a.remove();
             URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Não foi possível ligar ao servidor.');
+        }
+    }
+    async function handleImportDataFileSelected(input) {
+        const file = input.files[0];
+        input.value = ''; // permite escolher o mesmo ficheiro outra vez, se precisar
+        if (!file) return;
+        let data;
+        try {
+            data = JSON.parse(await file.text());
+        } catch (err) {
+            alert('Esse ficheiro não é um JSON válido — usa o ficheiro tal como "Exportar os meus dados" o gerou, sem o editar.');
+            return;
+        }
+        if (!confirm('Isto vai trazer de volta idioma, aniversário, chave Pix, contactos, lembretes, lista de compras e favoritos de turismo deste ficheiro para a tua conta atual (nunca mensagens, senha ou nome de utilizador). Continuar?')) return;
+        try {
+            const res = await fetch('/api/account/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token },
+                body: JSON.stringify({ data })
+            });
+            const result = await res.json();
+            if (!res.ok) { alert(result.error || 'Não foi possível restaurar os dados.'); return; }
+            // Sem isto, o location.reload() a seguir voltava a carregar o perfil
+            // "authUser" antigo já guardado no localStorage (de antes do
+            // restauro) — os campos ficavam certos no servidor mas nunca
+            // apareciam no ecrã até a pessoa sair e entrar de novo.
+            if (result.user) { APP.user = result.user; localStorage.setItem('authUser', JSON.stringify(result.user)); }
+            const r = result.resumo;
+            alert(`Dados restaurados:\n- Contactos readicionados: ${r.contactos}\n- Lembretes trazidos de volta: ${r.lembretes}\n- Favoritos de turismo trazidos de volta: ${r.favoritosDeTurismo}\n- Lista de compras restaurada: ${r.listaDeCompras ? 'sim' : 'não havia nenhuma no ficheiro, ou já tinhas uma'}\n\nA página vai recarregar para tudo aparecer certo.`);
+            location.reload();
         } catch (err) {
             alert('Não foi possível ligar ao servidor.');
         }
