@@ -984,7 +984,16 @@ Em qualquer conversa (grupo ou 1-para-1), o menu "⋮ Mais" tem agora um botão 
 
 **Como funciona por baixo**: não há nenhuma tabela nova no servidor — cada despesa é só mais um campo opcional (`expense`) numa mensagem normal, tal como já acontece com as enquetes e os jogos, por isso viaja automaticamente pelo mesmo caminho (`send_message` / `receive_message` / histórico da conversa) sem precisar de guardar nada extra. O valor é convertido para euros no momento em que é registado, reaproveitando as mesmas taxas de câmbio já usadas na aba "Câmbio".
 
-**Simplificação assumida**: como os grupos nesta app são "abertos" (qualquer conta cadastrada vê o grupo, sem uma lista fixa de membros a consultar), não há como perguntar ao servidor "quem está neste grupo". Por isso, quem pagou e quem participa numa despesa é identificado pelo **nome** de quem já enviou mensagens nessa conversa (não pelo número de telefone) — funciona bem no uso normal, mas duas pessoas com o mesmo nome de perfil na mesma conversa seriam tratadas como uma só.
+**Simplificação assumida**: como os grupos nesta app são "abertos" (qualquer conta cadastrada vê o grupo, sem uma lista fixa de membros a consultar), não há como perguntar ao servidor "quem está neste grupo". Por isso, quem pagou e quem participa numa despesa é identificado pelo **nome** de quem já enviou mensagens nessa conversa (não pelo número de telefone) — funciona bem no uso normal, mas duas pessoas com o mesmo nome de perfil na mesma conversa seriam tratadas como uma só. O valor guardado é sempre o nome real da pessoa (nunca o "Você" que aparece só como etiqueta para o próprio utilizador) — isto viaja dentro da despesa para a outra pessoa ver, ao contrário do campo de topo da mensagem, que já troca "Você" pelo nome real antes de enviar.
+
+### 💳 Acertar contas (MB WAY / Pix)
+
+Depois de registadas as despesas, a caixa de saldos mostra também **"Como acertar contas"**: em vez de listar quem deve/tem a receber pessoa a pessoa (o que pode dar voltas desnecessárias — "A deve a B" e "B deve a A" ao mesmo tempo), simplifica tudo no menor número de transferências possível (algoritmo guloso: o maior credor recebe do maior devedor até um dos dois ficar a zero, repete) e mostra diretamente "X paga Y,YY€ a Z". Cada transferência tem um botão "Ver" que abre como pagar:
+
+- **💙 MB WAY** — mostra o número de telefone de quem tem de receber (Portugal paga por número, não há registo/API pública para gerar um link de pagamento pronto a abrir, ao contrário do Pix).
+- **💠 Pix** — se a pessoa tiver uma **chave Pix** guardada no perfil ("O meu perfil" → 💠 Chave Pix, opcional), gera um código **"Pix Copia e Cola"** verdadeiro (formato BR Code/EMV QRCPS, a especificação pública do Banco Central), com o valor já convertido de EUR para BRL pelas mesmas taxas de câmbio da app — é só copiar e colar na app do banco. O código inclui um checksum CRC16/CCITT-FALSE calculado aqui mesmo (sem nenhuma API externa nem credenciais — é puro cálculo determinístico).
+
+O telefone/chave Pix de quem tem de receber é resolvido pelo nome: numa conversa 1-para-1 já se sabe quem é a outra pessoa; num grupo, procura-se uma mensagem já enviada por alguém com esse nome (toda a mensagem carrega o telefone de quem a enviou) e só depois se pergunta ao servidor os dados públicos dessa conta — os mesmos campos que já se veem ao pesquisar por nome de utilizador, não é uma exposição nova.
 
 ## 🙈 Privacidade — esconder estado online e confirmação de leitura
 

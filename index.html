@@ -2115,12 +2115,22 @@
             <div class="modal">
                 <h3>💰 Despesas da viagem</h3>
                 <div id="expensesBalancesBox" style="margin-bottom:10px;"></div>
+                <div id="settleUpBox" style="margin-bottom:10px;"></div>
                 <div id="expensesList" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalExpenses')">Fechar</button>
                     <button class="btn-small" onclick="openRecurringExpensesModal()">🔁 Fixas</button>
                     <button class="btn-small" onclick="openExpensesChartModal()">📈 Gráfico</button>
                     <button class="btn-small btn-accept" onclick="openAddExpenseForm()">➕ Nova despesa</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalSettleUpPay" style="z-index:210;">
+            <div class="modal">
+                <h3 id="settleUpPayTitle">💳 Como pagar</h3>
+                <div id="settleUpPayContent" style="text-align:left;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalSettleUpPay');document.getElementById('modalExpenses').classList.add('active');">Fechar</button>
                 </div>
             </div>
         </div>
@@ -2682,6 +2692,11 @@
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🎂 Data de nascimento</label>
                     <input type="date" id="profileBirthdayInput" onchange="setBirthday(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">Os teus contactos veem um aviso quando fizeres anos. Fica visível só para quem te tem como contacto.</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">💠 Chave Pix (opcional)</label>
+                    <input type="text" id="profilePixKeyInput" placeholder="CPF, email, telefone ou chave aleatória" onchange="saveProfilePixKey(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">Usada para gerar um código Pix pronto a copiar quando alguém tiver de te pagar (ex.: ao acertar contas de viagem). Visível para quem te tem como contacto.</p>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🔐 Segurança</div>
@@ -4761,6 +4776,7 @@
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
         document.getElementById('profileBirthdayInput').value = APP.user.birthday || '';
+        document.getElementById('profilePixKeyInput').value = APP.user.pixKey || '';
         document.getElementById('profileEmailInput').value = APP.user.email || '';
         document.getElementById('twoFactorCheck').checked = !!APP.user.twoFactorEnabled;
         document.getElementById('hideOnlineStatusCheck').checked = !!APP.user.hideOnlineStatus;
@@ -4874,6 +4890,15 @@
         socket.emit('set_birthday', { birthday });
         checkBirthdaysToday();
     }
+    function saveProfilePixKey(pixKey) {
+        if (!APP.user) return;
+        socket.emit('set_pix_key', { pixKey: pixKey.trim() });
+    }
+    socket.on('pix_key_updated', (data) => {
+        if (!APP.user || !data) return;
+        APP.user.pixKey = data.pixKey || null;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+    });
     function setPreferredLang(lang) {
         if (!APP.user) return;
         APP.user.preferredLang = lang;
@@ -12353,10 +12378,23 @@
     // membros), por isso os "participantes" de uma despesa são derivados dos nomes de quem já enviou
     // mensagens nesta conversa — são identificados por NOME, não por telefone (limitação assumida).
     function getChatParticipantNames(chatId) {
-        const names = new Set(['Você']);
+        // O próprio nome (não o literal "Você") tem de ser o valor guardado —
+        // isto viaja dentro do objeto expense/despesa fixa para a OUTRA pessoa
+        // (send_message manda o expense tal como está, ao contrário do campo
+        // "sender" de topo, que já troca "Você" pelo nome real antes de enviar).
+        // Guardar "Você" aqui fazia a outra pessoa ver "Pago por Você" (parecendo
+        // que ela mesma tinha pago) e partia qualquer código que precise de
+        // identificar quem é quem pelo nome (ex.: acertar contas por Pix/MB WAY).
+        const names = new Set(APP.user ? [APP.user.name] : []);
         const msgs = APP.messages[chatId] || [];
         msgs.forEach(m => { if (m.sender && m.sender !== 'Você') names.add(m.sender); });
         return [...names];
+    }
+    // Só para apresentação (nunca guardar isto) — mostra "Você" quando o nome
+    // é o do próprio utilizador, tal como o resto da app já faz com as
+    // mensagens; qualquer outro nome aparece tal como é.
+    function participantDisplayLabel(name) {
+        return (APP.user && name === APP.user.name) ? 'Você' : name;
     }
     function getChatExpenses(chatId) {
         return (APP.messages[chatId] || []).filter(m => m.expense).map(m => m.expense);
@@ -12415,15 +12453,170 @@
             const rounded = Math.round(val * 100) / 100;
             const color = rounded > 0.01 ? 'var(--green)' : (rounded < -0.01 ? '#e74c3c' : 'inherit');
             const label = rounded > 0.01 ? `deve receber ${rounded.toFixed(2)}€` : (rounded < -0.01 ? `deve ${Math.abs(rounded).toFixed(2)}€` : 'em dia');
-            return `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>${escapeHtml(name)}</span><span style="color:${color};font-weight:600;">${label}</span></div>`;
+            return `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>${escapeHtml(participantDisplayLabel(name))}</span><span style="color:${color};font-weight:600;">${label}</span></div>`;
         }).join('') : '<div style="opacity:0.7;font-size:13px;">Ainda sem despesas registadas.</div>';
         document.getElementById('expensesBalancesBox').innerHTML = `<div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;">${balancesHtml}</div>`;
+        renderSettleUpBox(balances);
         const listHtml = expenses.length ? expenses.slice().reverse().map(exp => `
             <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;font-size:13px;">
                 <div style="font-weight:600;">${escapeHtml(exp.description)} — ${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(exp.currency)}</div>
-                <div style="opacity:0.75;">Pago por ${escapeHtml(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
+                <div style="opacity:0.75;">Pago por ${escapeHtml(participantDisplayLabel(exp.paidBy))} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
             </div>`).join('') : '';
         document.getElementById('expensesList').innerHTML = listHtml;
+    }
+    // ==================== ACERTAR CONTAS (MB WAY / Pix) ====================
+    // Reaproveita os saldos já calculados em renderExpensesModal() (quem deve/tem
+    // a receber) e simplifica-os no menor número de transferências possível
+    // (algoritmo guloso: o maior credor recebe do maior devedor até um dos dois
+    // ficar a zero, repete) — evita mostrar "A deve a B" e "B deve a A" ao mesmo
+    // tempo quando um simples "A paga a C" já resolve tudo.
+    function simplifyDebts(balances) {
+        const creditors = [], debtors = [];
+        Object.entries(balances).forEach(([name, val]) => {
+            const rounded = Math.round(val * 100) / 100;
+            if (rounded > 0.01) creditors.push({ name, amount: rounded });
+            else if (rounded < -0.01) debtors.push({ name, amount: -rounded });
+        });
+        creditors.sort((a, b) => b.amount - a.amount);
+        debtors.sort((a, b) => b.amount - a.amount);
+        const transfers = [];
+        let i = 0, j = 0;
+        while (i < debtors.length && j < creditors.length) {
+            const pay = Math.min(debtors[i].amount, creditors[j].amount);
+            if (pay > 0.01) transfers.push({ from: debtors[i].name, to: creditors[j].name, amountEUR: Math.round(pay * 100) / 100 });
+            debtors[i].amount -= pay;
+            creditors[j].amount -= pay;
+            if (debtors[i].amount <= 0.01) i++;
+            if (creditors[j].amount <= 0.01) j++;
+        }
+        return transfers;
+    }
+    function renderSettleUpBox(balances) {
+        const transfers = simplifyDebts(balances);
+        const box = document.getElementById('settleUpBox');
+        if (!transfers.length) { box.innerHTML = ''; return; }
+        box.innerHTML = `<div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;">
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px;">💳 Como acertar contas</div>
+            ${transfers.map(t => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:13px;">
+                    <span>${escapeHtml(participantDisplayLabel(t.from))} → ${escapeHtml(participantDisplayLabel(t.to))}: <strong>${t.amountEUR.toFixed(2)}€</strong></span>
+                    <button class="btn-small" onclick='openSettleUpPay(${JSON.stringify(t.to)}, ${t.amountEUR}, ${JSON.stringify(t.from)})' style="padding:4px 8px;">Ver</button>
+                </div>`).join('')}
+        </div>`;
+    }
+    // Descobre o telefone de quem participa numa despesa a partir só do nome
+    // (grupos aqui não têm lista fixa de membros — ver "Dividir despesas de
+    // viagem"): se for a própria pessoa ou o outro lado de uma conversa
+    // 1-para-1 já sabemos o telefone sem perguntar a ninguém; num grupo,
+    // procura-se uma mensagem já enviada por alguém com esse nome (toda a
+    // mensagem carrega senderPhone) e usa-se o telefone de lá.
+    function resolveParticipantPhone(name) {
+        if (APP.user && name === APP.user.name) return APP.user.phone;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (chat && chat.type === 'user' && chat.name === name) return chat.phone;
+        const msgs = APP.messages[APP.currentChatId] || [];
+        const found = [...msgs].reverse().find(m => m.sender === name && m.senderPhone);
+        return found ? found.senderPhone : null;
+    }
+    function resolveParticipantPublicInfo(phone) {
+        return new Promise((resolve) => {
+            if (APP.user && phone === APP.user.phone) return resolve({ name: APP.user.name, phone, pixKey: APP.user.pixKey || null });
+            const cached = (APP.onlineContacts || []).find(c => c.phone === phone);
+            if (cached) return resolve(cached);
+            const onResult = (data) => {
+                if (data.phone !== phone) return;
+                socket.off('public_info_by_phone_result', onResult);
+                resolve(data.found ? data.user : null);
+            };
+            socket.on('public_info_by_phone_result', onResult);
+            socket.emit('get_public_info_by_phone', { phone });
+            setTimeout(() => { socket.off('public_info_by_phone_result', onResult); resolve(null); }, 5000);
+        });
+    }
+    // ==================== CÓDIGO PIX ("copia e cola" / BR Code) ====================
+    // Implementação do formato EMV QRCPS usado pelo Pix (especificação pública
+    // do Banco Central) — TLV (tag-length-value) terminado num CRC16/CCITT-FALSE
+    // (poly 0x1021, init 0xFFFF). Gera-se aqui mesmo no cliente porque é puro
+    // cálculo determinístico, sem precisar de nenhuma API externa nem credenciais.
+    function pixCrc16(str) {
+        let crc = 0xFFFF;
+        for (let i = 0; i < str.length; i++) {
+            crc ^= (str.charCodeAt(i) << 8);
+            for (let j = 0; j < 8; j++) {
+                crc = (crc & 0x8000) !== 0 ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+            }
+        }
+        return crc & 0xFFFF;
+    }
+    function pixTlv(id, value) {
+        return id + String(value.length).padStart(2, '0') + value;
+    }
+    function pixSanitize(s, maxLen) {
+        // NFD decompõe acentos em letra + marca separada (ex.: "ã" -> "a" + til);
+        // o replace seguinte já elimina essa marca (não é A-Za-z0-9/espaço), por
+        // isso não precisa de mais nenhum passo específico para diacríticos.
+        return (s || '').normalize('NFD').replace(/[^A-Za-z0-9 ]/g, '').slice(0, maxLen);
+    }
+    function buildPixPayload({ pixKey, amountBRL, description, merchantName, merchantCity }) {
+        const gui = pixTlv('00', 'br.gov.bcb.pix');
+        const key = pixTlv('01', pixKey);
+        const desc = description ? pixTlv('02', pixSanitize(description, 60)) : '';
+        const merchantAccountInfo = pixTlv('26', gui + key + desc);
+        const mcc = pixTlv('52', '0000');
+        const currency = pixTlv('53', '986'); // BRL
+        const amountField = amountBRL != null ? pixTlv('54', amountBRL.toFixed(2)) : '';
+        const country = pixTlv('58', 'BR');
+        const name = pixTlv('59', (pixSanitize(merchantName, 25) || 'NA').toUpperCase());
+        const city = pixTlv('60', (pixSanitize(merchantCity, 15) || 'BRASIL').toUpperCase());
+        const txid = pixTlv('62', pixTlv('05', '***'));
+        const withoutCrc = pixTlv('00', '01') + merchantAccountInfo + mcc + currency + amountField + country + name + city + txid + '6304';
+        return withoutCrc + pixCrc16(withoutCrc).toString(16).toUpperCase().padStart(4, '0');
+    }
+    function copyToClipboardWithFeedback(text, btn) {
+        navigator.clipboard.writeText(text).then(() => {
+            if (!btn) return;
+            const original = btn.textContent;
+            btn.textContent = '✅ Copiado!';
+            setTimeout(() => { btn.textContent = original; }, 1500);
+        }).catch(() => alert('Não foi possível copiar — copia manualmente.'));
+    }
+    async function openSettleUpPay(toName, amountEUR, fromName) {
+        const fromLabel = participantDisplayLabel(fromName), toLabel = participantDisplayLabel(toName);
+        document.getElementById('settleUpPayTitle').textContent = `💳 ${fromLabel} → ${toLabel}`;
+        const content = document.getElementById('settleUpPayContent');
+        content.innerHTML = '<p style="color:var(--text-secondary);">A procurar dados de pagamento...</p>';
+        closeModal('modalExpenses');
+        document.getElementById('modalSettleUpPay').classList.add('active');
+        const phone = resolveParticipantPhone(toName);
+        if (!phone) {
+            content.innerHTML = `<p>Não foi possível encontrar o telefone de ${escapeHtml(toLabel)} nesta conversa. Pede-lhe o número ou a chave Pix diretamente.</p>`;
+            return;
+        }
+        const info = await resolveParticipantPublicInfo(phone);
+        const parts = [];
+        parts.push(`<p style="margin-bottom:10px;"><strong>${escapeHtml(fromLabel)}</strong> deve pagar <strong>${amountEUR.toFixed(2)}€</strong> a <strong>${escapeHtml(toLabel)}</strong>.</p>`);
+        // MB WAY: paga-se por número de telefone, valor em EUR — sem chave/link
+        // universal público para MB WAY (ao contrário do Pix), por isso mostra-se
+        // só o número + valor para introduzir manualmente na app do MB WAY.
+        parts.push(`<div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:10px;margin-bottom:10px;">
+            <div style="font-weight:600;margin-bottom:4px;">💙 MB WAY</div>
+            <div style="font-size:13px;">Envia <strong>${amountEUR.toFixed(2)}€</strong> para o número <strong>${escapeHtml(phone)}</strong> na app MB WAY.</div>
+            <button class="btn-small" style="margin-top:6px;" onclick='copyToClipboardWithFeedback(${JSON.stringify(phone)}, this)'>📋 Copiar número</button>
+        </div>`);
+        if (info && info.pixKey) {
+            const rate = (CURRENCY.rates && CURRENCY.rates.BRL) || null;
+            const amountBRL = rate ? amountEUR * rate : null;
+            const payload = buildPixPayload({ pixKey: info.pixKey, amountBRL, description: 'Acerto de contas', merchantName: toName, merchantCity: 'BRASIL' });
+            parts.push(`<div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:10px;">
+                <div style="font-weight:600;margin-bottom:4px;">💠 Pix</div>
+                <div style="font-size:13px;">${amountBRL != null ? `Equivale a aproximadamente <strong>R$ ${amountBRL.toFixed(2)}</strong>. ` : ''}Copia o código abaixo e cola na app do teu banco (Pix Copia e Cola).</div>
+                <textarea readonly style="width:100%;margin-top:6px;font-size:11px;padding:6px;border-radius:6px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--bg-tertiary);" rows="3">${escapeHtml(payload)}</textarea>
+                <button class="btn-small" style="margin-top:6px;" onclick='copyToClipboardWithFeedback(${JSON.stringify(payload)}, this)'>📋 Copiar código Pix</button>
+            </div>`);
+        } else {
+            parts.push(`<div style="font-size:12px;color:var(--text-secondary);">${escapeHtml(toLabel)} ainda não configurou uma chave Pix no perfil.</div>`);
+        }
+        content.innerHTML = parts.join('');
     }
     function populateExpenseCurrencySelect(selId = 'expenseCurrency') {
         const sel = document.getElementById(selId);
@@ -12453,11 +12646,11 @@
         populateExpenseCurrencySelect();
         const names = getChatParticipantNames(APP.currentChatId);
         const paidBySel = document.getElementById('expensePaidBy');
-        paidBySel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        paidBySel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(participantDisplayLabel(n))}</option>`).join('');
         document.getElementById('expenseParticipants').innerHTML = names.map((n, i) => `
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
                 <input type="checkbox" class="expense-participant-checkbox" value="${escapeHtml(n)}" checked>
-                ${escapeHtml(n)}
+                ${escapeHtml(participantDisplayLabel(n))}
             </label>`).join('');
         closeModal('modalExpenses');
         document.getElementById('modalAddExpense').classList.add('active');
@@ -12490,7 +12683,7 @@
         return `<div style="min-width:200px;cursor:pointer;" onclick="openExpensesModal()">
             <div style="font-weight:600;margin-bottom:4px;">💰 ${escapeHtml(exp.description)}</div>
             <div style="font-size:15px;">${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(exp.currency)}</div>
-            <div style="font-size:11px;opacity:0.7;margin-top:4px;">Pago por ${escapeHtml(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
+            <div style="font-size:11px;opacity:0.7;margin-top:4px;">Pago por ${escapeHtml(participantDisplayLabel(exp.paidBy))} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
         </div>`;
     }
 
@@ -12517,7 +12710,7 @@
             <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
                 <div>
                     <div style="font-weight:600;">${escapeHtml(tpl.description)} — ${tpl.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${escapeHtml(tpl.currency)}</div>
-                    <div style="opacity:0.75;">Todo dia ${tpl.dayOfMonth} · pago por ${escapeHtml(tpl.paidBy)} · dividido por ${tpl.participants.length} pessoa${tpl.participants.length !== 1 ? 's' : ''}</div>
+                    <div style="opacity:0.75;">Todo dia ${tpl.dayOfMonth} · pago por ${escapeHtml(participantDisplayLabel(tpl.paidBy))} · dividido por ${tpl.participants.length} pessoa${tpl.participants.length !== 1 ? 's' : ''}</div>
                 </div>
                 <button onclick="deleteRecurringExpense('${tpl.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;">🗑️</button>
             </div>`).join('') : '<p style="color:#8696a0;text-align:center;padding:20px;">Ainda não há despesas fixas nesta conversa.</p>';
@@ -12532,11 +12725,11 @@
         daySel.innerHTML = Array.from({ length: 31 }, (_, i) => i + 1).map(d => `<option value="${d}">${d}</option>`).join('');
         const names = getChatParticipantNames(APP.currentChatId);
         const paidBySel = document.getElementById('recurringExpensePaidBy');
-        paidBySel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        paidBySel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(participantDisplayLabel(n))}</option>`).join('');
         document.getElementById('recurringExpenseParticipants').innerHTML = names.map(n => `
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
                 <input type="checkbox" class="recurring-expense-participant-checkbox" value="${escapeHtml(n)}" checked>
-                ${escapeHtml(n)}
+                ${escapeHtml(participantDisplayLabel(n))}
             </label>`).join('');
         closeModal('modalRecurringExpenses');
         document.getElementById('modalAddRecurringExpense').classList.add('active');
