@@ -1444,7 +1444,7 @@ const EMT_VALENCIA_GTFS_URL_DEFAULT = 'https://opendata.vlci.valencia.es/dataset
 async function resolveEmtValenciaGtfsUrl() {
   return process.env.EMT_VALENCIA_GTFS_URL || EMT_VALENCIA_GTFS_URL_DEFAULT;
 }
-const METRO_VALENCIA_GTFS_URL_DEFAULT = 'http://www.metrovalencia.es/google_transit_feed/google_transit.zip';
+const METRO_VALENCIA_GTFS_URL_DEFAULT = 'https://www.metrovalencia.es/google_transit_feed/google_transit.zip';
 async function resolveMetroValenciaGtfsUrl() {
   return process.env.METRO_VALENCIA_GTFS_URL || METRO_VALENCIA_GTFS_URL_DEFAULT;
 }
