@@ -1631,12 +1631,12 @@
                 <button class="btn-small transport-tab" data-tab="bikes" onclick="switchTransportTab('bikes')" style="flex:1;">🚲 Bicicletas (GIRA)</button>
             </div>
             <div id="railScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
-                <div style="display:flex;gap:6px;">
-                    <button class="btn-small rail-country-tab active" data-country="pt" onclick="switchRailCountry('pt')" style="flex:1;">🇵🇹 Portugal</button>
-                    <button class="btn-small rail-country-tab" data-country="madrid" onclick="switchRailCountry('madrid')" style="flex:1;">🇪🇸 Madrid</button>
-                    <button class="btn-small rail-country-tab" data-country="valencia" onclick="switchRailCountry('valencia')" style="flex:1;">🇪🇸 Valência</button>
-                    <button class="btn-small rail-country-tab" data-country="renfe" onclick="switchRailCountry('renfe')" style="flex:1;">🇪🇸 Espanha (Renfe)</button>
-                    <button class="btn-small rail-country-tab" data-country="france" onclick="switchRailCountry('france')" style="flex:1;">🇫🇷 França (Transilien)</button>
+                <div style="display:flex;gap:6px;overflow-x:auto;">
+                    <button class="btn-small rail-country-tab active" data-country="pt" onclick="switchRailCountry('pt')" style="flex-shrink:0;">🇵🇹 Portugal</button>
+                    <button class="btn-small rail-country-tab" data-country="madrid" onclick="switchRailCountry('madrid')" style="flex-shrink:0;">🇪🇸 Madrid</button>
+                    <button class="btn-small rail-country-tab" data-country="valencia" onclick="switchRailCountry('valencia')" style="flex-shrink:0;">🇪🇸 Valência</button>
+                    <button class="btn-small rail-country-tab" data-country="renfe" onclick="switchRailCountry('renfe')" style="flex-shrink:0;">🇪🇸 Espanha (Renfe)</button>
+                    <button class="btn-small rail-country-tab" data-country="france" onclick="switchRailCountry('france')" style="flex-shrink:0;">🇫🇷 França (Transilien)</button>
                 </div>
                 <div id="railPortugalContent" style="display:flex;flex-direction:column;gap:6px;">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
