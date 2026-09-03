@@ -1444,9 +1444,20 @@ const EMT_VALENCIA_GTFS_URL_DEFAULT = 'https://opendata.vlci.valencia.es/dataset
 async function resolveEmtValenciaGtfsUrl() {
   return process.env.EMT_VALENCIA_GTFS_URL || EMT_VALENCIA_GTFS_URL_DEFAULT;
 }
+// O site oficial (metrovalencia.es) recusa-se a ligar a partir do Railway —
+// confirmado que nem HTTP nem HTTPS chegam sequer a estabelecer ligação
+// ("fetch failed", um erro de rede, não um erro HTTP normal — provavelmente
+// bloqueia tráfego de datacenter, o mesmo problema já visto no Metro de
+// Lisboa). Mesmo fallback já usado para a CP/Fertagus: em vez do site
+// oficial, a Mobility Database (mobilitydatabase.org) guarda a sua própria
+// cópia do feed (mdb-1054) — se `MOBILITY_DB_REFRESH_TOKEN` estiver
+// configurado, usa essa cópia em vez do URL direto.
 const METRO_VALENCIA_GTFS_URL_DEFAULT = 'https://www.metrovalencia.es/google_transit_feed/google_transit.zip';
+const METRO_VALENCIA_MOBILITY_DB_FEED_ID = process.env.METRO_VALENCIA_MOBILITY_DB_FEED_ID || 'mdb-1054';
 async function resolveMetroValenciaGtfsUrl() {
-  return process.env.METRO_VALENCIA_GTFS_URL || METRO_VALENCIA_GTFS_URL_DEFAULT;
+  if (process.env.METRO_VALENCIA_GTFS_URL) return process.env.METRO_VALENCIA_GTFS_URL;
+  if (!process.env.MOBILITY_DB_REFRESH_TOKEN) return METRO_VALENCIA_GTFS_URL_DEFAULT;
+  return resolveGtfsUrlViaMobilityDb(METRO_VALENCIA_MOBILITY_DB_FEED_ID);
 }
 
 app.get('/api/transport/valencia/bus-stops', async (req, res) => {

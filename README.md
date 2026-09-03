@@ -197,6 +197,8 @@ O **Metrovalencia** (metro + tram, operado pela FGV — Ferrocarrils de la Gener
 
 Valência usa o mesmo fuso `Europe/Madrid` que Madrid (não tem fuso próprio em Espanha), por isso reaproveita a mesma passagem por `nowInTimeZone('Europe/Madrid')` sem qualquer alteração adicional.
 
+**Problema confirmado em produção:** o site oficial (`metrovalencia.es`) recusa-se a ligar a partir do Railway — nem HTTP nem HTTPS chegam sequer a estabelecer ligação ("fetch failed", um erro de rede, não um erro HTTP normal), provavelmente por bloquear tráfego de datacenter, o mesmo problema já visto no Metro de Lisboa. Em vez do site oficial, há agora o mesmo fallback via Mobility Database já usado para a CP/Fertagus: com **`MOBILITY_DB_REFRESH_TOKEN`** configurado (ver secção da CP acima), o Metrovalencia passa a vir da cópia da Mobility Database (feed `mdb-1054`, configurável via `METRO_VALENCIA_MOBILITY_DB_FEED_ID`) em vez do URL direto.
+
 Se alguma das duas fontes falhar, mostra um erro amigável só nessa parte — as restantes (Portugal, Madrid) não são afetadas.
 
 ### Renfe (nacional — Cercanías/Rodalies + AVE/longa distância) — como funciona
