@@ -1500,6 +1500,43 @@ app.get('/api/transport/valencia/rail-departures', async (req, res) => {
     res.status(503).json({ error: 'Não foi possível obter os horários do Metrovalencia agora: ' + err.message });
   }
 });
+// Endpoint de diagnóstico temporário — a investigar porque é que NENHUMA
+// estação do Metrovalencia mostra partidas ("sem mais partidas hoje" em
+// todas), depois de confirmado que a Mobility Database já está configurada e
+// a devolver estações reais. Mostra o URL realmente usado e um resumo do
+// calendário do feed (datas de validade, quantos serviços têm exceções vs.
+// calendário semanal) — o suficiente para perceber se o feed está mesmo
+// desatualizado (calendário já expirado) ou se é outra coisa. Remover depois
+// de resolvido.
+app.get('/api/transport/valencia/metro-debug', async (req, res) => {
+  try {
+    const url = await resolveMetroValenciaGtfsUrl();
+    const gtfs = await ensureGtfsFeedLoaded('metro-valencia', resolveMetroValenciaGtfsUrl, 'METRO_VALENCIA_GTFS_URL');
+    const now = nowInTimeZone('Europe/Madrid');
+    const todayStr = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
+    const calendars = [...gtfs.calendar.entries()];
+    const serviceIdsWithOnlyExceptions = [...gtfs.calendarExceptions.keys()].filter((id) => !gtfs.calendar.has(id));
+    let activeToday = 0;
+    let totalServices = new Set([...gtfs.calendar.keys(), ...gtfs.calendarExceptions.keys()]).size;
+    for (const serviceId of new Set([...gtfs.calendar.keys(), ...gtfs.calendarExceptions.keys()])) {
+      if (isServiceActiveOnDate(gtfs, serviceId, now)) activeToday++;
+    }
+    res.json({
+      resolvedUrl: url,
+      hoje: todayStr,
+      totalStops: gtfs.stops.size,
+      totalTrips: gtfs.trips.size,
+      totalServices,
+      servicesAtivosHoje: activeToday,
+      totalCalendarEntries: calendars.length,
+      amostraCalendar: calendars.slice(0, 5).map(([id, c]) => ({ serviceId: id, start: c.start, end: c.end, days: c.days })),
+      totalCalendarDateExceptions: [...gtfs.calendarExceptions.values()].reduce((s, m) => s + m.size, 0),
+      servicesSoComExcecoes: serviceIdsWithOnlyExceptions.length
+    });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
 
 // ==================== RENFE (nacional) — Cercanías/Rodalies + AVE/Larga Distância ====================
 // Terceira e última expansão para Espanha pedida pelo utilizador. Ao contrário de
