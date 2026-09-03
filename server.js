@@ -254,7 +254,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null };
 }
 
 app.post('/api/register', async (req, res) => {
@@ -4210,7 +4210,7 @@ function broadcastUnoUpdate(chatId, messageId, game) {
 }
 
 function contactPublicInfo(u) {
-  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: u.hideOnlineStatus ? false : onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null };
+  return { name: u.name, phone: u.phone, username: u.username || null, country: u.country, online: u.hideOnlineStatus ? false : onlinePhones.has(u.phone), publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, birthday: u.birthday || null, pixKey: u.pixKey || null };
 }
 
 function sendContactsTo(phone) {
@@ -4295,6 +4295,20 @@ io.on('connection', (socket) => {
     socket.emit('search_user_result', { found: true, query, user: contactPublicInfo(accounts[targetPhone]) });
   });
 
+  // Info pública de uma conta pelo telefone — usado para acertar contas de
+  // viagem num GRUPO: o nome de quem pagou/participa só existe como texto
+  // nas mensagens (grupos aqui não têm lista fixa de membros a consultar —
+  // ver "Dividir despesas de viagem"), por isso o telefone vem de uma
+  // mensagem já enviada por essa pessoa nessa conversa, e só depois se
+  // pergunta ao servidor a chave Pix/dados públicos dessa conta. Mesmos
+  // campos que search_user já expõe — não é uma exposição nova.
+  socket.on('get_public_info_by_phone', (data) => {
+    const phone = String(data?.phone || '').trim();
+    const myPhone = users[socket.id]?.phone;
+    if (!phone || !myPhone || !accounts[phone]) return socket.emit('public_info_by_phone_result', { phone, found: false });
+    socket.emit('public_info_by_phone_result', { phone, found: true, user: contactPublicInfo(accounts[phone]) });
+  });
+
   // Atualiza a foto de perfil e avisa quem te tem como contacto para verem a nova foto
   socket.on('update_avatar', async (data) => {
     const myPhone = users[socket.id]?.phone;
@@ -4338,6 +4352,27 @@ io.on('connection', (socket) => {
     }
     notifyContactsOfStatusChange(myPhone);
     socket.emit('birthday_updated', { birthday: data.birthday });
+  });
+
+  // Guarda a chave Pix (CPF, telefone, email ou chave aleatória) usada para
+  // gerar um código Pix pronto a copiar quando alguém tem de pagar a esta
+  // pessoa (ex.: ao acertar contas de viagem — ver "Dividir despesas de
+  // viagem"). Puramente opcional e em texto livre — não há forma de validar
+  // à distância que uma chave Pix é real sem integrar com o Banco Central,
+  // por isso confiamos no que a pessoa introduzir, tal como já acontece com
+  // o email no cadastro.
+  socket.on('set_pix_key', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !accounts[myPhone] || typeof data?.pixKey !== 'string') return;
+    const pixKey = data.pixKey.trim().slice(0, 140);
+    accounts[myPhone].pixKey = pixKey || null;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { pixKey: accounts[myPhone].pixKey }).catch(e => console.error('Erro Mongo (chave Pix):', e.message));
+    } else {
+      saveUsers();
+    }
+    notifyContactsOfStatusChange(myPhone);
+    socket.emit('pix_key_updated', { pixKey: accounts[myPhone].pixKey });
   });
 
   socket.on('set_email', async (data) => {

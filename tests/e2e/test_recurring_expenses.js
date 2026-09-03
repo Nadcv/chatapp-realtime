@@ -68,8 +68,12 @@ const { chromium } = require('playwright');
   console.log('Select de moeda populado com as taxas mocked:', currencyOptions.includes('USD') && currencyOptions.includes('BRL'));
   const dayOptions = await page.evaluate(() => [...document.getElementById('recurringExpenseDayOfMonth').options].map(o => o.value));
   console.log('Select de dia do mês tem 31 opções (1 a 31):', dayOptions.length === 31 && dayOptions[0] === '1' && dayOptions[30] === '31');
+  const myName = await page.evaluate(() => APP.user.name);
   const paidByOptions = await page.evaluate(() => [...document.getElementById('recurringExpensePaidBy').options].map(o => o.value));
-  console.log('Select "quem paga" inclui todos os participantes:', paidByOptions.includes('Você') && paidByOptions.includes('Ana') && paidByOptions.includes('Bruno'));
+  // O valor guardado é sempre o nome real (nunca o literal "Você") — isto viaja
+  // dentro do objeto da despesa fixa para a outra pessoa, tal como nas despesas
+  // avulsas (ver getChatParticipantNames em index.html).
+  console.log('Select "quem paga" inclui todos os participantes (pelo nome real):', paidByOptions.includes(myName) && !paidByOptions.includes('Você') && paidByOptions.includes('Ana') && paidByOptions.includes('Bruno'));
 
   // --- Criação real ---
   await page.fill('#recurringExpenseDescription', 'Renda');

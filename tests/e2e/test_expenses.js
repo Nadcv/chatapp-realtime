@@ -42,9 +42,13 @@ const { chromium } = require('playwright');
     renderMessages();
   });
 
-  // Test getChatParticipantNames includes Você + distinct senders.
+  // Test getChatParticipantNames includes the logged-in user's REAL name (not the
+  // literal "Você" placeholder — that string is only ever a local self-display
+  // label; storing it as a value would send a meaningless "Você" to the other
+  // side of the conversation instead of an actual identifiable name) + distinct senders.
+  const myName = await page.evaluate(() => APP.user.name);
   const participants = await page.evaluate(() => getChatParticipantNames('testgroup1'));
-  console.log('Participants include Você, Ana, Bruno:', participants.includes('Você') && participants.includes('Ana') && participants.includes('Bruno'));
+  console.log('Participants include my own real name (not "Você"), Ana, Bruno:', participants.includes(myName) && !participants.includes('Você') && participants.includes('Ana') && participants.includes('Bruno'));
   console.log('Participants count is exactly 3 (no duplicates):', participants.length === 3);
 
   // Open expenses modal (should show "no expenses yet").
@@ -62,7 +66,9 @@ const { chromium } = require('playwright');
   console.log('Currency select populated with mocked rates:', currencyOptions.includes('USD') && currencyOptions.includes('BRL'));
 
   const paidByOptions = await page.evaluate(() => [...document.getElementById('expensePaidBy').options].map(o => o.value));
-  console.log('PaidBy select includes all participants:', paidByOptions.includes('Você') && paidByOptions.includes('Ana') && paidByOptions.includes('Bruno'));
+  console.log('PaidBy select includes all participants (by real name):', paidByOptions.includes(myName) && paidByOptions.includes('Ana') && paidByOptions.includes('Bruno'));
+  const myOptionLabel = await page.evaluate((name) => [...document.getElementById('expensePaidBy').options].find(o => o.value === name)?.textContent, myName);
+  console.log('My own option is LABELED "Você" even though its value is my real name:', myOptionLabel === 'Você');
 
   const participantCheckboxes = await page.evaluate(() => document.querySelectorAll('.expense-participant-checkbox').length);
   console.log('Participant checkboxes rendered for all 3 people:', participantCheckboxes === 3);
@@ -112,16 +118,16 @@ const { chromium } = require('playwright');
   console.log('Balances show Ana is owed money:', balancesText.includes('Ana') && balancesText.includes('deve receber'));
   console.log('Balances show Você/Bruno owe money:', (balancesText.match(/deve \d/g) || []).length >= 1);
 
-  // Add a second expense paid by "Você" split only between Você and Bruno, to test multi-expense balance math.
+  // Add a second expense paid by "Você" (myself) split only between myself and Bruno, to test multi-expense balance math.
   await page.evaluate(() => openAddExpenseForm());
   await page.waitForTimeout(200);
   await page.fill('#expenseDescription', 'Táxi');
   await page.fill('#expenseAmount', '20');
   await page.selectOption('#expenseCurrency', 'EUR');
-  await page.selectOption('#expensePaidBy', 'Você');
-  await page.evaluate(() => {
-    document.querySelectorAll('.expense-participant-checkbox').forEach(cb => { cb.checked = (cb.value === 'Você' || cb.value === 'Bruno'); });
-  });
+  await page.selectOption('#expensePaidBy', myName);
+  await page.evaluate((name) => {
+    document.querySelectorAll('.expense-participant-checkbox').forEach(cb => { cb.checked = (cb.value === name || cb.value === 'Bruno'); });
+  }, myName);
   await page.evaluate(() => submitExpense());
   await page.waitForTimeout(300);
 
