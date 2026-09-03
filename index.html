@@ -1641,9 +1641,9 @@
                 <div id="railPortugalContent" style="display:flex;flex-direction:column;gap:6px;">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
                 <input type="text" id="metroLisboaSearchInput" placeholder="🔍 Pesquisar estação do Metro de Lisboa (horários)..." oninput="debounceMetroLisboaStationSearch()">
-                <div id="metroLisboaSearchResults"></div>
+                <div id="metroLisboaSearchResults" style="max-height:280px;overflow-y:auto;"></div>
                 <input type="text" id="railSearchInput" placeholder="🔍 Pesquisar estação de comboio (horários CP/Fertagus)..." oninput="debounceRailStationSearch()">
-                <div id="railSearchResults"></div>
+                <div id="railSearchResults" style="max-height:280px;overflow-y:auto;"></div>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
                     <input type="checkbox" id="railEstimatedToggle" onchange="toggleEstimatedTrainPositions()">
                     🚆 Ver comboios de Portugal (CP/Fertagus) e Espanha (Renfe) em trânsito (estimado pelo horário — não é GPS ao vivo)
@@ -1660,19 +1660,19 @@
                 </div>
                 <div id="railMadridContent" style="display:none;flex-direction:column;gap:6px;">
                     <input type="text" id="railMadridSearchInput" placeholder="🔍 Pesquisar estação (Metro/Cercanías/Metro Ligero Madrid)..." oninput="debounceMadridRailStationSearch()">
-                    <div id="railMadridSearchResults"></div>
+                    <div id="railMadridSearchResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
                 <div id="railValenciaContent" style="display:none;flex-direction:column;gap:6px;">
                     <input type="text" id="railValenciaSearchInput" placeholder="🔍 Pesquisar estação (Metrovalencia)..." oninput="debounceValenciaRailStationSearch()">
-                    <div id="railValenciaSearchResults"></div>
+                    <div id="railValenciaSearchResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
                 <div id="railRenfeContent" style="display:none;flex-direction:column;gap:6px;">
                     <input type="text" id="railRenfeSearchInput" placeholder="🔍 Pesquisar estação (Renfe Cercanías/AVE, toda a Espanha)..." oninput="debounceRenfeRailStationSearch()">
-                    <div id="railRenfeSearchResults"></div>
+                    <div id="railRenfeSearchResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
                 <div id="railFranceContent" style="display:none;flex-direction:column;gap:6px;">
                     <input type="text" id="railFranceSearchInput" placeholder="🔍 Pesquisar estação (SNCF Transilien, Paris/Île-de-France)..." oninput="debounceFranceRailStationSearch()">
-                    <div id="railFranceSearchResults"></div>
+                    <div id="railFranceSearchResults" style="max-height:280px;overflow-y:auto;"></div>
                 </div>
             </div>
             <div id="flightFilterBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
@@ -1687,19 +1687,19 @@
             </div>
             <div id="guimaraesScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="guimaraesSearchInput" placeholder="🔍 Pesquisar paragem (Guimarães)..." oninput="debounceGuimaraesStopSearch()">
-                <div id="guimaraesSearchResults"></div>
+                <div id="guimaraesSearchResults" style="max-height:280px;overflow-y:auto;"></div>
             </div>
             <div id="madridBusScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="madridBusSearchInput" placeholder="🔍 Pesquisar paragem (EMT Madrid)..." oninput="debounceMadridBusStopSearch()">
-                <div id="madridBusSearchResults"></div>
+                <div id="madridBusSearchResults" style="max-height:280px;overflow-y:auto;"></div>
             </div>
             <div id="valenciaBusScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="valenciaBusSearchInput" placeholder="🔍 Pesquisar paragem (EMT Valência)..." oninput="debounceValenciaBusStopSearch()">
-                <div id="valenciaBusSearchResults"></div>
+                <div id="valenciaBusSearchResults" style="max-height:280px;overflow-y:auto;"></div>
             </div>
             <div id="portoScheduleBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <input type="text" id="portoSearchInput" placeholder="🔍 Pesquisar paragem/estação (Porto — STCP ou Metro)..." oninput="debouncePortoStopSearch()">
-                <div id="portoSearchResults"></div>
+                <div id="portoSearchResults" style="max-height:280px;overflow-y:auto;"></div>
             </div>
             <div id="tripSearchBar" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);">
                 <div style="display:flex;gap:6px;">
