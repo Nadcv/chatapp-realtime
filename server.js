@@ -77,9 +77,29 @@ const groupSchema = new mongoose.Schema({
   bannedPhones: [String],
   private: Boolean, // grupo fechado (só por convite) em vez do padrão aberto a todos
   memberPhones: [String], // só usado quando 'private' — quem já entrou (por convite ou por tê-lo criado)
-  inviteToken: String // token do link/QR de convite atual deste grupo (só existe em grupos privados)
+  inviteToken: String, // token do link/QR de convite atual deste grupo (só existe em grupos privados)
+  announcementsOnly: Boolean, // canal de anúncios de uma comunidade — só admins deste grupo podem publicar
+  communityId: String // se este grupo está ligado a uma comunidade (ver communitySchema abaixo)
 });
 const GroupModel = mongoose.model('Group', groupSchema);
+
+// Uma comunidade agrupa vários grupos já existentes debaixo de um mesmo
+// "chapéu" (ex.: "Bairro X" a juntar o grupo da rua, o da escola e o do
+// condomínio) e ganha automaticamente um canal de anúncios próprio — um
+// grupo normal com announcementsOnly=true, cujos admins são sempre os
+// mesmos admins da comunidade (mantidos em sincronia em community_set_role).
+const communitySchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  name: String,
+  description: String,
+  createdBy: String,
+  createdByPhone: String,
+  createdAt: String,
+  admins: [String],
+  groupIds: [String], // inclui sempre o announcementGroupId
+  announcementGroupId: String
+});
+const CommunityModel = mongoose.model('Community', communitySchema);
 
 const messageSchema = new mongoose.Schema({
   chatId: { type: String, required: true, index: true },
@@ -137,9 +157,10 @@ const noteSchema = new mongoose.Schema({
 const NoteModel = mongoose.model('Note', noteSchema);
 
 async function loadDataFromMongo() {
-  const [dbAccounts, dbGroups, dbMsgs, dbActivities, dbTodos, dbNotes] = await Promise.all([
+  const [dbAccounts, dbGroups, dbCommunities, dbMsgs, dbActivities, dbTodos, dbNotes] = await Promise.all([
     AccountModel.find({}),
     GroupModel.find({}),
+    CommunityModel.find({}),
     MessageModel.find({}).sort({ createdAt: 1 }),
     ActivityModel.find({}).sort({ createdAt: -1 }).limit(500),
     TodoModel.find({}),
@@ -151,6 +172,7 @@ async function loadDataFromMongo() {
     if (!firstRegisteredPhone) firstRegisteredPhone = acc.phone;
   });
   dbGroups.forEach(g => { groups[g.id] = g.toObject(); });
+  dbCommunities.forEach(c => { communities[c.id] = c.toObject(); });
   dbMsgs.forEach(m => {
     const obj = m.toObject();
     if (!messagesByRoom[obj.chatId]) messagesByRoom[obj.chatId] = [];
@@ -159,7 +181,7 @@ async function loadDataFromMongo() {
   dbActivities.forEach(a => { activities.push(a.toObject()); });
   dbTodos.forEach(t => { todosByRoom[t.roomId] = t.toObject().items || []; });
   dbNotes.forEach(n => { notesByPhone[n.phone] = notesByPhone[n.phone] || []; notesByPhone[n.phone].push(n.toObject()); });
-  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s), ${dbTodos.length} lista(s) de tarefas, ${dbNotes.length} nota(s).`);
+  console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbCommunities.length} comunidade(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s), ${dbTodos.length} lista(s) de tarefas, ${dbNotes.length} nota(s).`);
 }
 
 // Liga à base de dados ANTES do servidor começar a aceitar pedidos — sem isto,
@@ -173,7 +195,7 @@ async function connectDatabase() {
   loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
     return;
   }
   try {
@@ -184,7 +206,7 @@ async function connectDatabase() {
   } catch (err) {
     console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
     isDbConnected = false;
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
   }
 }
 
@@ -3745,6 +3767,29 @@ function saveGroupsLocal() {
   });
 }
 
+// ==================== COMUNIDADES ====================
+const COMMUNITIES_FILE = path.join(__dirname, 'communities.json');
+let communities = {};
+
+function loadCommunitiesLocal() {
+  try {
+    if (fs.existsSync(COMMUNITIES_FILE)) communities = JSON.parse(fs.readFileSync(COMMUNITIES_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar comunidades localmente:', err.message);
+  }
+}
+function saveCommunitiesLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(COMMUNITIES_FILE, JSON.stringify(communities), (err) => {
+    if (err) console.error('Erro ao salvar comunidades localmente:', err.message);
+  });
+}
+// Tal como os grupos, as comunidades são sempre públicas (visíveis a toda a
+// gente cadastrada) — não existe o conceito de "comunidade privada".
+function broadcastCommunitiesUpdate() {
+  io.emit('communities_update', Object.values(communities));
+}
+
 // ==================== ATIVIDADES (estilo Strava — corridas/caminhadas/bicicleta) ====================
 const ACTIVITIES_FILE = path.join(__dirname, 'activities.json');
 let activities = []; // lista simples, mais recente primeiro
@@ -4329,6 +4374,7 @@ io.on('connection', (socket) => {
   // login, quando já sabemos o telefone — ver o novo emit em 'user_login'); os contactos só
   // chegam depois do login.
   socket.emit('groups_update', visibleGroupsForPhone(null));
+  socket.emit('communities_update', Object.values(communities));
 
   socket.on('user_login', (userData) => {
     users[socket.id].name = userData?.name || 'Anônimo';
@@ -4614,6 +4660,20 @@ io.on('connection', (socket) => {
     const group = groups[groupId];
     const myPhone = users[socket.id]?.phone;
     if (!group || !myPhone || group.createdByPhone !== myPhone) return;
+    // O canal de anúncios de uma comunidade não se apaga sozinho — apaga-se a
+    // comunidade inteira (ver 'community_delete'), senão a comunidade ficava
+    // sem canal de anúncios nenhum.
+    if (group.communityId && communities[group.communityId]?.announcementGroupId === groupId) return;
+    if (group.communityId && communities[group.communityId]) {
+      const community = communities[group.communityId];
+      community.groupIds = (community.groupIds || []).filter(id => id !== groupId);
+      if (isDbConnected) {
+        await CommunityModel.updateOne({ id: community.id }, { groupIds: community.groupIds }).catch(e => console.error('Erro Mongo (desligar grupo apagado da comunidade):', e.message));
+      } else {
+        saveCommunitiesLocal();
+      }
+      broadcastCommunitiesUpdate();
+    }
     delete groups[groupId];
     delete messagesByRoom[groupId]; // apaga também o histórico de mensagens desse grupo
 
@@ -4627,6 +4687,157 @@ io.on('connection', (socket) => {
     broadcastGroupsUpdate();
     io.emit('group_deleted', { groupId });
     log(`🗑️ Grupo "${group.name}" apagado por ${users[socket.id]?.name || myPhone}`, 'GROUP');
+  });
+
+  // ==================== COMUNIDADES ====================
+  // Uma comunidade liga vários grupos já existentes debaixo de um mesmo nome
+  // (ex.: "Bairro X" a juntar o grupo da rua, o da escola e o do condomínio)
+  // e ganha automaticamente um canal de anúncios (um grupo normal com
+  // announcementsOnly=true, só os admins da comunidade podem publicar lá).
+  function isCommunityAdmin(community, phone) { return community?.admins?.includes(phone); }
+
+  socket.on('create_community', async (data) => {
+    const name = (data?.name || '').trim();
+    const description = (data?.description || '').trim().slice(0, 300);
+    const creatorPhone = users[socket.id]?.phone;
+    if (!name || !creatorPhone) return;
+    const communityId = 'community_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const announcementGroupId = 'group_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const createdByName = users[socket.id]?.name || 'Alguém';
+    const createdAt = new Date().toISOString();
+
+    const announcementGroup = {
+      id: announcementGroupId, name: `📢 Anúncios · ${name}`, createdBy: createdByName, createdByPhone: creatorPhone, createdAt,
+      admins: [creatorPhone], moderators: [], mutedPhones: [], bannedPhones: [],
+      private: false, memberPhones: undefined, inviteToken: undefined,
+      announcementsOnly: true, communityId
+    };
+    const newCommunity = {
+      id: communityId, name, description, createdBy: createdByName, createdByPhone: creatorPhone, createdAt,
+      admins: [creatorPhone], groupIds: [announcementGroupId], announcementGroupId
+    };
+    groups[announcementGroupId] = announcementGroup;
+    communities[communityId] = newCommunity;
+
+    if (isDbConnected) {
+      await GroupModel.create(announcementGroup).catch(e => console.error('Erro Mongo (canal de anúncios da comunidade):', e.message));
+      await CommunityModel.create(newCommunity).catch(e => console.error('Erro Mongo (criar comunidade):', e.message));
+    } else {
+      saveGroupsLocal();
+      saveCommunitiesLocal();
+    }
+    broadcastGroupsUpdate();
+    broadcastCommunitiesUpdate();
+  });
+
+  // Liga um grupo já existente a uma comunidade — só quem é admin da
+  // comunidade E admin desse grupo pode fazê-lo (senão dava para arrastar o
+  // grupo de outra pessoa para uma comunidade sem o dono concordar).
+  socket.on('community_add_group', async (data) => {
+    const { communityId, groupId } = data || {};
+    const community = communities[communityId];
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!community || !group || !myPhone) return;
+    if (!isCommunityAdmin(community, myPhone) || !isGroupAdmin(group, myPhone)) return;
+    if (group.announcementsOnly || group.communityId) return; // já pertence a outra comunidade, ou é um canal de anúncios
+    if ((community.groupIds || []).includes(groupId)) return;
+    community.groupIds = [...(community.groupIds || []), groupId];
+    group.communityId = communityId;
+
+    if (isDbConnected) {
+      await CommunityModel.updateOne({ id: communityId }, { groupIds: community.groupIds }).catch(e => console.error('Erro Mongo (ligar grupo à comunidade):', e.message));
+      await GroupModel.updateOne({ id: groupId }, { communityId: group.communityId }).catch(e => console.error('Erro Mongo (comunidade do grupo):', e.message));
+    } else {
+      saveCommunitiesLocal();
+      saveGroupsLocal();
+    }
+    broadcastCommunitiesUpdate();
+    broadcastGroupsUpdate();
+  });
+
+  socket.on('community_remove_group', async (data) => {
+    const { communityId, groupId } = data || {};
+    const community = communities[communityId];
+    const myPhone = users[socket.id]?.phone;
+    if (!community || !myPhone || !isCommunityAdmin(community, myPhone)) return;
+    if (groupId === community.announcementGroupId) return; // o canal de anúncios não se desliga, só apagando a comunidade inteira
+    community.groupIds = (community.groupIds || []).filter(id => id !== groupId);
+    const group = groups[groupId];
+    if (group) group.communityId = undefined;
+
+    if (isDbConnected) {
+      await CommunityModel.updateOne({ id: communityId }, { groupIds: community.groupIds }).catch(e => console.error('Erro Mongo (desligar grupo da comunidade):', e.message));
+      if (group) await GroupModel.updateOne({ id: groupId }, { communityId: null }).catch(e => console.error('Erro Mongo (comunidade do grupo):', e.message));
+    } else {
+      saveCommunitiesLocal();
+      saveGroupsLocal();
+    }
+    broadcastCommunitiesUpdate();
+    broadcastGroupsUpdate();
+  });
+
+  // Promove/despromove um admin da comunidade — os admins do canal de
+  // anúncios são sempre mantidos em sincronia com os admins da comunidade,
+  // para que a restrição de "só admins publicam" no canal de anúncios (ver
+  // 'send_message') continue correta sem precisar de uma verificação à parte.
+  socket.on('community_set_role', async (data) => {
+    const { communityId, targetPhone, role } = data || {};
+    const community = communities[communityId];
+    const myPhone = users[socket.id]?.phone;
+    if (!community || !myPhone || !isCommunityAdmin(community, myPhone) || !targetPhone) return;
+    if (role === 'admin') {
+      if (!community.admins.includes(targetPhone)) community.admins.push(targetPhone);
+    } else {
+      if (targetPhone === community.createdByPhone) return; // quem criou a comunidade nunca perde o cargo
+      community.admins = community.admins.filter(p => p !== targetPhone);
+    }
+    const announcementGroup = groups[community.announcementGroupId];
+    if (announcementGroup) announcementGroup.admins = [...community.admins];
+
+    if (isDbConnected) {
+      await CommunityModel.updateOne({ id: communityId }, { admins: community.admins }).catch(e => console.error('Erro Mongo (cargo da comunidade):', e.message));
+      if (announcementGroup) await GroupModel.updateOne({ id: announcementGroup.id }, { admins: announcementGroup.admins }).catch(e => console.error('Erro Mongo (admins do canal de anúncios):', e.message));
+    } else {
+      saveCommunitiesLocal();
+      saveGroupsLocal();
+    }
+    broadcastCommunitiesUpdate();
+    broadcastGroupsUpdate();
+  });
+
+  // Apagar a comunidade por completo — só quem a criou pode fazê-lo. Os
+  // grupos que estavam ligados continuam a existir normalmente (só perdem a
+  // ligação); apenas o canal de anúncios (que só existe por causa da
+  // comunidade) é apagado junto.
+  socket.on('community_delete', async (data) => {
+    const { communityId } = data || {};
+    const community = communities[communityId];
+    const myPhone = users[socket.id]?.phone;
+    if (!community || !myPhone || community.createdByPhone !== myPhone) return;
+    (community.groupIds || []).forEach((gId) => {
+      if (gId === community.announcementGroupId) return;
+      if (groups[gId]) groups[gId].communityId = undefined;
+    });
+    const announcementGroupId = community.announcementGroupId;
+    delete groups[announcementGroupId];
+    delete messagesByRoom[announcementGroupId];
+    delete communities[communityId];
+
+    if (isDbConnected) {
+      await CommunityModel.deleteOne({ id: communityId }).catch(e => console.error('Erro Mongo (apagar comunidade):', e.message));
+      await GroupModel.deleteOne({ id: announcementGroupId }).catch(e => console.error('Erro Mongo (apagar canal de anúncios):', e.message));
+      await MessageModel.deleteMany({ chatId: announcementGroupId }).catch(e => console.error('Erro Mongo (apagar mensagens do canal de anúncios):', e.message));
+      await GroupModel.updateMany({ communityId }, { communityId: null }).catch(e => console.error('Erro Mongo (desligar grupos da comunidade apagada):', e.message));
+    } else {
+      saveCommunitiesLocal();
+      saveGroupsLocal();
+      saveMessagesLocal();
+    }
+    broadcastCommunitiesUpdate();
+    broadcastGroupsUpdate();
+    io.emit('group_deleted', { groupId: announcementGroupId });
+    log(`🗑️ Comunidade "${community.name}" apagada por ${users[socket.id]?.name || myPhone}`, 'GROUP');
   });
 
   socket.on('join_room', (data) => {
@@ -4677,6 +4888,10 @@ io.on('connection', (socket) => {
       if (group.bannedPhones?.includes(myPhone)) return;
       if (group.mutedPhones?.includes(myPhone)) {
         socket.emit('message_rejected', { chatId: data.chatId, reason: 'Foste silenciado neste grupo.' });
+        return;
+      }
+      if (group.announcementsOnly && !isGroupAdmin(group, myPhone)) {
+        socket.emit('message_rejected', { chatId: data.chatId, reason: 'Este é o canal de anúncios da comunidade — só administradores podem publicar aqui.' });
         return;
       }
     }

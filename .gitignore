@@ -2,6 +2,7 @@ node_modules/
 messages.json
 users.json
 groups.json
+communities.json
 activities.json
 vapid.json
 todos.json

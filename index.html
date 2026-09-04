@@ -2084,6 +2084,48 @@
                 </div>
             </div>
         </div>
+        <!-- ============ COMUNIDADES ============ -->
+        <div class="modal-overlay" id="modalCommunities">
+            <div class="modal">
+                <h3>🌐 Comunidades</h3>
+                <p class="member-count">Junta vários grupos debaixo de um mesmo nome, com um canal de anúncios só para os administradores publicarem.</p>
+                <button class="btn-small btn-accept" onclick="openCreateCommunityModal()" style="margin-top:10px;">➕ Criar comunidade</button>
+                <div id="communitiesListBox" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalCommunities')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalCreateCommunity">
+            <div class="modal">
+                <h3>🌐 Criar comunidade</h3>
+                <input type="text" id="communityNameInput" placeholder="Nome da comunidade">
+                <textarea id="communityDescriptionInput" placeholder="Descrição (opcional)" style="width:100%;margin-top:10px;min-height:60px;"></textarea>
+                <p class="member-count">ℹ️ Cria automaticamente um canal de anúncios (📢) onde só administradores da comunidade podem publicar.</p>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalCreateCommunity')">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="createCommunity()">Criar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalManageCommunity">
+            <div class="modal">
+                <h3 id="manageCommunityTitle">🌐 Gerir comunidade</h3>
+                <p id="manageCommunityDescription" class="member-count"></p>
+                <h4 style="margin-top:14px;font-size:13px;">Grupos ligados</h4>
+                <div id="manageCommunityGroupsBox" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;"></div>
+                <div id="manageCommunityAddGroupBox" style="margin-top:10px;display:flex;gap:6px;">
+                    <select id="manageCommunityAddGroupSelect" style="flex:1;"></select>
+                    <button class="btn-small" onclick="addGroupToCommunity()">Ligar</button>
+                </div>
+                <h4 style="margin-top:14px;font-size:13px;">Administradores</h4>
+                <div id="manageCommunityAdminsBox" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small btn-danger" id="deleteCommunityBtn" onclick="deleteCommunityConfirm()">🗑️ Apagar comunidade</button>
+                    <button class="btn-small" onclick="closeModal('modalManageCommunity')">Fechar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalCreatePoll">
             <div class="modal">
                 <h3>📊 Criar enquete</h3>
@@ -2468,6 +2510,7 @@
                 <h3>📇 Grupos, chamadas e contactos</h3>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCreateGroupModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">👥<span style="font-size:11px;">Criar grupo</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCommunitiesScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🌐<span style="font-size:11px;">Comunidades</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openBroadcastScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📢<span style="font-size:11px;">Lista de transmissão</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openNewCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📞<span style="font-size:11px;">Nova chamada</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openSearchUserModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔍<span style="font-size:11px;">Utilizadores cadastrados</span></button>
@@ -3555,6 +3598,8 @@
         musicAudio: document.getElementById('bgMusic'),
         onlineContacts: [], // vem do servidor: todos os usuários cadastrados + status online/offline
         groupsList: [], // vem do servidor: grupos visíveis a todos os usuários
+        communitiesList: [], // vem do servidor: comunidades (ligam vários grupos + canal de anúncios)
+        currentManagedCommunityId: null, // comunidade aberta em "Gerir" (modalManageCommunity)
         broadcasts: [], // vem do servidor: as minhas listas de transmissão
         joinedRooms: new Set(), // salas já ligadas (join_room) para receber mensagens em segundo plano
         whiteboard: {
@@ -3633,10 +3678,11 @@
         const groupChats = APP.groupsList
             .filter(g => !g.bannedPhones?.includes(APP.user.phone))
             .map(g => ({
-                id: g.id, name: g.name, phone: '', avatar: g.private ? '🔒' : '👥', type: 'group',
+                id: g.id, name: g.name, phone: '', avatar: g.announcementsOnly ? '📢' : (g.private ? '🔒' : '👥'), type: 'group',
                 memberCount: APP.onlineContacts.length, createdBy: g.createdBy, createdByPhone: g.createdByPhone,
                 admins: g.admins || [], moderators: g.moderators || [], mutedPhones: g.mutedPhones || [], bannedPhones: g.bannedPhones || [],
-                private: !!g.private, memberPhones: g.memberPhones || [], memberNames: g.memberNames || [], inviteToken: g.inviteToken || null
+                private: !!g.private, memberPhones: g.memberPhones || [], memberNames: g.memberNames || [], inviteToken: g.inviteToken || null,
+                announcementsOnly: !!g.announcementsOnly, communityId: g.communityId || null
             }));
         const aiChats = DEFAULT_CONTACTS;
         APP.chats = [...aiChats, ...groupChats, ...contactChats];
@@ -3725,6 +3771,12 @@
     socket.on('groups_update', (list) => {
         APP.groupsList = list || [];
         rebuildChatsFromServer();
+    });
+
+    socket.on('communities_update', (list) => {
+        APP.communitiesList = list || [];
+        if (document.getElementById('modalCommunities')?.classList.contains('active')) renderCommunitiesList();
+        if (APP.currentManagedCommunityId && document.getElementById('modalManageCommunity')?.classList.contains('active')) renderManageCommunityModal();
     });
 
     // ==================== LIMITE DE 2 DISPOSITIVOS POR CONTA ====================
@@ -4277,6 +4329,7 @@
         APP.currentChatId = null;
         APP.onlineContacts = [];
         APP.groupsList = [];
+        APP.communitiesList = [];
         APP.joinedRooms = new Set();
         document.getElementById('mainApp').style.display = 'none';
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -8586,7 +8639,7 @@
         document.getElementById('chatName').textContent = chat.name;
         const isGroup = chat.type === 'group';
         const isAI = chat.type === 'ai';
-        document.getElementById('chatSubtitle').textContent = isAI ? 'Gemini (Google) · respondendo instantaneamente' : (isGroup ? `Grupo · ${chat.memberCount} membros` : (chat.online ? 'Online' : 'Offline'));
+        document.getElementById('chatSubtitle').textContent = isAI ? 'Gemini (Google) · respondendo instantaneamente' : (isGroup ? (chat.announcementsOnly ? ('📢 Canal de anúncios' + (chat.admins?.includes(APP.user.phone) ? '' : ' · só administradores podem publicar')) : `Grupo · ${chat.memberCount} membros`) : (chat.online ? 'Online' : 'Offline'));
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('groupStatsBtn').style.display = isGroup ? 'flex' : 'none';
@@ -12281,6 +12334,127 @@
         // A lista de conversas é atualizada assim que o servidor confirmar via 'groups_update'
         // (chega para todos os usuários cadastrados, não só para quem criou — exceto grupos
         // privados, que só chegam a quem já é membro).
+    }
+
+    // ==================== COMUNIDADES ====================
+    // Uma comunidade junta vários grupos já existentes debaixo de um mesmo
+    // nome e ganha automaticamente um canal de anúncios (📢, aparece na lista
+    // de conversas como um grupo normal) onde só os administradores da
+    // comunidade podem publicar — a restrição é aplicada pelo servidor (ver
+    // 'send_message' em server.js), aqui só mostramos a interface.
+    function openCommunitiesScreen() {
+        document.getElementById('modalCommunities').classList.add('active');
+        renderCommunitiesList();
+    }
+    function renderCommunitiesList() {
+        const box = document.getElementById('communitiesListBox');
+        if (!APP.communitiesList.length) {
+            box.innerHTML = '<p class="member-count">Ainda não existe nenhuma comunidade. Cria a primeira!</p>';
+            return;
+        }
+        box.innerHTML = APP.communitiesList.map(c => {
+            const isAdmin = (c.admins || []).includes(APP.user.phone);
+            return `
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+                    <div style="font-weight:600;">🌐 ${escapeHtml(c.name)}</div>
+                    ${c.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${escapeHtml(c.description)}</div>` : ''}
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${(c.groupIds || []).length} grupo(s) ligado(s)</div>
+                    <div style="display:flex;gap:6px;margin-top:8px;">
+                        <button class="btn-small" onclick="closeModal('modalCommunities');openChat('${c.announcementGroupId}')">📢 Ver anúncios</button>
+                        ${isAdmin ? `<button class="btn-small" onclick="openManageCommunityModal('${c.id}')">⚙️ Gerir</button>` : ''}
+                    </div>
+                </div>`;
+        }).join('');
+    }
+    function openCreateCommunityModal() {
+        document.getElementById('communityNameInput').value = '';
+        document.getElementById('communityDescriptionInput').value = '';
+        document.getElementById('modalCreateCommunity').classList.add('active');
+    }
+    function createCommunity() {
+        const name = document.getElementById('communityNameInput').value.trim();
+        if (!name) return alert('Digite o nome da comunidade!');
+        const description = document.getElementById('communityDescriptionInput').value.trim();
+        socket.emit('create_community', { name, description });
+        closeModal('modalCreateCommunity');
+    }
+    function openManageCommunityModal(communityId) {
+        APP.currentManagedCommunityId = communityId;
+        document.getElementById('modalManageCommunity').classList.add('active');
+        renderManageCommunityModal();
+    }
+    function renderManageCommunityModal() {
+        const community = APP.communitiesList.find(c => c.id === APP.currentManagedCommunityId);
+        if (!community) { closeModal('modalManageCommunity'); return; }
+        const isAdmin = (community.admins || []).includes(APP.user.phone);
+        document.getElementById('manageCommunityTitle').textContent = '🌐 Gerir · ' + community.name;
+        document.getElementById('manageCommunityDescription').textContent = community.description || '';
+
+        const groupsBox = document.getElementById('manageCommunityGroupsBox');
+        groupsBox.innerHTML = (community.groupIds || []).map(gId => {
+            const g = APP.groupsList.find(x => x.id === gId);
+            const label = g ? (g.announcementsOnly ? '📢 ' + g.name + ' (canal de anúncios)' : '👥 ' + g.name) : gId;
+            const canRemove = isAdmin && gId !== community.announcementGroupId;
+            return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+                <span>${escapeHtml(label)}</span>
+                ${canRemove ? `<button class="btn-small btn-danger" onclick="removeGroupFromCommunity('${gId}')">Desligar</button>` : ''}
+            </div>`;
+        }).join('') || '<p class="member-count">Nenhum grupo ligado.</p>';
+
+        const addGroupBox = document.getElementById('manageCommunityAddGroupBox');
+        const addGroupSelect = document.getElementById('manageCommunityAddGroupSelect');
+        if (isAdmin) {
+            addGroupBox.style.display = 'flex';
+            const linkable = APP.groupsList.filter(g => !g.announcementsOnly && !g.communityId && (g.admins || []).includes(APP.user.phone));
+            addGroupSelect.innerHTML = linkable.length
+                ? linkable.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')
+                : '<option value="">Sem grupos teus disponíveis para ligar</option>';
+        } else {
+            addGroupBox.style.display = 'none';
+        }
+
+        // Um admin da comunidade pode muito bem ser alguém que nunca foi
+        // adicionado aos MEUS contactos diretamente (só se cruzaram por um
+        // grupo/comunidade em comum) — por isso o nome não vem de
+        // 'nameForPhone' (que só conhece contactos diretos), mas do mesmo
+        // pedido ao servidor já usado para resolver nomes no "Acertar contas".
+        const adminsBox = document.getElementById('manageCommunityAdminsBox');
+        const admins = community.admins || [];
+        adminsBox.innerHTML = admins.map(phone => `<div data-admin-phone="${phone}" style="display:flex;justify-content:space-between;align-items:center;font-size:13px;"><span>A carregar…</span></div>`).join('');
+        const renderedCommunityId = community.id;
+        Promise.all(admins.map(phone => resolveParticipantPublicInfo(phone))).then((infos) => {
+            if (APP.currentManagedCommunityId !== renderedCommunityId) return; // saiu deste modal entretanto
+            adminsBox.innerHTML = admins.map((phone, i) => {
+                const displayName = infos[i]?.name || phone;
+                const canDemote = isAdmin && phone !== community.createdByPhone && phone !== APP.user.phone;
+                return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+                    <span>${escapeHtml(displayName)}${phone === community.createdByPhone ? ' (criador)' : ''}</span>
+                    ${canDemote ? `<button class="btn-small btn-danger" onclick="communitySetRole('${phone}','member')">Remover admin</button>` : ''}
+                </div>`;
+            }).join('');
+        });
+
+        document.getElementById('deleteCommunityBtn').style.display = (community.createdByPhone === APP.user.phone) ? 'inline-block' : 'none';
+    }
+    function addGroupToCommunity() {
+        const groupId = document.getElementById('manageCommunityAddGroupSelect').value;
+        if (!groupId) return;
+        socket.emit('community_add_group', { communityId: APP.currentManagedCommunityId, groupId });
+    }
+    function removeGroupFromCommunity(groupId) {
+        if (!confirm('Desligar este grupo da comunidade?')) return;
+        socket.emit('community_remove_group', { communityId: APP.currentManagedCommunityId, groupId });
+    }
+    function communitySetRole(targetPhone, role) {
+        socket.emit('community_set_role', { communityId: APP.currentManagedCommunityId, targetPhone, role });
+    }
+    function deleteCommunityConfirm() {
+        const community = APP.communitiesList.find(c => c.id === APP.currentManagedCommunityId);
+        if (!community) return;
+        if (!confirm(`Apagar a comunidade "${community.name}"? Os grupos ligados continuam a existir, mas o canal de anúncios é apagado. Esta ação não pode ser desfeita.`)) return;
+        socket.emit('community_delete', { communityId: APP.currentManagedCommunityId });
+        closeModal('modalManageCommunity');
+        closeModal('modalCommunities');
     }
 
     // ==================== ENQUETES EM GRUPO ====================
