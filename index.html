@@ -2824,6 +2824,8 @@
             <div class="modal" style="max-height:80vh;overflow-y:auto;">
                 <h3>📊 As minhas estatísticas</h3>
                 <div id="myStatsContent" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;"></div>
+                <h4 style="margin-top:16px;font-size:13px;">🏆 Conquistas</h4>
+                <div id="myBadgesContent" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMyStats')">Fechar</button>
                 </div>
@@ -3822,6 +3824,7 @@
         onlineContacts: [], // vem do servidor: todos os usuários cadastrados + status online/offline
         groupsList: [], // vem do servidor: grupos visíveis a todos os usuários
         communitiesList: [], // vem do servidor: comunidades (ligam vários grupos + canal de anúncios)
+        badges: [], // vem do servidor: conquistas já desbloqueadas (ver BADGE_CATALOG)
         currentManagedCommunityId: null, // comunidade aberta em "Gerir" (modalManageCommunity)
         broadcasts: [], // vem do servidor: as minhas listas de transmissão
         joinedRooms: new Set(), // salas já ligadas (join_room) para receber mensagens em segundo plano
@@ -4556,6 +4559,7 @@
         APP.onlineContacts = [];
         APP.groupsList = [];
         APP.communitiesList = [];
+        APP.badges = [];
         APP.joinedRooms = new Set();
         document.getElementById('mainApp').style.display = 'none';
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -8712,8 +8716,53 @@
         if (s.topHour) cards.push(statCard('🕐', `${s.topHour}h`, 'Hora em que mais falas'));
         if (s.topChatName) cards.push(statCard('🏆', escapeHtml(s.topChatName), 'Conversa mais ativa'));
         document.getElementById('myStatsContent').innerHTML = cards.join('');
+        renderBadgesGrid();
         document.getElementById('modalMyStats').classList.add('active');
     }
+
+    // ==================== CONQUISTAS/GAMIFICAÇÃO ====================
+    // Espelha exatamente os ids/emojis/títulos do BADGE_CATALOG em server.js —
+    // o servidor é quem decide quando um badge é desbloqueado (fiável entre
+    // dispositivos), aqui só desenhamos a grelha com o que já foi conquistado
+    // a cinzento vs. a cores, e mostramos um toast quando chega um novo.
+    const BADGE_CATALOG = {
+        first_message: { emoji: '💬', title: 'Primeira conversa', desc: 'Enviaste a tua primeira mensagem.' },
+        messages_100: { emoji: '🗣️', title: 'Tagarela', desc: 'Enviaste 100 mensagens.' },
+        first_group: { emoji: '👥', title: 'Fundador', desc: 'Criaste o teu primeiro grupo.' },
+        first_community: { emoji: '🌐', title: 'Organizador', desc: 'Criaste a tua primeira comunidade.' },
+        first_call: { emoji: '📞', title: 'Primeira chamada', desc: 'Completaste a tua primeira chamada.' },
+        calls_10: { emoji: '☎️', title: 'Sempre em linha', desc: 'Completaste 10 chamadas.' },
+        first_expense: { emoji: '💰', title: 'Organizado', desc: 'Registaste a tua primeira despesa dividida.' },
+        first_game: { emoji: '🃏', title: 'Jogador', desc: 'Jogaste o teu primeiro jogo.' },
+        photos_50: { emoji: '📸', title: 'Fotógrafo', desc: 'Enviaste 50 fotos.' },
+        night_owl: { emoji: '🌙', title: 'Coruja', desc: 'Enviaste uma mensagem entre a meia-noite e as 5h.' },
+        streak_7: { emoji: '🔥', title: 'Sequência de 7 dias', desc: 'Falaste 7 dias seguidos.' },
+        collector: { emoji: '🏅', title: 'Colecionador', desc: 'Desbloqueaste 5 conquistas diferentes.' },
+    };
+    function renderBadgesGrid() {
+        const box = document.getElementById('myBadgesContent');
+        if (!box) return;
+        const unlocked = new Set(APP.badges || []);
+        box.innerHTML = Object.entries(BADGE_CATALOG).map(([id, b]) => {
+            const has = unlocked.has(id);
+            return `<div title="${escapeHtml(b.desc)}" style="text-align:center;padding:10px 4px;border-radius:10px;background:var(--bg-secondary);opacity:${has ? '1' : '0.35'};">
+                <div style="font-size:24px;filter:${has ? 'none' : 'grayscale(1)'};">${b.emoji}</div>
+                <div style="font-size:10px;margin-top:4px;">${escapeHtml(b.title)}</div>
+            </div>`;
+        }).join('');
+    }
+    function showBadgeUnlockedToast(badge) {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--bg-secondary);border:1px solid var(--accent-color,#7c5cff);border-radius:12px;padding:12px 18px;z-index:9999;display:flex;align-items:center;gap:10px;box-shadow:0 4px 16px rgba(0,0,0,0.3);animation:fadeIn 0.3s;';
+        el.innerHTML = `<span style="font-size:28px;">${badge.emoji}</span><div><div style="font-weight:700;font-size:13px;">🏆 Conquista desbloqueada!</div><div style="font-size:12px;color:var(--text-secondary);">${escapeHtml(badge.title)}</div></div>`;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 5000);
+    }
+    socket.on('badges_update', (list) => {
+        APP.badges = list || [];
+        if (document.getElementById('modalMyStats')?.classList.contains('active')) renderBadgesGrid();
+    });
+    socket.on('badge_unlocked', (badge) => { showBadgeUnlockedToast(badge); });
 
     // ==================== ESTATÍSTICAS DO GRUPO ====================
     // A versão "grupo" das estatísticas pessoais acima — mesma técnica (deriva
