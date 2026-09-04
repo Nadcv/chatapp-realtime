@@ -1331,26 +1331,31 @@
 <div class="app-container" id="appContainer">
     <div class="login-screen" id="loginScreen">
         <div class="login-avatar">💬</div>
-        <h1>ChatApp Completo</h1>
-        <p style="color:#8696a0;text-align:center;">Grupos com até 500 pessoas • Videochamadas • Conferências • IA • Música • Filmes • Quadro Branco</p>
+        <div style="display:flex;gap:6px;justify-content:center;margin-bottom:2px;">
+            <button type="button" class="btn-small" onclick="setUiLanguage('pt')" style="padding:4px 10px;">🇵🇹 PT</button>
+            <button type="button" class="btn-small" onclick="setUiLanguage('en')" style="padding:4px 10px;">🇺🇸 EN</button>
+            <button type="button" class="btn-small" onclick="setUiLanguage('es')" style="padding:4px 10px;">🇪🇸 ES</button>
+        </div>
+        <h1 data-i18n="appName">ChatApp Completo</h1>
+        <p style="color:#8696a0;text-align:center;" data-i18n="appTagline">Grupos com até 500 pessoas • Videochamadas • Conferências • IA • Música • Filmes • Quadro Branco</p>
 
         <!-- Formulário de ENTRAR -->
         <div id="loginFormBox" style="width:100%;display:flex;flex-direction:column;gap:14px;">
-            <input type="text" id="loginPhone" placeholder="Número de telemóvel">
-            <input type="password" id="loginPassword" placeholder="Senha">
+            <input type="text" id="loginPhone" placeholder="Número de telemóvel" data-i18n-placeholder="phonePlaceholder">
+            <input type="password" id="loginPassword" placeholder="Senha" data-i18n-placeholder="passwordPlaceholder">
             <div class="login-error" id="loginError"></div>
-            <button class="btn btn-primary" onclick="doLogin()">🚀 Entrar</button>
-            <button class="btn" onclick="openQrScanModal()" style="background:var(--bg-tertiary);">🔗 Associar por QR (já tenho conta noutro aparelho)</button>
-            <div class="login-switch" onclick="showAuthForm('register')">Não tem conta? Criar conta</div>
-            <div class="login-switch" onclick="showAuthForm('forgotPassword')">Esqueceste a senha?</div>
+            <button class="btn btn-primary" onclick="doLogin()" data-i18n="loginSubmitBtn">🚀 Entrar</button>
+            <button class="btn" onclick="openQrScanModal()" style="background:var(--bg-tertiary);" data-i18n="loginQrBtn">🔗 Associar por QR (já tenho conta noutro aparelho)</button>
+            <div class="login-switch" onclick="showAuthForm('register')" data-i18n="loginNoAccount">Não tem conta? Criar conta</div>
+            <div class="login-switch" onclick="showAuthForm('forgotPassword')" data-i18n="loginForgotPassword">Esqueceste a senha?</div>
         </div>
 
         <!-- Formulário de CRIAR CONTA -->
         <div id="registerFormBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
-            <input type="text" id="regName" placeholder="Seu nome">
-            <input type="text" id="regUsername" placeholder="Nome de utilizador (ex: joao_silva) — usado para te encontrarem">
+            <input type="text" id="regName" placeholder="Seu nome" data-i18n-placeholder="regNamePlaceholder">
+            <input type="text" id="regUsername" placeholder="Nome de utilizador (ex: joao_silva) — usado para te encontrarem" data-i18n-placeholder="regUsernamePlaceholder">
             <div class="login-row">
-                <input type="text" id="regPhone" placeholder="Número de telemóvel">
+                <input type="text" id="regPhone" placeholder="Número de telemóvel" data-i18n-placeholder="phonePlaceholder">
                 <select id="regCountry">
                     <option value="">País</option>
                     <option>Portugal</option><option>Brasil</option><option>Angola</option>
@@ -1358,44 +1363,44 @@
                     <option>Espanha</option><option>França</option><option>Reino Unido</option><option>Outro</option>
                 </select>
             </div>
-            <input type="email" id="regEmail" placeholder="Email">
+            <input type="email" id="regEmail" placeholder="Email" data-i18n-placeholder="emailPlaceholder">
             <div class="login-row">
-                <label style="flex:1;font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:4px;">🎂 Data de nascimento (opcional)
+                <label style="flex:1;font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:4px;"><span data-i18n="regBirthdayLabel">🎂 Data de nascimento (opcional)</span>
                     <input type="date" id="regBirthday">
                 </label>
             </div>
-            <input type="password" id="regPassword" placeholder="Senha (mín. 8 caracteres, nada óbvio)">
+            <input type="password" id="regPassword" placeholder="Senha (mín. 8 caracteres, nada óbvio)" data-i18n-placeholder="regPasswordPlaceholder">
             <div class="login-error" id="registerError"></div>
-            <button class="btn btn-primary" onclick="doRegister()">✅ Criar conta</button>
-            <div class="login-switch" onclick="showAuthForm('login')">Já tem conta? Entrar</div>
+            <button class="btn btn-primary" onclick="doRegister()" data-i18n="regSubmitBtn">✅ Criar conta</button>
+            <div class="login-switch" onclick="showAuthForm('login')" data-i18n="regHasAccount">Já tem conta? Entrar</div>
         </div>
 
         <!-- Verificação em duas etapas: dispositivo novo numa conta que a ativou -->
         <div id="verifyCodeBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
-            <p style="color:#8696a0;text-align:center;font-size:13px;">🔐 Este é um dispositivo novo. Enviámos um código para <strong id="verifyCodeEmailLabel"></strong> — insere-o abaixo.</p>
-            <input type="text" id="verifyCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6">
+            <p style="color:#8696a0;text-align:center;font-size:13px;"><span data-i18n="verify2faIntro">🔐 Este é um dispositivo novo. Enviámos um código para</span> <strong id="verifyCodeEmailLabel"></strong> <span data-i18n="verify2faIntroEnd">— insere-o abaixo.</span></p>
+            <input type="text" id="verifyCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6" data-i18n-placeholder="codePlaceholder">
             <div class="login-error" id="verifyCodeError"></div>
-            <button class="btn btn-primary" onclick="doVerifyLoginCode()">✅ Confirmar</button>
-            <div class="login-switch" onclick="cancelLoginVerification()">Voltar</div>
+            <button class="btn btn-primary" onclick="doVerifyLoginCode()" data-i18n="confirmBtn">✅ Confirmar</button>
+            <div class="login-switch" onclick="cancelLoginVerification()" data-i18n="backBtn">Voltar</div>
         </div>
 
         <!-- Esqueci a senha: passo 1, pedir o código por email -->
         <div id="forgotPasswordBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
-            <p style="color:#8696a0;text-align:center;font-size:13px;">Indica o teu número de telemóvel — enviamos um código por email para redefinires a senha.</p>
-            <input type="text" id="forgotPhoneInput" placeholder="Número de telemóvel">
+            <p style="color:#8696a0;text-align:center;font-size:13px;" data-i18n="forgotIntro">Indica o teu número de telemóvel — enviamos um código por email para redefinires a senha.</p>
+            <input type="text" id="forgotPhoneInput" placeholder="Número de telemóvel" data-i18n-placeholder="phonePlaceholder">
             <div class="login-error" id="forgotPasswordError"></div>
-            <button class="btn btn-primary" onclick="requestPasswordReset()">📧 Enviar código por email</button>
-            <div class="login-switch" onclick="showAuthForm('login')">Voltar</div>
+            <button class="btn btn-primary" onclick="requestPasswordReset()" data-i18n="forgotSubmitBtn">📧 Enviar código por email</button>
+            <div class="login-switch" onclick="showAuthForm('login')" data-i18n="backBtn">Voltar</div>
         </div>
 
         <!-- Esqueci a senha: passo 2, código + nova senha -->
         <div id="resetPasswordBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
-            <p style="color:#8696a0;text-align:center;font-size:13px;">Enviámos um código para <strong id="resetPasswordEmailLabel"></strong>.</p>
-            <input type="text" id="resetCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6">
-            <input type="password" id="resetNewPasswordInput" placeholder="Nova senha (mín. 8 caracteres, nada óbvio)">
+            <p style="color:#8696a0;text-align:center;font-size:13px;"><span data-i18n="resetIntro">Enviámos um código para</span> <strong id="resetPasswordEmailLabel"></strong>.</p>
+            <input type="text" id="resetCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6" data-i18n-placeholder="codePlaceholder">
+            <input type="password" id="resetNewPasswordInput" placeholder="Nova senha (mín. 8 caracteres, nada óbvio)" data-i18n-placeholder="regPasswordPlaceholder">
             <div class="login-error" id="resetPasswordError"></div>
-            <button class="btn btn-primary" onclick="confirmPasswordReset()">✅ Redefinir senha</button>
-            <div class="login-switch" onclick="showAuthForm('login')">Cancelar</div>
+            <button class="btn btn-primary" onclick="confirmPasswordReset()" data-i18n="resetSubmitBtn">✅ Redefinir senha</button>
+            <div class="login-switch" onclick="showAuthForm('login')" data-i18n="cancelBtn">Cancelar</div>
         </div>
     </div>
 
@@ -1497,7 +1502,7 @@
                     <button class="btn-icon" id="pollBtn" style="width:28px;height:28px;font-size:13px;display:none;flex:0 0 auto;" onclick="openCreatePollModal()" title="Criar enquete">📊</button>
                     <button class="btn-icon" id="rsvpBtn" style="width:28px;height:28px;font-size:13px;display:none;flex:0 0 auto;" onclick="openCreateRsvpModal()" title="Criar evento (RSVP)">🎉</button>
                     <button class="btn-icon" id="gamesBtn" style="width:28px;height:28px;font-size:13px;display:none;flex:0 0 auto;" onclick="openGameChooserModal()" title="Jogar (Jogo do Galo, Damas ou UNO)">🎮</button>
-                    <input type="text" id="messageInput" placeholder="Digite uma mensagem..." oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
+                    <input type="text" id="messageInput" placeholder="Digite uma mensagem..." data-i18n-placeholder="messageInputPlaceholder" oninput="notifyTyping();updateMentionAutocomplete()" onkeypress="if(event.key==='Enter')sendMessage()">
                     <button class="btn-icon" id="voiceRecordBtn" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="toggleVoiceRecording()" title="Gravar mensagem de voz">🎤</button>
                     <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="sendMessage()">📨</button>
                     <div class="emoji-picker" id="emojiPickerMain"></div>
@@ -1990,7 +1995,7 @@
                     <div class="call-chat-messages" id="callChatMessages"></div>
                     <div class="call-chat-input-area">
                         <button class="btn-icon" style="width:38px;height:38px;font-size:18px;" onclick="toggleEmojiPicker()">😊</button>
-                        <input type="text" id="callMessageInput" placeholder="Digite uma mensagem..." onkeypress="if(event.key==='Enter')sendMessage('callMessageInput')">
+                        <input type="text" id="callMessageInput" placeholder="Digite uma mensagem..." data-i18n-placeholder="messageInputPlaceholder" onkeypress="if(event.key==='Enter')sendMessage('callMessageInput')">
                         <button class="btn-icon" style="width:38px;height:38px;" onclick="sendMessage('callMessageInput')">📨</button>
                         <div class="emoji-picker" id="emojiPicker"></div>
                     </div>
@@ -2727,9 +2732,18 @@
                 <p style="color:#8696a0;font-size:13px;" id="profileNameLabel"></p>
                 <p style="color:#8696a0;font-size:12px;margin-top:2px;" id="profilePhoneLabel"></p>
                 <div style="text-align:left;margin-top:14px;">
-                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🌐 A língua que eu falo</label>
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;" data-i18n="profileSpokenLangLabel">🌐 A língua que eu falo</label>
                     <select id="profileLangSelect" onchange="setPreferredLang(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
-                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).</p>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;" data-i18n="profileSpokenLangHint">As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;" data-i18n="profileUiLangLabel">🖥️ Idioma da interface</label>
+                    <select id="profileUiLangSelect" onchange="setUiLanguage(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
+                        <option value="pt">🇵🇹 Português</option>
+                        <option value="en">🇺🇸 English</option>
+                        <option value="es">🇪🇸 Español</option>
+                    </select>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;" data-i18n="profileUiLangHint">Muda os botões e menus da aplicação (não as mensagens — para isso usa "A língua que eu falo", acima).</p>
                 </div>
                 <div style="text-align:left;margin-top:14px;">
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🎂 Data de nascimento</label>
@@ -3565,6 +3579,214 @@
     // primeira chamada acontecer (sem atrasar o "Chamando...").
     getIceServers();
 
+    // ==================== INTERFACE EM VÁRIOS IDIOMAS (PT/EN/ES) ====================
+    // Isto muda os BOTÕES E MENUS da aplicação — é diferente de "preferredLang"
+    // (esse só traduz as MENSAGENS recebidas, ver autoTranslateIfNeeded mais abaixo).
+    // É uma preferência só deste aparelho (guardada no localStorage, tal como
+    // 'translatorLang'), não uma definição da conta sincronizada entre dispositivos.
+    //
+    // Cobertura DELIBERADAMENTE reduzida (ver README, secção "Interface em vários
+    // idiomas — o que está coberto"): o ecrã de login/registo, o modal de perfil,
+    // os menus em grelha de funcionalidades, e as palavras de ação genéricas
+    // (Cancelar/Fechar/Guardar/etc.) que aparecem em toda a aplicação — não
+    // traduzimos as centenas de textos explicativos específicos de cada
+    // funcionalidade (Transportes, Turismo, etc.), que continuam em português.
+    const UI_STRINGS = {
+        pt: {
+            appName: 'ChatApp Completo',
+            appTagline: 'Grupos com até 500 pessoas • Videochamadas • Conferências • IA • Música • Filmes • Quadro Branco',
+            phonePlaceholder: 'Número de telemóvel',
+            passwordPlaceholder: 'Senha',
+            loginSubmitBtn: '🚀 Entrar',
+            loginQrBtn: '🔗 Associar por QR (já tenho conta noutro aparelho)',
+            loginNoAccount: 'Não tem conta? Criar conta',
+            loginForgotPassword: 'Esqueceste a senha?',
+            regNamePlaceholder: 'Seu nome',
+            regUsernamePlaceholder: 'Nome de utilizador (ex: joao_silva) — usado para te encontrarem',
+            emailPlaceholder: 'Email',
+            regBirthdayLabel: '🎂 Data de nascimento (opcional)',
+            regPasswordPlaceholder: 'Senha (mín. 8 caracteres, nada óbvio)',
+            regSubmitBtn: '✅ Criar conta',
+            regHasAccount: 'Já tem conta? Entrar',
+            verify2faIntro: '🔐 Este é um dispositivo novo. Enviámos um código para',
+            verify2faIntroEnd: '— insere-o abaixo.',
+            codePlaceholder: 'Código de 6 dígitos',
+            confirmBtn: '✅ Confirmar',
+            backBtn: 'Voltar',
+            forgotIntro: 'Indica o teu número de telemóvel — enviamos um código por email para redefinires a senha.',
+            forgotSubmitBtn: '📧 Enviar código por email',
+            resetIntro: 'Enviámos um código para',
+            resetSubmitBtn: '✅ Redefinir senha',
+            cancelBtn: 'Cancelar',
+            messageInputPlaceholder: 'Digite uma mensagem...',
+            profileSpokenLangLabel: '🌐 A língua que eu falo',
+            profileSpokenLangHint: 'As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).',
+            profileUiLangLabel: '🖥️ Idioma da interface',
+            profileUiLangHint: 'Muda os botões e menus da aplicação (não as mensagens — para isso usa "A língua que eu falo", acima).',
+        },
+        en: {
+            appName: 'ChatApp Complete',
+            appTagline: 'Groups with up to 500 people • Video calls • Conferences • AI • Music • Movies • Whiteboard',
+            phonePlaceholder: 'Phone number',
+            passwordPlaceholder: 'Password',
+            loginSubmitBtn: '🚀 Log in',
+            loginQrBtn: '🔗 Link by QR (I already have an account on another device)',
+            loginNoAccount: "Don't have an account? Sign up",
+            loginForgotPassword: 'Forgot your password?',
+            regNamePlaceholder: 'Your name',
+            regUsernamePlaceholder: 'Username (e.g. joao_silva) — used so people can find you',
+            emailPlaceholder: 'Email',
+            regBirthdayLabel: '🎂 Date of birth (optional)',
+            regPasswordPlaceholder: 'Password (min. 8 characters, nothing obvious)',
+            regSubmitBtn: '✅ Sign up',
+            regHasAccount: 'Already have an account? Log in',
+            verify2faIntro: '🔐 This is a new device. We sent a code to',
+            verify2faIntroEnd: '— enter it below.',
+            codePlaceholder: '6-digit code',
+            confirmBtn: '✅ Confirm',
+            backBtn: 'Back',
+            forgotIntro: "Enter your phone number — we'll email you a code to reset your password.",
+            forgotSubmitBtn: '📧 Send code by email',
+            resetIntro: 'We sent a code to',
+            resetSubmitBtn: '✅ Reset password',
+            cancelBtn: 'Cancel',
+            messageInputPlaceholder: 'Type a message...',
+            profileSpokenLangLabel: '🌐 The language I speak',
+            profileSpokenLangHint: 'Messages you receive are automatically translated to this language when "Auto-translate" is on in a conversation (🌐🔁 icon in the header).',
+            profileUiLangLabel: '🖥️ Interface language',
+            profileUiLangHint: 'Changes the app\'s buttons and menus (not messages — use "The language I speak" above for that).',
+        },
+        es: {
+            appName: 'ChatApp Completo',
+            appTagline: 'Grupos con hasta 500 personas • Videollamadas • Conferencias • IA • Música • Películas • Pizarra',
+            phonePlaceholder: 'Número de teléfono',
+            passwordPlaceholder: 'Contraseña',
+            loginSubmitBtn: '🚀 Entrar',
+            loginQrBtn: '🔗 Vincular por QR (ya tengo cuenta en otro dispositivo)',
+            loginNoAccount: '¿No tienes cuenta? Crear cuenta',
+            loginForgotPassword: '¿Olvidaste la contraseña?',
+            regNamePlaceholder: 'Tu nombre',
+            regUsernamePlaceholder: 'Nombre de usuario (ej: joao_silva) — para que te encuentren',
+            emailPlaceholder: 'Email',
+            regBirthdayLabel: '🎂 Fecha de nacimiento (opcional)',
+            regPasswordPlaceholder: 'Contraseña (mín. 8 caracteres, nada obvio)',
+            regSubmitBtn: '✅ Crear cuenta',
+            regHasAccount: '¿Ya tienes cuenta? Entrar',
+            verify2faIntro: '🔐 Este es un dispositivo nuevo. Enviamos un código a',
+            verify2faIntroEnd: '— introdúcelo abajo.',
+            codePlaceholder: 'Código de 6 dígitos',
+            confirmBtn: '✅ Confirmar',
+            backBtn: 'Volver',
+            forgotIntro: 'Indica tu número de teléfono — te enviamos un código por email para restablecer la contraseña.',
+            forgotSubmitBtn: '📧 Enviar código por email',
+            resetIntro: 'Enviamos un código a',
+            resetSubmitBtn: '✅ Restablecer contraseña',
+            cancelBtn: 'Cancelar',
+            messageInputPlaceholder: 'Escribe un mensaje...',
+            profileSpokenLangLabel: '🌐 El idioma que hablo',
+            profileSpokenLangHint: 'Los mensajes que recibes se traducen automáticamente a este idioma cuando la "Traducción automática" está activada en una conversación (icono 🌐🔁 en la cabecera).',
+            profileUiLangLabel: '🖥️ Idioma de la interfaz',
+            profileUiLangHint: 'Cambia los botones y menús de la aplicación (no los mensajes — para eso usa "El idioma que hablo", arriba).',
+        },
+    };
+
+    // Os botões dos menus em grelha ("Mais funcionalidades", "TV/Media",
+    // "Grupos/contactos") já têm uma chave natural e única — a função chamada
+    // no onclick — por isso não precisam de nenhum atributo novo no HTML.
+    const FEATURE_BUTTON_LABELS = {
+        openCalcScreen: { pt: 'Calculadora', en: 'Calculator', es: 'Calculadora' },
+        openCurrencyScreen: { pt: 'Câmbio', en: 'Exchange', es: 'Cambio' },
+        openNavScreen: { pt: 'Navegação', en: 'Navigation', es: 'Navegación' },
+        openFiresScreen: { pt: 'Incêndios', en: 'Fires', es: 'Incendios' },
+        openSpaceScreen: { pt: 'Espaço', en: 'Space', es: 'Espacio' },
+        openTransportScreen: { pt: 'Transportes', en: 'Transport', es: 'Transporte' },
+        openTourismScreen: { pt: 'Turismo', en: 'Tourism', es: 'Turismo' },
+        openMapSearchScreen: { pt: 'Mapa', en: 'Map', es: 'Mapa' },
+        openEventsScreen: { pt: 'Eventos (Lisboa)', en: 'Events (Lisbon)', es: 'Eventos (Lisboa)' },
+        openShoppingScreen: { pt: 'Compras', en: 'Shopping', es: 'Compras' },
+        openRemindersScreen: { pt: 'Lembretes', en: 'Reminders', es: 'Recordatorios' },
+        openDriveListenScreen: { pt: 'Conduzir e Ouvir', en: 'Drive & Listen', es: 'Conducir y Escuchar' },
+        openWeatherScreen: { pt: 'Meteorologia', en: 'Weather', es: 'Meteorología' },
+        openActivitiesScreen: { pt: 'Atividades', en: 'Activities', es: 'Actividades' },
+        openRouletteScreen: { pt: 'Roleta/Sorteio', en: 'Roulette/Draw', es: 'Ruleta/Sorteo' },
+        openPinSetupModal: { pt: 'Bloqueio por PIN', en: 'PIN lock', es: 'Bloqueo por PIN' },
+        openDevicesModal: { pt: 'Dispositivos ligados', en: 'Linked devices', es: 'Dispositivos vinculados' },
+        openTvScreen: { pt: 'TV em Direto', en: 'Live TV', es: 'TV en Directo' },
+        openWatchScreen: { pt: 'Onde Assistir', en: 'Where to Watch', es: 'Dónde Ver' },
+        openNewsScreen: { pt: 'Notícias', en: 'News', es: 'Noticias' },
+        openJamendoScreen: { pt: 'Música', en: 'Music', es: 'Música' },
+        openFunnyFeedScreen: { pt: 'Vídeos engraçados', en: 'Funny videos', es: 'Vídeos graciosos' },
+        openCreateGroupModal: { pt: 'Criar grupo', en: 'Create group', es: 'Crear grupo' },
+        openCommunitiesScreen: { pt: 'Comunidades', en: 'Communities', es: 'Comunidades' },
+        openBroadcastScreen: { pt: 'Lista de transmissão', en: 'Broadcast list', es: 'Lista de difusión' },
+        openNewCallModal: { pt: 'Nova chamada', en: 'New call', es: 'Nueva llamada' },
+        openSearchUserModal: { pt: 'Utilizadores cadastrados', en: 'Registered users', es: 'Usuarios registrados' },
+        openCallLogScreen: { pt: 'Histórico de chamadas', en: 'Call history', es: 'Historial de llamadas' },
+        openArchivedScreen: { pt: 'Conversas arquivadas', en: 'Archived chats', es: 'Chats archivados' },
+        openBlockedUsersModal: { pt: 'Contas bloqueadas', en: 'Blocked accounts', es: 'Cuentas bloqueadas' },
+    };
+
+    // Palavras de ação genéricas que se repetem em dezenas de modais — em vez
+    // de anotar cada botão um a um no HTML, procuramos por estas palavras
+    // exatas (ignorando um possível emoji à frente) em qualquer botão/label
+    // simples (sem elementos filhos) já presente na página.
+    const GENERIC_WORD_MAP = {
+        'Cancelar': { en: 'Cancel', es: 'Cancelar' },
+        'Fechar': { en: 'Close', es: 'Cerrar' },
+        'Guardar': { en: 'Save', es: 'Guardar' },
+        'Salvar': { en: 'Save', es: 'Guardar' },
+        'Criar': { en: 'Create', es: 'Crear' },
+        'Enviar': { en: 'Send', es: 'Enviar' },
+        'Apagar': { en: 'Delete', es: 'Eliminar' },
+        'Remover': { en: 'Remove', es: 'Quitar' },
+        'Confirmar': { en: 'Confirm', es: 'Confirmar' },
+        'Sair': { en: 'Exit', es: 'Salir' },
+        'Adicionar': { en: 'Add', es: 'Añadir' },
+        'Continuar': { en: 'Continue', es: 'Continuar' },
+        'Voltar': { en: 'Back', es: 'Volver' },
+        'Sim': { en: 'Yes', es: 'Sí' },
+        'Não': { en: 'No', es: 'No' },
+        'Ligar': { en: 'Link', es: 'Vincular' },
+        'Desligar': { en: 'Unlink', es: 'Desvincular' },
+    };
+    function splitEmojiPrefix(text) {
+        const m = text.match(/^([^\p{L}\p{N}]*)([\s\S]*)$/u);
+        if (!m) return { prefix: '', word: text.trim() };
+        return { prefix: m[1], word: m[2].trim() };
+    }
+    function t(key) {
+        return (UI_STRINGS[APP.uiLang] && UI_STRINGS[APP.uiLang][key]) || UI_STRINGS.pt[key] || key;
+    }
+    function applyUiLanguage() {
+        document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+
+        document.querySelectorAll('#modalMoreFeatures button, #modalMediaFeatures button, #modalContactsFeatures button').forEach(btn => {
+            const span = btn.querySelector('span');
+            if (!span) return;
+            const onclick = btn.getAttribute('onclick') || '';
+            const fnMatch = Object.keys(FEATURE_BUTTON_LABELS).find(fn => onclick.includes(fn + '()'));
+            if (fnMatch) span.textContent = FEATURE_BUTTON_LABELS[fnMatch][APP.uiLang] || FEATURE_BUTTON_LABELS[fnMatch].pt;
+        });
+
+        document.querySelectorAll('button, .login-switch').forEach(el => {
+            if (el.children.length || el.hasAttribute('data-i18n')) return;
+            const original = el.dataset.i18nOriginal || el.textContent;
+            if (!el.dataset.i18nOriginal) el.dataset.i18nOriginal = original;
+            const { prefix, word } = splitEmojiPrefix(original);
+            const entry = GENERIC_WORD_MAP[word];
+            if (entry) el.textContent = (prefix ? prefix + ' ' : '') + (APP.uiLang === 'pt' ? word : (entry[APP.uiLang] || word));
+        });
+
+        const uiSelect = document.getElementById('profileUiLangSelect');
+        if (uiSelect) uiSelect.value = APP.uiLang;
+    }
+    function setUiLanguage(lang) {
+        APP.uiLang = lang;
+        localStorage.setItem('uiLang', lang);
+        applyUiLanguage();
+    }
+
     const APP = {
         user: null,
         token: null,
@@ -3595,6 +3817,7 @@
         },
         _musicMix: null, // AudioContext/nodes persistentes p/ partilhar música na chamada (ver getMusicMix)
         translatorLang: localStorage.getItem('translatorLang') || '',
+        uiLang: localStorage.getItem('uiLang') || 'pt', // idioma da INTERFACE (botões/menus) — ver applyUiLanguage()
         musicAudio: document.getElementById('bgMusic'),
         onlineContacts: [], // vem do servidor: todos os usuários cadastrados + status online/offline
         groupsList: [], // vem do servidor: grupos visíveis a todos os usuários
@@ -3616,6 +3839,9 @@
         statusFeed: [],
         pendingStatusPhotoUrl: null
     };
+    // Aplica já o idioma da interface guardado (ex.: recarregar a página com o
+    // ecrã de login ainda por autenticar) — não precisa de esperar pelo login.
+    applyUiLanguage();
 
     // Declarado aqui (bem cedo no script) e não junto do resto do código do
     // bloqueio por PIN mais abaixo, porque restoreSession() já pode chamar
