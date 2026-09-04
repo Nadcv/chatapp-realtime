@@ -396,6 +396,16 @@ Em "⋯ Mais desta conversa" → "📝 Notas partilhadas" (grupos e conversas 1-
 - **Sem CRDT/operational-transform** — é "quem escreveu por último ganha" (a mesma simplicidade já aceite noutras funcionalidades desta app). Duas pessoas a escrever ao mesmo tempo sem nunca parar podem perder uma à outra o que escreveram — é um bloco de notas simples, não um editor tipo Google Docs.
 - Para não saltar o cursor de quem está mesmo a meio de escrever: uma atualização que chega enquanto o teu campo está focado fica pendente e só é aplicada quando saíres do campo (ou reabrires o modal).
 
+## 🎙️ Salas de áudio ao vivo (tipo Clubhouse/Spaces)
+
+Em "⋯ Mais desta conversa" → "🎙️ Sala de áudio" (só em grupos). Construída em cima da chamada de grupo em malha (WebRTC) já existente — é uma chamada normal, só de voz, com um papel a mais:
+
+- Quem entra primeiro na sala é o **anfitrião** e já pode falar. Quem entra a seguir começa **ouvinte** (silenciado).
+- Um ouvinte que queira falar clica em "🖐️ Pedir para falar" — o anfitrião vê o pedido e pode "✅ Aprovar" ou recusar. Sem nenhuma re-negociação WebRTC: a pessoa já está ligada à chamada desde que entrou, só o microfone (a faixa de áudio) é que estava desativado — aprovar é só ativá-lo, tal como o botão de silenciar normal.
+- O anfitrião também pode voltar a silenciar quem estiver a falar a qualquer momento ("🔇 Silenciar"). O servidor confirma sempre que quem pede para aprovar/silenciar é mesmo o anfitrião atual da sala — mais ninguém consegue aprovar-se a si próprio ou silenciar outra pessoa.
+- Se o anfitrião sair a meio, o participante que está na sala há mais tempo é promovido automaticamente a anfitrião, para a sala continuar a funcionar.
+- **Limitação conhecida (redução de âmbito deliberada)**: uma vez aprovado para falar, só se volta a ficar ouvinte manualmente ("🔇 Silenciar-me outra vez") — não há um estado intermédio de "silenciado temporariamente mas ainda com o lugar de orador". Isto simplifica bastante a implementação (nenhuma troca de faixas de áudio a meio da chamada) ao preço de ser um pouco menos flexível do que um Clubhouse/Spaces "a sério".
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.

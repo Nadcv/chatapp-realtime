@@ -2007,8 +2007,21 @@
                 <p id="callTimer" style="display:none;font-variant-numeric:tabular-nums;font-size:13px;color:#8696a0;margin-top:2px;">00:00</p>
                 <p id="callQuality" style="display:none;font-size:12px;color:#8696a0;margin-top:2px;">📶 A avaliar sinal...</p>
             </div>
+            <!-- ============ SALA DE ÁUDIO AO VIVO (tipo Clubhouse/Spaces) ============ -->
+            <!-- Reaproveita a chamada em grupo já existente (áudio-only) — a
+                 única diferença é que quem entra depois do primeiro começa
+                 silenciado ("ouvinte"), só falando depois de o anfitrião
+                 aprovar um pedido ("levantar a mão"). Sem re-negociação WebRTC
+                 nenhuma: o microfone já está sempre ligado à chamada, só o
+                 "enabled" da faixa de áudio (o mesmo mecanismo do botão de
+                 silenciar normal) é que muda. -->
+            <div id="audioRoomControls" style="display:none;padding:10px 16px;text-align:center;">
+                <button class="btn-small" id="audioRoomRaiseHandBtn" onclick="raiseHandToSpeak()" style="display:none;">🖐️ Pedir para falar</button>
+                <button class="btn-small btn-danger" id="audioRoomSelfMuteBtn" onclick="selfMuteAgain()" style="display:none;">🔇 Silenciar-me outra vez</button>
+                <div id="audioRoomRaisedHandsList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+            </div>
             <div class="call-actions">
-                <button class="call-btn call-btn-action" onclick="toggleMute()">🔇</button>
+                <button class="call-btn call-btn-action" id="callMuteBtn" onclick="toggleMute()">🔇</button>
                 <button class="call-btn call-btn-action" onclick="toggleSpeaker()">🔊</button>
                 <button class="call-btn call-btn-action" onclick="shareVideo()" title="Compartilhar filme/vídeo">🎬</button>
                 <button class="call-btn call-btn-action" onclick="shareScreen()" title="Compartilhar tela">🖥️</button>
@@ -2571,6 +2584,7 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openCollabNoteModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📝<span style="font-size:11px;">Notas partilhadas</span></button>
                     <button class="btn-small" id="groupStatsBtn" onclick="closeModal('modalChatMore');openGroupStatsModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📊<span style="font-size:11px;">Estatísticas</span></button>
                     <button class="btn-small" id="groupCalendarBtn" onclick="closeModal('modalChatMore');openGroupCalendarModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📆<span style="font-size:11px;">Calendário</span></button>
+                    <button class="btn-small" id="audioRoomBtn" onclick="closeModal('modalChatMore');startAudioRoom()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎙️<span style="font-size:11px;">Sala de áudio</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Chamada agendada</span></button>
                     <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
@@ -3881,6 +3895,7 @@
         communitiesList: [], // vem do servidor: comunidades (ligam vários grupos + canal de anúncios)
         badges: [], // vem do servidor: conquistas já desbloqueadas (ver BADGE_CATALOG)
         trustedContacts: [], // vem do servidor: contactos de confiança para o alerta de SOS
+        audioRoomMode: false, // true quando a chamada de grupo atual é uma "Sala de áudio ao vivo" (ver startAudioRoom)
         currentManagedCommunityId: null, // comunidade aberta em "Gerir" (modalManageCommunity)
         broadcasts: [], // vem do servidor: as minhas listas de transmissão
         joinedRooms: new Set(), // salas já ligadas (join_room) para receber mensagens em segundo plano
@@ -8976,6 +8991,7 @@
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('groupStatsBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('groupCalendarBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('audioRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('rsvpBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('gamesBtn').style.display = (chat.type === 'user' || chat.type === 'group') ? 'flex' : 'none';
@@ -14333,8 +14349,15 @@
     // Funciona bem até ~6-8 participantes com câmara ligada (cada pessoa envia/recebe
     // vídeo de todas as outras diretamente, sem servidor central de vídeo). Com mais
     // gente que isso, o ideal a prazo é um servidor SFU — fica fora do alcance gratuito.
-    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {}, isOfferer: {}, disconnectTimers: {} };
+    const GROUP_CALL = { active: false, peers: {}, pendingIce: {}, names: {}, isOfferer: {}, disconnectTimers: {}, isHost: false, raisedHands: {} };
 
+    function startAudioRoom() {
+        if (!APP.currentChatId) return alert('Abra um grupo primeiro!');
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (chat?.type !== 'group') return alert('Salas de áudio ao vivo estão disponíveis apenas para grupos!');
+        APP.audioRoomMode = true;
+        joinGroupCall('voice');
+    }
     function joinGroupCall(type) {
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
         APP.callType = type;
@@ -14344,13 +14367,19 @@
         GROUP_CALL.pendingIce = {};
         GROUP_CALL.names = {};
         GROUP_CALL.isOfferer = {};
+        GROUP_CALL.isHost = false;
+        GROUP_CALL.raisedHands = {};
+        GROUP_CALL.approvedSpeakers = {};
         Object.values(GROUP_CALL.disconnectTimers).forEach(clearTimeout);
         GROUP_CALL.disconnectTimers = {};
-        document.getElementById('callTitle').textContent = '🎥 ' + (chat?.name || 'Grupo');
+        document.getElementById('callTitle').textContent = (APP.audioRoomMode ? '🎙️ Sala de áudio · ' : '🎥 ') + (chat?.name || 'Grupo');
         document.getElementById('callStatus').textContent = 'A entrar na chamada em grupo...';
         document.getElementById('callScreen').classList.add('active');
         document.getElementById('mainVideo').style.display = 'none';
         document.getElementById('callPip').style.display = 'none';
+        document.getElementById('audioRoomControls').style.display = APP.audioRoomMode ? 'block' : 'none';
+        document.getElementById('audioRoomRaisedHandsList').innerHTML = '';
+        document.getElementById('callMuteBtn').style.display = 'flex'; // repõe para chamadas normais / até saber se é anfitrião
         const grid = document.getElementById('groupCallGrid');
         grid.style.display = 'flex';
         grid.innerHTML = '';
@@ -14460,6 +14489,17 @@
     // Quem entra numa chamada já em curso recebe a lista de quem já está lá, e é ele
     // quem inicia a ligação (oferta) com cada um deles.
     socket.on('existing_call_participants', (data) => {
+        if (APP.audioRoomMode) {
+            // Quem chega a uma sala vazia é o anfitrião (fala já, sem pedir); quem
+            // entra numa sala já em curso começa "ouvinte" (silenciado) — só fala
+            // depois de o anfitrião aprovar um pedido (ver raiseHandToSpeak).
+            GROUP_CALL.isHost = (data.participants || []).length === 0;
+            if (!GROUP_CALL.isHost && APP.callStream) {
+                APP.callStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+                APP.isMuted = true;
+            }
+            updateAudioRoomButtonsVisibility();
+        }
         (data.participants || []).forEach(async (p) => {
             const pc = await createGroupPeerConnection(p.socketId, p.name);
             GROUP_CALL.isOfferer[p.socketId] = true;
@@ -14467,6 +14507,84 @@
                 socket.emit('call_offer', { roomId: APP.currentChatId, toSocketId: p.socketId, offer: pc.localDescription });
             });
         });
+    });
+
+    // ==================== SALA DE ÁUDIO AO VIVO — "levantar a mão" ====================
+    function updateAudioRoomButtonsVisibility() {
+        if (!APP.audioRoomMode) return;
+        const amMuted = !!APP.isMuted;
+        document.getElementById('audioRoomRaiseHandBtn').style.display = (!GROUP_CALL.isHost && amMuted) ? 'inline-block' : 'none';
+        document.getElementById('audioRoomSelfMuteBtn').style.display = (!GROUP_CALL.isHost && !amMuted) ? 'inline-block' : 'none';
+        // Quem é só "ouvinte" (ainda não aprovado) não usa o botão de silenciar
+        // normal — falar/não falar passa a depender só do pedido aprovado pelo
+        // anfitrião, senão a moderação da sala era só decorativa.
+        document.getElementById('callMuteBtn').style.display = GROUP_CALL.isHost ? 'flex' : 'none';
+    }
+    function raiseHandToSpeak() {
+        socket.emit('audio_room_raise_hand', { roomId: APP.currentChatId });
+        const btn = document.getElementById('audioRoomRaiseHandBtn');
+        btn.disabled = true;
+        btn.textContent = '🖐️ Pedido enviado...';
+    }
+    function selfMuteAgain() {
+        if (APP.callStream) APP.callStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+        APP.isMuted = true;
+        updateAudioRoomButtonsVisibility();
+        const btn = document.getElementById('audioRoomRaiseHandBtn');
+        btn.disabled = false;
+        btn.textContent = '🖐️ Pedir para falar';
+    }
+    function renderRaisedHandsList() {
+        const box = document.getElementById('audioRoomRaisedHandsList');
+        const pending = Object.entries(GROUP_CALL.raisedHands).map(([socketId, name]) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-secondary);padding:6px 10px;border-radius:8px;">
+                <span>🖐️ ${escapeHtml(name)}</span>
+                <div style="display:flex;gap:6px;">
+                    <button class="btn-small btn-accept" onclick="grantSpeak('${socketId}')" style="padding:3px 8px;">✅ Aprovar</button>
+                    <button class="btn-small btn-danger" onclick="denyHand('${socketId}')" style="padding:3px 8px;">❌</button>
+                </div>
+            </div>`);
+        const speaking = Object.entries(GROUP_CALL.approvedSpeakers || {}).map(([socketId, name]) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-secondary);padding:6px 10px;border-radius:8px;">
+                <span>🎙️ ${escapeHtml(name)}</span>
+                <button class="btn-small btn-danger" onclick="revokeSpeak('${socketId}')" style="padding:3px 8px;">🔇 Silenciar</button>
+            </div>`);
+        box.innerHTML = [...pending, ...speaking].join('');
+    }
+    socket.on('audio_room_hand_raised', (data) => {
+        if (!GROUP_CALL.isHost || data.roomId !== APP.currentChatId) return;
+        GROUP_CALL.raisedHands[data.socketId] = data.name;
+        renderRaisedHandsList();
+    });
+    function grantSpeak(targetSocketId) {
+        if (!GROUP_CALL.approvedSpeakers) GROUP_CALL.approvedSpeakers = {};
+        GROUP_CALL.approvedSpeakers[targetSocketId] = GROUP_CALL.raisedHands[targetSocketId] || GROUP_CALL.names[targetSocketId] || 'Alguém';
+        delete GROUP_CALL.raisedHands[targetSocketId];
+        socket.emit('audio_room_grant_speak', { roomId: APP.currentChatId, targetSocketId });
+        renderRaisedHandsList();
+    }
+    function denyHand(targetSocketId) {
+        delete GROUP_CALL.raisedHands[targetSocketId];
+        renderRaisedHandsList();
+    }
+    function revokeSpeak(targetSocketId) {
+        socket.emit('audio_room_revoke_speak', { roomId: APP.currentChatId, targetSocketId });
+        if (GROUP_CALL.approvedSpeakers) delete GROUP_CALL.approvedSpeakers[targetSocketId];
+        renderRaisedHandsList();
+    }
+    socket.on('audio_room_speak_granted', () => {
+        if (APP.callStream) APP.callStream.getAudioTracks().forEach((t) => { t.enabled = true; });
+        APP.isMuted = false;
+        updateAudioRoomButtonsVisibility();
+    });
+    socket.on('audio_room_speak_revoked', () => { selfMuteAgain(); });
+    // O servidor promove automaticamente o participante mais antigo quando o
+    // anfitrião original sai a meio da chamada (ver leaveCall em server.js) —
+    // sem isto, quem ficasse "ouvinte" nunca mais teria a quem pedir para falar.
+    socket.on('audio_room_you_are_host', (data) => {
+        if (data.roomId !== APP.currentChatId || !APP.audioRoomMode) return;
+        GROUP_CALL.isHost = true;
+        updateAudioRoomButtonsVisibility();
     });
 
     // Tal como em attemptIceRestart1to1: "pc.restartIce()" não faz nada por si
@@ -14881,6 +14999,12 @@
         APP.callType = null;
         closeWhiteboard();
         closeSelfieCam();
+        APP.audioRoomMode = false;
+        GROUP_CALL.isHost = false;
+        GROUP_CALL.raisedHands = {};
+        GROUP_CALL.approvedSpeakers = {};
+        document.getElementById('audioRoomControls').style.display = 'none';
+        document.getElementById('audioRoomRaisedHandsList').innerHTML = '';
     }
 
     // ==================== CHAT AO LADO DA CHAMADA + EMOJIS ====================
