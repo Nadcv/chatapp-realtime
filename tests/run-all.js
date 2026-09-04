@@ -100,7 +100,7 @@ const SERVER_PORT = 3000;
 // sempre reprodutível, apagamos estes ficheiros mesmo antes de arrancar o
 // servidor, garantindo sempre um estado limpo.
 const LOCAL_DATA_FILES = [
-  'messages.json', 'users.json', 'groups.json', 'activities.json', 'todos.json',
+  'messages.json', 'users.json', 'groups.json', 'communities.json', 'activities.json', 'todos.json',
   'notes.json', 'pins.json', 'disappearing.json', 'statuses.json', 'calllog.json',
   'scheduled.json', 'muted.json', 'archived.json', 'blocked.json', 'roadalerts.json',
   'broadcasts.json', 'folders.json', 'tourism-favorites.json', 'shopping-list.json',

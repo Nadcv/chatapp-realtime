@@ -347,6 +347,16 @@ Por padrão, um grupo continua **aberto** — visível automaticamente a todos o
 - A gestão de cargos/silenciar/remover num grupo privado passa a listar os membros reais do grupo (incluindo quem entrou por convite e não é teu contacto), em vez da lista de contactos usada nos grupos abertos.
 - **Limitação conhecida**: só quem já é administrador pode ver/gerar o link de convite — não há (ainda) forma de um membro comum partilhar o convite diretamente pela app.
 
+## 🌐 Comunidades (ligar vários grupos + canal de anúncios)
+
+Uma comunidade junta vários grupos já existentes debaixo de um mesmo nome (ex.: "Bairro X" a ligar o grupo da rua, o da escola e o do condomínio) — acessível em "Grupos, chamadas e contactos" → "🌐 Comunidades".
+
+- Ao criar uma comunidade, é gerado automaticamente um **canal de anúncios** (📢) — um grupo normal como outro qualquer na lista de conversas, mas onde **só administradores da comunidade podem publicar**; qualquer outra pessoa que tente escrever lá recebe um aviso claro e a mensagem nunca chega a mais ninguém (o servidor rejeita-a, tal como já acontecia com "silenciado num grupo").
+- Só quem é administrador de um grupo **e** administrador da comunidade é que consegue ligá-lo a essa comunidade — assim ninguém arrasta o grupo de outra pessoa para uma comunidade sem o dono concordar. Um grupo só pode pertencer a uma comunidade de cada vez.
+- Os administradores da comunidade podem promover/despromover outros administradores (o criador nunca pode ser removido) — os admins do canal de anúncios são automaticamente mantidos em sincronia com os admins da comunidade.
+- Apagar uma comunidade (só quem a criou) apaga o canal de anúncios junto, mas os grupos que lá estavam ligados continuam a existir normalmente, só perdem a ligação.
+- Tal como os grupos abertos, as comunidades são sempre públicas — visíveis a todos os utilizadores cadastrados, sem precisar de convite.
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.
