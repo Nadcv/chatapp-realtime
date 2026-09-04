@@ -374,6 +374,15 @@ Um pequeno sistema de badges por marcos de uso, visível em "📊 As minhas esta
 - Existe também um meta-badge, "🏅 Colecionador", que se desbloqueia sozinho ao atingir 5 badges normais.
 - Ao desbloquear um badge novo aparece um aviso (toast) no ecrã, e o badge fica a cores na grelha (os ainda por desbloquear aparecem esbatidos/a cinzento).
 
+## 🚨 SOS/Emergência
+
+Um botão em "Mais funcionalidades" → "🚨 SOS" que envia a localização atual + um alerta a uma lista de até 10 "contactos de confiança".
+
+- Os contactos de confiança só podem ser escolhidos de entre os teus contactos reais (validado também no servidor, não só na interface).
+- Ao disparar o alerta: tenta obter a localização (mas envia o alerta na mesma, sem coordenadas, se o GPS estiver desligado/for recusado), e entrega-o como uma **mensagem normal** na tua conversa 1-para-1 com cada contacto de confiança — mesmo que essa pessoa nunca tenha aberto essa conversa contigo antes (torna-se teu contacto automaticamente, tal como ao receber a primeira mensagem de alguém novo).
+- Quem recebe vê um banner vermelho no ecrã na hora (se estiver online), com um link "Ver no mapa", além da mensagem ficar guardada na conversa com um estilo visual distinto (fundo vermelho, 🚨).
+- O alerta ignora de propósito "silenciado"/"não incomodar" — é pensado para nunca passar despercebido.
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.

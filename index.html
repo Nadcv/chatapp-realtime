@@ -2131,6 +2131,21 @@
                 </div>
             </div>
         </div>
+        <!-- ============ SOS/EMERGÊNCIA ============ -->
+        <div class="modal-overlay" id="modalSos">
+            <div class="modal">
+                <h3>🚨 SOS / Emergência</h3>
+                <p class="member-count">Um toque envia a tua localização atual e um alerta a quem escolheres abaixo como "contactos de confiança" — chega como uma mensagem normal na tua conversa com cada um deles, mesmo que não tenham a app aberta.</p>
+                <h4 style="margin-top:12px;font-size:13px;">Contactos de confiança (máx. 10)</h4>
+                <div id="sosTrustedContactsBox" style="display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:160px;overflow-y:auto;"></div>
+                <button class="btn-small" onclick="saveTrustedContacts()" style="margin-top:8px;">💾 Guardar contactos de confiança</button>
+                <div id="sosStatus" style="font-size:12px;margin-top:10px;min-height:16px;"></div>
+                <button class="btn-danger" id="sosTriggerBtn" onclick="triggerSosAlert()" style="width:100%;padding:16px;font-size:16px;font-weight:700;margin-top:10px;border-radius:10px;border:none;cursor:pointer;">🚨 Enviar alerta de SOS agora</button>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalSos')">Fechar</button>
+                </div>
+            </div>
+        </div>
         <div class="modal-overlay" id="modalCreatePoll">
             <div class="modal">
                 <h3>📊 Criar enquete</h3>
@@ -2485,6 +2500,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRouletteScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎯<span style="font-size:11px;">Roleta/Sorteio</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openPinSetupModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔒<span style="font-size:11px;">Bloqueio por PIN</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDevicesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📱<span style="font-size:11px;">Dispositivos ligados</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSosModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚨<span style="font-size:11px;">SOS</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures')">Fechar</button>
@@ -3713,6 +3729,7 @@
         openRouletteScreen: { pt: 'Roleta/Sorteio', en: 'Roulette/Draw', es: 'Ruleta/Sorteo' },
         openPinSetupModal: { pt: 'Bloqueio por PIN', en: 'PIN lock', es: 'Bloqueo por PIN' },
         openDevicesModal: { pt: 'Dispositivos ligados', en: 'Linked devices', es: 'Dispositivos vinculados' },
+        openSosModal: { pt: 'SOS', en: 'SOS', es: 'SOS' },
         openTvScreen: { pt: 'TV em Direto', en: 'Live TV', es: 'TV en Directo' },
         openWatchScreen: { pt: 'Onde Assistir', en: 'Where to Watch', es: 'Dónde Ver' },
         openNewsScreen: { pt: 'Notícias', en: 'News', es: 'Noticias' },
@@ -3825,6 +3842,7 @@
         groupsList: [], // vem do servidor: grupos visíveis a todos os usuários
         communitiesList: [], // vem do servidor: comunidades (ligam vários grupos + canal de anúncios)
         badges: [], // vem do servidor: conquistas já desbloqueadas (ver BADGE_CATALOG)
+        trustedContacts: [], // vem do servidor: contactos de confiança para o alerta de SOS
         currentManagedCommunityId: null, // comunidade aberta em "Gerir" (modalManageCommunity)
         broadcasts: [], // vem do servidor: as minhas listas de transmissão
         joinedRooms: new Set(), // salas já ligadas (join_room) para receber mensagens em segundo plano
@@ -4560,6 +4578,7 @@
         APP.groupsList = [];
         APP.communitiesList = [];
         APP.badges = [];
+        APP.trustedContacts = [];
         APP.joinedRooms = new Set();
         document.getElementById('mainApp').style.display = 'none';
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -11389,7 +11408,7 @@
                 ${topicLabel}
                 ${forwardedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.expense ? renderExpense(msg) : (msg.shoppingList ? renderSharedShoppingList(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId))))))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.sosAlert ? renderSosAlertMessage(msg) : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.expense ? renderExpense(msg) : (msg.shoppingList ? renderSharedShoppingList(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId)))))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${linkPreviewUrl ? `<div id="linkpreview_${msg.id}">${renderLinkPreviewCard(msg.linkPreview)}</div>` : ''}
                 ${reactionsHtml}
@@ -12290,7 +12309,10 @@
                 shoppingList: m.shoppingList || null,
                 viewOnce: !!m.viewOnce,
                 viewOnceOpened: !!m.viewOnceOpened,
-                topic: m.topic || null
+                topic: m.topic || null,
+                sosAlert: !!m.sosAlert,
+                sosLat: typeof m.sosLat === 'number' ? m.sosLat : null,
+                sosLng: typeof m.sosLng === 'number' ? m.sosLng : null
             };
         }));
         // O servidor manda sempre o histórico COMPLETO desta sala (não só
@@ -12349,7 +12371,10 @@
             shoppingList: data.shoppingList || null,
             viewOnce: !!data.viewOnce,
             viewOnceOpened: !!data.viewOnceOpened,
-            topic: data.topic || null
+            topic: data.topic || null,
+            sosAlert: !!data.sosAlert,
+            sosLat: typeof data.sosLat === 'number' ? data.sosLat : null,
+            sosLng: typeof data.sosLng === 'number' ? data.sosLng : null
         });
         if (APP.currentChatId === data.chatId) { renderMessages(); socket.emit('message_read', { chatId: data.chatId }); }
         renderChatList();
@@ -12730,6 +12755,94 @@
         socket.emit('community_delete', { communityId: APP.currentManagedCommunityId });
         closeModal('modalManageCommunity');
         closeModal('modalCommunities');
+    }
+
+    // ==================== SOS/EMERGÊNCIA ====================
+    // Só contactos REAIS (APP.chats do tipo 'user') podem ser escolhidos como
+    // "de confiança" — o servidor valida isto de novo do seu lado (ver
+    // 'set_trusted_contacts'), isto aqui é só para a lista aparecer certa.
+    function openSosModal() {
+        const box = document.getElementById('sosTrustedContactsBox');
+        const contacts = APP.chats.filter(c => c.type === 'user');
+        const trusted = new Set(APP.trustedContacts || []);
+        box.innerHTML = contacts.length ? contacts.map(c => `
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                <input type="checkbox" class="sos-trusted-checkbox" value="${c.phone}" ${trusted.has(c.phone) ? 'checked' : ''}>
+                ${escapeHtml(c.name)}
+            </label>`).join('') : '<p class="member-count">Ainda não tens nenhum contacto para escolher.</p>';
+        document.getElementById('sosStatus').textContent = '';
+        document.getElementById('modalSos').classList.add('active');
+    }
+    function saveTrustedContacts() {
+        const phones = [...document.querySelectorAll('.sos-trusted-checkbox:checked')].map(el => el.value);
+        if (phones.length > 10) return alert('Escolhe no máximo 10 contactos de confiança.');
+        socket.emit('set_trusted_contacts', { phones });
+    }
+    socket.on('trusted_contacts_updated', (list) => {
+        APP.trustedContacts = list || [];
+        const statusEl = document.getElementById('sosStatus');
+        if (document.getElementById('modalSos')?.classList.contains('active') && statusEl) {
+            statusEl.style.color = 'var(--green)';
+            statusEl.textContent = `✅ ${APP.trustedContacts.length} contacto(s) de confiança guardado(s).`;
+        }
+    });
+    function triggerSosAlert() {
+        if (!(APP.trustedContacts || []).length) {
+            return alert('Escolhe pelo menos um "contacto de confiança" e guarda antes de enviar um alerta de SOS.');
+        }
+        if (!confirm('Enviar um alerta de SOS agora? Isto avisa já os teus contactos de confiança com a tua localização.')) return;
+        const statusEl = document.getElementById('sosStatus');
+        statusEl.style.color = 'inherit';
+        statusEl.textContent = '📍 A obter a tua localização...';
+        const send = (lat, lng) => {
+            statusEl.textContent = '🚨 A enviar o alerta...';
+            socket.emit('sos_alert', { lat, lng });
+        };
+        if (!navigator.geolocation) { send(null, null); return; }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => send(pos.coords.latitude, pos.coords.longitude),
+            () => send(null, null), // sem localização, envia o alerta na mesma
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
+    }
+    socket.on('sos_alert_result', (data) => {
+        const statusEl = document.getElementById('sosStatus');
+        if (!statusEl) return;
+        if (data?.success) {
+            statusEl.style.color = 'var(--green)';
+            statusEl.textContent = `✅ Alerta enviado a ${data.sentTo} contacto(s) de confiança.`;
+        } else {
+            statusEl.style.color = '#e74c3c';
+            statusEl.textContent = '⚠️ Não foi possível enviar — configura pelo menos um contacto de confiança primeiro.';
+        }
+    });
+    // Chega mesmo que quem recebe nunca tenha aberto essa conversa antes
+    // (ver deliverToPhone no servidor) — por isso mostra-se logo um aviso
+    // visível no ecrã, independente da conversa que estiver aberta.
+    function showSosAlertBanner(data) {
+        const bannerId = 'sosBanner_' + Date.now();
+        const el = document.createElement('div');
+        el.id = bannerId;
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;z-index:10000;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,0.4);';
+        const mapsBtn = (data.lat != null && data.lng != null) ? `<a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank" rel="noopener noreferrer" style="color:#fff;background:rgba(255,255,255,0.2);padding:6px 10px;border-radius:6px;text-decoration:none;font-size:13px;">🗺️ Ver no mapa</a>` : '';
+        el.innerHTML = `
+            <span style="font-weight:700;">🚨 ${escapeHtml(data.fromName || 'Alguém')} enviou um alerta de emergência!</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+                ${mapsBtn}
+                <button onclick="document.getElementById('${bannerId}').remove()" style="background:rgba(255,255,255,0.2);color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Fechar</button>
+            </div>`;
+        document.body.appendChild(el);
+    }
+    socket.on('sos_alert_received', (data) => { showSosAlertBanner(data); });
+    function renderSosAlertMessage(msg) {
+        const mapsLink = (msg.sosLat != null && msg.sosLng != null)
+            ? `<a href="https://www.google.com/maps?q=${msg.sosLat},${msg.sosLng}" target="_blank" rel="noopener noreferrer" style="color:#fff;text-decoration:underline;">🗺️ Ver localização no mapa</a>`
+            : '<span style="opacity:0.85;">📍 Localização não disponível</span>';
+        return `<div style="background:#c0392b;color:#fff;border-radius:8px;padding:10px 12px;">
+            <div style="font-weight:700;">🚨 Alerta de emergência</div>
+            <div style="margin-top:4px;font-size:13px;">${escapeHtml(msg.sender || 'Alguém')} pode precisar de ajuda.</div>
+            <div style="margin-top:6px;">${mapsLink}</div>
+        </div>`;
     }
 
     // ==================== ENQUETES EM GRUPO ====================
