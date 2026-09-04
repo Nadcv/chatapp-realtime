@@ -73,7 +73,9 @@ const accountSchema = new mongoose.Schema({
   photosSentCount: { type: Number, default: 0 },
   answeredCallsCount: { type: Number, default: 0 },
   lastActiveDateStr: String, // 'YYYY-MM-DD' (UTC) do último dia em que enviou uma mensagem — para a sequência de dias
-  streakDays: { type: Number, default: 0 }
+  streakDays: { type: Number, default: 0 },
+  // ==================== SOS/EMERGÊNCIA ====================
+  trustedContacts: { type: [String], default: [] } // telefones de contactos de confiança (máx. 10) — ver 'sos_alert'
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -3882,6 +3884,40 @@ async function trackMessageBadges(phone, data) {
   }
 }
 
+// ==================== SOS/EMERGÊNCIA ====================
+// Entrega o alerta como uma mensagem NORMAL na conversa 1-para-1 entre quem
+// enviou o SOS e cada contacto de confiança (mesmo "sítio" onde já falam,
+// para não criar uma caixa de entrada separada) — mas usa deliverToPhone()
+// em vez de "io.to(roomId).emit(...)" porque o destinatário pode nunca ter
+// aberto essa conversa antes (logo, o socket dele não está na sala ainda);
+// deliverToPhone entrega a quem estiver ligado, independentemente da sala.
+// Reaproveita exatamente o mesmo "torna-se contacto automaticamente ao
+// receber a primeira mensagem" já usado em 'send_message'.
+async function sendSosAlertMessage(fromPhone, toPhone, alertText, lat, lng) {
+  const roomId = dmRoomId(fromPhone, toPhone);
+  const senderName = accounts[fromPhone]?.name || 'Alguém';
+  const msg = {
+    id: 'sos_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    chatId: roomId, sender: senderName, senderPhone: fromPhone, toPhone,
+    text: alertText, time: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+    sosAlert: true, sosLat: lat, sosLng: lng
+  };
+  if (!messagesByRoom[roomId]) messagesByRoom[roomId] = [];
+  messagesByRoom[roomId].push(msg);
+  if (messagesByRoom[roomId].length > MAX_HISTORY_PER_ROOM) messagesByRoom[roomId] = messagesByRoom[roomId].slice(-MAX_HISTORY_PER_ROOM);
+
+  if (isDbConnected) {
+    await MessageModel.create({ ...msg }).catch(e => console.error('Erro ao guardar mensagem de SOS:', e.message));
+  } else {
+    saveMessagesLocal();
+  }
+  if (await addContact(toPhone, fromPhone)) sendContactsTo(toPhone);
+  deliverToPhone(toPhone, 'receive_message', msg, null);
+  deliverToPhone(toPhone, 'sos_alert_received', { fromName: senderName, fromPhone, lat, lng, text: alertText }, null);
+  // O SOS ignora silenciar/não incomodar de propósito — é uma emergência.
+  sendPushToPhone(toPhone, { title: `🚨 ${senderName}`, body: alertText, chatId: roomId }).catch(() => {});
+}
+
 // ==================== ATIVIDADES (estilo Strava — corridas/caminhadas/bicicleta) ====================
 const ACTIVITIES_FILE = path.join(__dirname, 'activities.json');
 let activities = []; // lista simples, mais recente primeiro
@@ -4492,6 +4528,7 @@ io.on('connection', (socket) => {
       socket.emit('reminders_list', remindersByPhone[myPhone] || []);
       socket.emit('pinned_chats_list', pinnedChatsByPhone[myPhone] || []);
       socket.emit('badges_update', accounts[myPhone]?.badges || []);
+      socket.emit('trusted_contacts_updated', accounts[myPhone]?.trustedContacts || []);
       socket.emit('groups_update', visibleGroupsForPhone(myPhone)); // agora já sabemos o telefone — inclui os grupos privados de que é membro
       socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
@@ -4525,6 +4562,38 @@ io.on('connection', (socket) => {
     const myPhone = users[socket.id]?.phone;
     if (!phone || !myPhone || !accounts[phone]) return socket.emit('public_info_by_phone_result', { phone, found: false });
     socket.emit('public_info_by_phone_result', { phone, found: true, user: contactPublicInfo(accounts[phone]) });
+  });
+
+  // ==================== SOS/EMERGÊNCIA ====================
+  // Só se pode escolher como "contacto de confiança" alguém que já é
+  // contacto real (não dá para apontar um número qualquer às cegas).
+  socket.on('set_trusted_contacts', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const account = accounts[myPhone];
+    if (!myPhone || !account || !Array.isArray(data?.phones)) return;
+    const myContacts = new Set(account.contacts || []);
+    const filtered = data.phones.filter((p) => typeof p === 'string' && myContacts.has(p)).slice(0, 10);
+    account.trustedContacts = filtered;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { trustedContacts: filtered }).catch(e => console.error('Erro Mongo (contactos de confiança):', e.message));
+    } else {
+      saveUsers();
+    }
+    socket.emit('trusted_contacts_updated', filtered);
+  });
+
+  socket.on('sos_alert', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone) return;
+    const trusted = accounts[myPhone]?.trustedContacts || [];
+    if (!trusted.length) return socket.emit('sos_alert_result', { success: false, reason: 'no_trusted_contacts' });
+    const lat = typeof data?.lat === 'number' ? data.lat : null;
+    const lng = typeof data?.lng === 'number' ? data.lng : null;
+    const mapsLine = (lat != null && lng != null) ? `\n📍 https://www.google.com/maps?q=${lat},${lng}` : '\n📍 Localização não disponível.';
+    const alertText = `🚨 ALERTA DE EMERGÊNCIA — ${users[socket.id]?.name || 'Alguém'} pode precisar de ajuda!${mapsLine}`;
+    await Promise.all(trusted.map((toPhone) => sendSosAlertMessage(myPhone, toPhone, alertText, lat, lng).catch(e => console.error('Erro ao enviar alerta de SOS:', e.message))));
+    socket.emit('sos_alert_result', { success: true, sentTo: trusted.length });
+    log(`🚨 Alerta de SOS enviado por ${users[socket.id]?.name || myPhone} para ${trusted.length} contacto(s) de confiança`, 'SOCKET');
   });
 
   // Atualiza a foto de perfil e avisa quem te tem como contacto para verem a nova foto
