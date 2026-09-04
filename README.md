@@ -383,6 +383,12 @@ Um botão em "Mais funcionalidades" → "🚨 SOS" que envia a localização atu
 - Quem recebe vê um banner vermelho no ecrã na hora (se estiver online), com um link "Ver no mapa", além da mensagem ficar guardada na conversa com um estilo visual distinto (fundo vermelho, 🚨).
 - O alerta ignora de propósito "silenciado"/"não incomodar" — é pensado para nunca passar despercebido.
 
+## 📆 Calendário partilhado de grupo
+
+Em "⋯ Mais desta conversa" → "📆 Calendário" (só aparece em grupos, não em conversas 1-para-1). Qualquer membro pode marcar um evento (título, data, descrição opcional); no dia do evento, é postado automaticamente um lembrete como mensagem normal na conversa, em nome de quem o criou. Só quem criou o evento (ou um administrador do grupo) o pode apagar. Diferente do atalho "🎉 Criar evento (RSVP)" já existente (que é uma sondagem pontual "vou/não vou"), este é uma lista de eventos com data que fica visível de forma persistente, não uma mensagem isolada no meio da conversa.
+
+**Limitação conhecida**: não envia notificação push a toda a gente no dia do evento (um grupo aberto pode ter todos os utilizadores cadastrados como "membros" implícitos, e um push em massa por cada evento seria demasiado intrusivo) — quem tiver o grupo aberto vê o lembrete ao vivo; os outros veem-no na próxima vez que abrirem a conversa.
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.

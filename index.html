@@ -2569,6 +2569,7 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openMediaGalleryModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🖼️<span style="font-size:11px;">Galeria</span></button>
                     <button class="btn-small" id="groupStatsBtn" onclick="closeModal('modalChatMore');openGroupStatsModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📊<span style="font-size:11px;">Estatísticas</span></button>
+                    <button class="btn-small" id="groupCalendarBtn" onclick="closeModal('modalChatMore');openGroupCalendarModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📆<span style="font-size:11px;">Calendário</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Chamada agendada</span></button>
                     <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
                     <button class="btn-small" id="blockUserBtn" onclick="closeModal('modalChatMore');openBlockUserModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Bloquear</span></button>
@@ -2596,6 +2597,30 @@
                     <button class="btn-small" onclick="navigateMediaGallery(-1)">⬅️</button>
                     <button class="btn-small" onclick="closeModal('modalMediaGalleryViewer')">Fechar</button>
                     <button class="btn-small" onclick="navigateMediaGallery(1)">➡️</button>
+                </div>
+            </div>
+        </div>
+        <!-- ============ CALENDÁRIO PARTILHADO DE GRUPO ============ -->
+        <div class="modal-overlay" id="modalGroupCalendar">
+            <div class="modal" style="max-height:85vh;overflow-y:auto;">
+                <h3>📆 Calendário do grupo</h3>
+                <p class="member-count">Eventos visíveis a todo o grupo — no dia marcado, é postado sozinho um lembrete na conversa.</p>
+                <div id="groupCalendarList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalGroupCalendar')">Fechar</button>
+                    <button class="btn-small btn-accept" onclick="openAddGroupEventModal()">➕ Novo evento</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalAddGroupEvent" style="z-index:200;">
+            <div class="modal">
+                <h3>📆 Novo evento</h3>
+                <input type="text" id="groupEventTitleInput" placeholder="Título (ex.: Jantar de aniversário)">
+                <input type="date" id="groupEventDateInput" style="width:100%;margin-top:8px;">
+                <textarea id="groupEventDescriptionInput" placeholder="Descrição (opcional)" style="width:100%;margin-top:8px;min-height:50px;"></textarea>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalAddGroupEvent');openGroupCalendarModal()">Cancelar</button>
+                    <button class="btn-small btn-accept" onclick="submitGroupEvent()">Adicionar</button>
                 </div>
             </div>
         </div>
@@ -8937,6 +8962,7 @@
         document.getElementById('manageGroupBtn').style.display = (isGroup && chat.admins?.includes(APP.user.phone)) ? 'flex' : 'none';
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('groupStatsBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('groupCalendarBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('rsvpBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('gamesBtn').style.display = (chat.type === 'user' || chat.type === 'group') ? 'flex' : 'none';
@@ -12168,6 +12194,74 @@
         if (newIndex < 0 || newIndex >= MEDIA_GALLERY.items.length) return;
         MEDIA_GALLERY.index = newIndex;
         renderMediaGalleryViewer();
+    }
+
+    // ==================== CALENDÁRIO PARTILHADO DE GRUPO ====================
+    // Só existe para grupos (ver groupCalendarBtn em openChat()) — qualquer
+    // membro pode adicionar um evento; no dia marcado, o servidor posta
+    // sozinho um lembrete como mensagem normal na conversa (ver server.js).
+    const GROUP_CALENDAR = { items: [] };
+    function openGroupCalendarModal() {
+        if (!APP.currentChatId) return;
+        socket.emit('group_event_get', { roomId: APP.currentChatId });
+        document.getElementById('modalGroupCalendar').classList.add('active');
+    }
+    function renderGroupCalendarList() {
+        const box = document.getElementById('groupCalendarList');
+        if (!GROUP_CALENDAR.items.length) {
+            box.innerHTML = '<p class="member-count">Ainda não há nenhum evento marcado.</p>';
+            return;
+        }
+        const todayStr = new Date().toISOString().slice(0, 10);
+        box.innerHTML = GROUP_CALENDAR.items.map((ev) => {
+            const isPast = ev.date < todayStr;
+            const canDelete = ev.createdByPhone === APP.user.phone || (APP.chats.find(c => c.id === APP.currentChatId)?.admins || []).includes(APP.user.phone);
+            return `<div style="background:var(--bg-secondary);border-radius:8px;padding:10px 12px;opacity:${isPast ? '0.6' : '1'};">
+                <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;">
+                    <div>
+                        <div style="font-weight:600;">${ev.date === todayStr ? '📅 ' : ''}${escapeHtml(ev.title)}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${formatGroupEventDate(ev.date)}${ev.description ? ' · ' + escapeHtml(ev.description) : ''}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">Criado por ${escapeHtml(ev.createdBy)}</div>
+                    </div>
+                    ${canDelete ? `<button class="btn-small btn-danger" onclick="deleteGroupEvent('${ev.id}')" style="padding:4px 8px;">🗑️</button>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    }
+    function formatGroupEventDate(dateStr) {
+        const [y, m, d] = dateStr.split('-');
+        return `${d}/${m}/${y}`;
+    }
+    socket.on('group_event_list', (data) => {
+        if (data?.roomId !== APP.currentChatId) return;
+        GROUP_CALENDAR.items = data.items || [];
+        renderGroupCalendarList();
+    });
+    socket.on('group_event_updated', (data) => {
+        if (data?.roomId !== APP.currentChatId) return;
+        GROUP_CALENDAR.items = data.items || [];
+        if (document.getElementById('modalGroupCalendar')?.classList.contains('active')) renderGroupCalendarList();
+    });
+    function openAddGroupEventModal() {
+        closeModal('modalGroupCalendar');
+        document.getElementById('groupEventTitleInput').value = '';
+        document.getElementById('groupEventDateInput').value = '';
+        document.getElementById('groupEventDescriptionInput').value = '';
+        document.getElementById('modalAddGroupEvent').classList.add('active');
+    }
+    function submitGroupEvent() {
+        const title = document.getElementById('groupEventTitleInput').value.trim();
+        const date = document.getElementById('groupEventDateInput').value;
+        if (!title) return alert('Escreve um título para o evento.');
+        if (!date) return alert('Escolhe uma data.');
+        const description = document.getElementById('groupEventDescriptionInput').value.trim();
+        socket.emit('group_event_add', { roomId: APP.currentChatId, title, date, description });
+        closeModal('modalAddGroupEvent');
+        document.getElementById('modalGroupCalendar').classList.add('active');
+    }
+    function deleteGroupEvent(eventId) {
+        if (!confirm('Apagar este evento do calendário do grupo?')) return;
+        socket.emit('group_event_delete', { roomId: APP.currentChatId, eventId });
     }
 
     // Gravação de mensagens de voz (MediaRecorder) — funciona em qualquer navegador
