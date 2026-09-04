@@ -2568,6 +2568,7 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openChatFoldersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗂️<span style="font-size:11px;">Pastas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openExpensesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💰<span style="font-size:11px;">Despesas</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openMediaGalleryModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🖼️<span style="font-size:11px;">Galeria</span></button>
+                    <button class="btn-small" onclick="closeModal('modalChatMore');openCollabNoteModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📝<span style="font-size:11px;">Notas partilhadas</span></button>
                     <button class="btn-small" id="groupStatsBtn" onclick="closeModal('modalChatMore');openGroupStatsModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📊<span style="font-size:11px;">Estatísticas</span></button>
                     <button class="btn-small" id="groupCalendarBtn" onclick="closeModal('modalChatMore');openGroupCalendarModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📆<span style="font-size:11px;">Calendário</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Chamada agendada</span></button>
@@ -2621,6 +2622,18 @@
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalAddGroupEvent');openGroupCalendarModal()">Cancelar</button>
                     <button class="btn-small btn-accept" onclick="submitGroupEvent()">Adicionar</button>
+                </div>
+            </div>
+        </div>
+        <!-- ============ NOTAS COLABORATIVAS ============ -->
+        <div class="modal-overlay" id="modalCollabNote">
+            <div class="modal" style="max-width:520px;">
+                <h3>📝 Notas partilhadas</h3>
+                <p class="member-count">Um bloco de notas só desta conversa — todos veem e podem editar em tempo real.</p>
+                <textarea id="collabNoteTextarea" placeholder="Escreve aqui..." style="width:100%;min-height:220px;margin-top:8px;box-sizing:border-box;resize:vertical;" oninput="handleCollabNoteInput()"></textarea>
+                <div id="collabNoteStatus" style="font-size:11px;color:var(--text-secondary);margin-top:4px;min-height:14px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalCollabNote')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -12263,6 +12276,49 @@
         if (!confirm('Apagar este evento do calendário do grupo?')) return;
         socket.emit('group_event_delete', { roomId: APP.currentChatId, eventId });
     }
+
+    // ==================== NOTAS COLABORATIVAS ====================
+    // Sem CRDT/operational-transform — "quem escreveu por último ganha" (ver
+    // comentário em server.js). O único cuidado do lado do cliente é nunca
+    // sobrescrever o textarea enquanto a PRÓPRIA pessoa o tem focado (senão
+    // o cursor saltava a meio de uma frase); atualizações que chegam
+    // enquanto está a escrever ficam pendentes e só se aplicam quando sair
+    // do campo (blur) ou reabrir o modal.
+    const COLLAB_NOTE = { roomId: null, debounceTimer: null, pendingRemote: null };
+    function openCollabNoteModal() {
+        if (!APP.currentChatId) return;
+        COLLAB_NOTE.roomId = APP.currentChatId;
+        COLLAB_NOTE.pendingRemote = null;
+        document.getElementById('collabNoteTextarea').value = '';
+        document.getElementById('collabNoteStatus').textContent = 'A carregar...';
+        socket.emit('collab_note_get', { roomId: APP.currentChatId });
+        document.getElementById('modalCollabNote').classList.add('active');
+    }
+    function applyCollabNoteData(data) {
+        const textarea = document.getElementById('collabNoteTextarea');
+        const statusEl = document.getElementById('collabNoteStatus');
+        if (document.activeElement === textarea) {
+            // A pessoa está mesmo agora a escrever — não lhe saltamos o cursor;
+            // guardamos para aplicar assim que sair do campo.
+            COLLAB_NOTE.pendingRemote = data;
+            return;
+        }
+        textarea.value = data.text || '';
+        statusEl.textContent = data.updatedByName ? `Última edição por ${data.updatedByName}` : '';
+    }
+    socket.on('collab_note_data', (data) => {
+        if (data?.roomId !== COLLAB_NOTE.roomId) return;
+        applyCollabNoteData(data);
+    });
+    function handleCollabNoteInput() {
+        clearTimeout(COLLAB_NOTE.debounceTimer);
+        COLLAB_NOTE.debounceTimer = setTimeout(() => {
+            socket.emit('collab_note_update', { roomId: COLLAB_NOTE.roomId, text: document.getElementById('collabNoteTextarea').value });
+        }, 500);
+    }
+    document.getElementById('collabNoteTextarea').addEventListener('blur', () => {
+        if (COLLAB_NOTE.pendingRemote) { applyCollabNoteData(COLLAB_NOTE.pendingRemote); COLLAB_NOTE.pendingRemote = null; }
+    });
 
     // Gravação de mensagens de voz (MediaRecorder) — funciona em qualquer navegador
     // moderno, incluindo iPhone (Safari 14.3+).

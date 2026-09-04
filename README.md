@@ -389,6 +389,13 @@ Em "⋯ Mais desta conversa" → "📆 Calendário" (só aparece em grupos, não
 
 **Limitação conhecida**: não envia notificação push a toda a gente no dia do evento (um grupo aberto pode ter todos os utilizadores cadastrados como "membros" implícitos, e um push em massa por cada evento seria demasiado intrusivo) — quem tiver o grupo aberto vê o lembrete ao vivo; os outros veem-no na próxima vez que abrirem a conversa.
 
+## 📝 Notas colaborativas em tempo real
+
+Em "⋯ Mais desta conversa" → "📝 Notas partilhadas" (grupos e conversas 1-para-1). Um bloco de texto único por conversa que todos podem ler e editar — as alterações de qualquer pessoa aparecem ao vivo para o resto de quem tiver o mesmo modal aberto.
+
+- **Sem CRDT/operational-transform** — é "quem escreveu por último ganha" (a mesma simplicidade já aceite noutras funcionalidades desta app). Duas pessoas a escrever ao mesmo tempo sem nunca parar podem perder uma à outra o que escreveram — é um bloco de notas simples, não um editor tipo Google Docs.
+- Para não saltar o cursor de quem está mesmo a meio de escrever: uma atualização que chega enquanto o teu campo está focado fica pendente e só é aplicada quando saíres do campo (ou reabrires o modal).
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.

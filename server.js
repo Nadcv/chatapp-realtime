@@ -167,6 +167,14 @@ const groupEventSchema = new mongoose.Schema({
 }, { strict: false });
 const GroupEventModel = mongoose.model('GroupEvent', groupEventSchema);
 
+const collabNoteSchema = new mongoose.Schema({
+  roomId: { type: String, required: true, unique: true },
+  text: { type: String, default: '' },
+  updatedByName: String,
+  updatedAt: Number
+});
+const CollabNoteModel = mongoose.model('CollabNote', collabNoteSchema);
+
 const noteSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   phone: { type: String, required: true, index: true },
@@ -177,7 +185,7 @@ const noteSchema = new mongoose.Schema({
 const NoteModel = mongoose.model('Note', noteSchema);
 
 async function loadDataFromMongo() {
-  const [dbAccounts, dbGroups, dbCommunities, dbMsgs, dbActivities, dbTodos, dbGroupEvents, dbNotes] = await Promise.all([
+  const [dbAccounts, dbGroups, dbCommunities, dbMsgs, dbActivities, dbTodos, dbGroupEvents, dbCollabNotes, dbNotes] = await Promise.all([
     AccountModel.find({}),
     GroupModel.find({}),
     CommunityModel.find({}),
@@ -185,6 +193,7 @@ async function loadDataFromMongo() {
     ActivityModel.find({}).sort({ createdAt: -1 }).limit(500),
     TodoModel.find({}),
     GroupEventModel.find({}),
+    CollabNoteModel.find({}),
     NoteModel.find({})
   ]);
   dbAccounts.forEach(acc => {
@@ -202,6 +211,7 @@ async function loadDataFromMongo() {
   dbActivities.forEach(a => { activities.push(a.toObject()); });
   dbTodos.forEach(t => { todosByRoom[t.roomId] = t.toObject().items || []; });
   dbGroupEvents.forEach(e => { groupEventsByRoom[e.roomId] = e.toObject().items || []; });
+  dbCollabNotes.forEach(n => { const obj = n.toObject(); collabNotesByRoom[obj.roomId] = { text: obj.text || '', updatedByName: obj.updatedByName || '', updatedAt: obj.updatedAt || 0 }; });
   dbNotes.forEach(n => { notesByPhone[n.phone] = notesByPhone[n.phone] || []; notesByPhone[n.phone].push(n.toObject()); });
   console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbCommunities.length} comunidade(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s), ${dbTodos.length} lista(s) de tarefas, ${dbNotes.length} nota(s).`);
 }
@@ -217,7 +227,7 @@ async function connectDatabase() {
   loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadNotesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadCollabNotesLocal(); loadNotesLocal();
     return;
   }
   try {
@@ -228,7 +238,7 @@ async function connectDatabase() {
   } catch (err) {
     console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
     isDbConnected = false;
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadNotesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadCollabNotesLocal(); loadNotesLocal();
   }
 }
 
@@ -3994,6 +4004,48 @@ async function persistGroupEventsRoom(roomId) {
   }
 }
 
+// ==================== NOTAS COLABORATIVAS (bloco partilhado por conversa) ====================
+// Sem CRDT/operational-transform nenhum — é "quem escreveu por último ganha"
+// (a mesma simplicidade já aceite noutras partes desta app). O único cuidado
+// é nunca sobrescrever o textarea de quem está a escrever NAQUELE momento
+// (ver a verificação de foco no cliente), para não lhe saltar o cursor a
+// meio de uma frase; duas pessoas a escrever ao mesmo tempo sem nunca parar
+// podem na mesma perder uma à outra o que escreveram — limitação conhecida,
+// aceitável para um bloco de notas simples, não um editor tipo Google Docs.
+const COLLAB_NOTES_FILE = path.join(__dirname, 'collab-notes.json');
+let collabNotesByRoom = {}; // roomId -> {text, updatedByName, updatedAt}
+
+function loadCollabNotesLocal() {
+  try {
+    if (fs.existsSync(COLLAB_NOTES_FILE)) collabNotesByRoom = JSON.parse(fs.readFileSync(COLLAB_NOTES_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar notas colaborativas localmente:', err.message);
+  }
+}
+function saveCollabNotesLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(COLLAB_NOTES_FILE, JSON.stringify(collabNotesByRoom), (err) => {
+    if (err) console.error('Erro ao salvar notas colaborativas localmente:', err.message);
+  });
+}
+async function persistCollabNoteRoom(roomId) {
+  if (isDbConnected) {
+    await CollabNoteModel.updateOne({ roomId }, { roomId, ...collabNotesByRoom[roomId] }, { upsert: true }).catch(e => console.error('Erro Mongo (notas colaborativas):', e.message));
+  } else {
+    saveCollabNotesLocal();
+  }
+}
+// Reaproveitado pelo calendário e pelas tarefas também poderia ser (não são
+// alterados aqui para não arriscar uma regressão sem necessidade) — mas as
+// notas colaborativas e futuras funcionalidades por conversa usam este
+// verificador único: grupo aberto = todos podem, grupo privado = só membros,
+// 1-para-1 = só os dois participantes (mesmas regras já aplicadas a mensagens).
+function canAccessRoomNotes(phone, roomId) {
+  const group = groups[roomId];
+  if (group) return isGroupMember(group, phone);
+  return isDmRoomAllowedForPhone(phone, roomId);
+}
+
 // ==================== NOTAS PESSOAIS (privadas) ====================
 const NOTES_FILE = path.join(__dirname, 'notes.json');
 let notesByPhone = {}; // phone -> [{id, title, text, updatedAt}]
@@ -6415,6 +6467,27 @@ io.on('connection', (socket) => {
     await persistGroupEventsRoom(roomId);
     io.to(roomId).emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
     socket.emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+  });
+
+  // ==================== NOTAS COLABORATIVAS ====================
+  socket.on('collab_note_get', (data) => {
+    const roomId = data?.roomId;
+    const myPhone = users[socket.id]?.phone;
+    if (!roomId || !myPhone || !canAccessRoomNotes(myPhone, roomId)) return;
+    const note = collabNotesByRoom[roomId] || { text: '', updatedByName: '', updatedAt: 0 };
+    socket.emit('collab_note_data', { roomId, ...note });
+  });
+
+  socket.on('collab_note_update', async (data) => {
+    const roomId = data?.roomId;
+    const myPhone = users[socket.id]?.phone;
+    if (!roomId || !myPhone || !canAccessRoomNotes(myPhone, roomId)) return;
+    const note = { text: String(data?.text ?? '').slice(0, 20000), updatedByName: users[socket.id]?.name || 'Alguém', updatedAt: Date.now() };
+    collabNotesByRoom[roomId] = note;
+    await persistCollabNoteRoom(roomId);
+    // Exclui quem escreveu — só o resto da sala precisa da atualização; ver
+    // canAccessRoomNotes/join_room para porque nunca há aqui alguém de fora.
+    socket.to(roomId).emit('collab_note_data', { roomId, ...note });
   });
 
   // ==================== NOTAS PESSOAIS ====================
