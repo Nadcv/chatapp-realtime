@@ -161,6 +161,12 @@ const todoSchema = new mongoose.Schema({
 }, { strict: false });
 const TodoModel = mongoose.model('Todo', todoSchema);
 
+const groupEventSchema = new mongoose.Schema({
+  roomId: { type: String, required: true, unique: true },
+  items: { type: [Object], default: [] } // {id, title, description, date, createdBy, createdByPhone, createdAt, lastNotifiedDate}
+}, { strict: false });
+const GroupEventModel = mongoose.model('GroupEvent', groupEventSchema);
+
 const noteSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   phone: { type: String, required: true, index: true },
@@ -171,13 +177,14 @@ const noteSchema = new mongoose.Schema({
 const NoteModel = mongoose.model('Note', noteSchema);
 
 async function loadDataFromMongo() {
-  const [dbAccounts, dbGroups, dbCommunities, dbMsgs, dbActivities, dbTodos, dbNotes] = await Promise.all([
+  const [dbAccounts, dbGroups, dbCommunities, dbMsgs, dbActivities, dbTodos, dbGroupEvents, dbNotes] = await Promise.all([
     AccountModel.find({}),
     GroupModel.find({}),
     CommunityModel.find({}),
     MessageModel.find({}).sort({ createdAt: 1 }),
     ActivityModel.find({}).sort({ createdAt: -1 }).limit(500),
     TodoModel.find({}),
+    GroupEventModel.find({}),
     NoteModel.find({})
   ]);
   dbAccounts.forEach(acc => {
@@ -194,6 +201,7 @@ async function loadDataFromMongo() {
   });
   dbActivities.forEach(a => { activities.push(a.toObject()); });
   dbTodos.forEach(t => { todosByRoom[t.roomId] = t.toObject().items || []; });
+  dbGroupEvents.forEach(e => { groupEventsByRoom[e.roomId] = e.toObject().items || []; });
   dbNotes.forEach(n => { notesByPhone[n.phone] = notesByPhone[n.phone] || []; notesByPhone[n.phone].push(n.toObject()); });
   console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbCommunities.length} comunidade(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s), ${dbTodos.length} lista(s) de tarefas, ${dbNotes.length} nota(s).`);
 }
@@ -209,7 +217,7 @@ async function connectDatabase() {
   loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal();
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadNotesLocal();
     return;
   }
   try {
@@ -220,7 +228,7 @@ async function connectDatabase() {
   } catch (err) {
     console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
     isDbConnected = false;
-    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadNotesLocal();
+    loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadNotesLocal();
   }
 }
 
@@ -3961,6 +3969,31 @@ async function persistTodoRoom(roomId) {
   }
 }
 
+// ==================== CALENDÁRIO PARTILHADO DE GRUPO ====================
+const GROUP_EVENTS_FILE = path.join(__dirname, 'group-events.json');
+let groupEventsByRoom = {}; // roomId -> [{id, title, description, date, createdBy, createdByPhone, createdAt, lastNotifiedDate}]
+
+function loadGroupEventsLocal() {
+  try {
+    if (fs.existsSync(GROUP_EVENTS_FILE)) groupEventsByRoom = JSON.parse(fs.readFileSync(GROUP_EVENTS_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Erro ao carregar calendário de grupo localmente:', err.message);
+  }
+}
+function saveGroupEventsLocal() {
+  if (isDbConnected) return;
+  fs.writeFile(GROUP_EVENTS_FILE, JSON.stringify(groupEventsByRoom), (err) => {
+    if (err) console.error('Erro ao salvar calendário de grupo localmente:', err.message);
+  });
+}
+async function persistGroupEventsRoom(roomId) {
+  if (isDbConnected) {
+    await GroupEventModel.updateOne({ roomId }, { roomId, items: groupEventsByRoom[roomId] || [] }, { upsert: true }).catch(e => console.error('Erro Mongo (calendário de grupo):', e.message));
+  } else {
+    saveGroupEventsLocal();
+  }
+}
+
 // ==================== NOTAS PESSOAIS (privadas) ====================
 const NOTES_FILE = path.join(__dirname, 'notes.json');
 let notesByPhone = {}; // phone -> [{id, title, text, updatedAt}]
@@ -6339,6 +6372,51 @@ io.on('connection', (socket) => {
     socket.emit('todo_updated', { roomId, items: todosByRoom[roomId] });
   });
 
+  // ==================== CALENDÁRIO PARTILHADO DE GRUPO ====================
+  // Só existe para grupos (não conversas 1-para-1) — qualquer membro pode
+  // adicionar um evento, mas só quem o criou ou um admin do grupo o apaga.
+  socket.on('group_event_get', (data) => {
+    const roomId = data?.roomId;
+    if (!roomId) return;
+    socket.emit('group_event_list', { roomId, items: groupEventsByRoom[roomId] || [] });
+  });
+
+  socket.on('group_event_add', async (data) => {
+    const roomId = data?.roomId;
+    const group = groups[roomId];
+    const myPhone = users[socket.id]?.phone;
+    const title = (data?.title || '').trim().slice(0, 140);
+    const date = (data?.date || '').trim();
+    if (!group || !myPhone || !isGroupMember(group, myPhone)) return;
+    if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const description = (data?.description || '').trim().slice(0, 500);
+    if (!groupEventsByRoom[roomId]) groupEventsByRoom[roomId] = [];
+    const item = {
+      id: 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      title, description, date,
+      createdBy: users[socket.id]?.name || 'Alguém', createdByPhone: myPhone,
+      createdAt: new Date().toISOString(), lastNotifiedDate: null
+    };
+    groupEventsByRoom[roomId].push(item);
+    groupEventsByRoom[roomId].sort((a, b) => a.date.localeCompare(b.date));
+    await persistGroupEventsRoom(roomId);
+    io.to(roomId).emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+    socket.emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+  });
+
+  socket.on('group_event_delete', async (data) => {
+    const roomId = data?.roomId;
+    const group = groups[roomId];
+    const myPhone = users[socket.id]?.phone;
+    const item = groupEventsByRoom[roomId]?.find(i => i.id === data?.eventId);
+    if (!group || !myPhone || !item) return;
+    if (item.createdByPhone !== myPhone && !isGroupAdmin(group, myPhone)) return;
+    groupEventsByRoom[roomId] = groupEventsByRoom[roomId].filter(i => i.id !== data?.eventId);
+    await persistGroupEventsRoom(roomId);
+    io.to(roomId).emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+    socket.emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+  });
+
   // ==================== NOTAS PESSOAIS ====================
   socket.on('notes_get', () => {
     const myPhone = users[socket.id]?.phone;
@@ -6527,6 +6605,40 @@ connectDatabase().then(async () => {
       }
     }
   }, 20 * 1000);
+
+  // Calendário partilhado de grupo: no dia de um evento, posta um lembrete
+  // como mensagem normal no grupo (em nome de quem o criou) — só uma vez por
+  // dia (marca 'lastNotifiedDate', persistido, para sobreviver a um reinício
+  // do servidor no mesmo dia). Não manda notificação push a toda a gente —
+  // um grupo aberto pode ter todos os utilizadores cadastrados como "membros"
+  // implícitos, e um push em massa por cada evento seria intrusivo demais;
+  // quem tiver o grupo aberto recebe a mensagem ao vivo na mesma.
+  setInterval(async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    for (const [roomId, items] of Object.entries(groupEventsByRoom)) {
+      const dueToday = items.filter((ev) => ev.date === todayStr && ev.lastNotifiedDate !== todayStr);
+      if (!dueToday.length) continue;
+      for (const ev of dueToday) {
+        ev.lastNotifiedDate = todayStr;
+        const msgData = {
+          id: 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+          chatId: roomId, sender: ev.createdBy, senderPhone: ev.createdByPhone,
+          text: `📅 Lembrete: hoje é o dia de "${ev.title}"${ev.description ? ' — ' + ev.description : ''}`,
+          time: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
+        };
+        if (!messagesByRoom[roomId]) messagesByRoom[roomId] = [];
+        messagesByRoom[roomId].push(msgData);
+        if (messagesByRoom[roomId].length > MAX_HISTORY_PER_ROOM) messagesByRoom[roomId] = messagesByRoom[roomId].slice(-MAX_HISTORY_PER_ROOM);
+        if (isDbConnected) {
+          await MessageModel.create({ ...msgData }).catch(e => console.error('Erro ao guardar lembrete de evento:', e.message));
+        } else {
+          saveMessagesLocal();
+        }
+        io.to(roomId).emit('receive_message', msgData);
+      }
+      await persistGroupEventsRoom(roomId);
+    }
+  }, 15 * 60 * 1000);
 
   // Lembretes pessoais: dispara os que já chegaram à hora marcada — avisa por
   // notificação push (funciona mesmo com a app fechada/em segundo plano) e,
