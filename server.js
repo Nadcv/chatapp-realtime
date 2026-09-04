@@ -4439,6 +4439,7 @@ function notifySiblingDevicesCallTaken(socket) {
   if (myPhone) deliverToPhone(myPhone, 'call_taken_elsewhere', {}, socket.id);
 }
 const roomCallParticipants = {}; // roomId -> Set de socket.ids (Suporta até 20+ pessoas em simultâneo)
+const roomCallHost = {}; // roomId -> socket.id de quem é o "anfitrião" atual (ver Sala de Áudio ao Vivo) — só quem estiver aqui pode aprovar/silenciar pedidos para falar
 const vrRoomParticipants = {}; // roomId -> Map(socket.id -> {socketId, phone, name}) — sala de realidade virtual
 
 const TIC_TAC_TOE_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
@@ -6241,6 +6242,7 @@ io.on('connection', (socket) => {
     const existing = [...roomCallParticipants[roomId]].map(id => ({ socketId: id, name: users[id]?.name || 'Alguém' }));
     roomCallParticipants[roomId].add(socket.id);
     if (isFirst) {
+      roomCallHost[roomId] = socket.id; // primeiro a entrar = anfitrião da Sala de Áudio ao Vivo (ver mais abaixo)
       socket.to(roomId).emit('group_call_started', { roomId, callType, starterName: users[socket.id]?.name || 'Alguém' });
     }
     socket.to(roomId).emit('peer_joined_call', { socketId: socket.id, name: users[socket.id]?.name || 'Alguém', callType });
@@ -6264,11 +6266,42 @@ io.on('connection', (socket) => {
   function leaveCall(roomId) {
     if (roomCallParticipants[roomId]) {
       roomCallParticipants[roomId].delete(socket.id);
-      if (roomCallParticipants[roomId].size === 0) delete roomCallParticipants[roomId];
+      if (roomCallParticipants[roomId].size === 0) {
+        delete roomCallParticipants[roomId];
+        delete roomCallHost[roomId];
+      } else if (roomCallHost[roomId] === socket.id) {
+        // O anfitrião saiu mas a chamada continua — passa o "cargo" para quem
+        // está lá há mais tempo, senão os ouvintes ficavam para sempre sem
+        // ninguém que lhes possa aprovar o pedido de falar.
+        const nextHost = [...roomCallParticipants[roomId]][0];
+        roomCallHost[roomId] = nextHost;
+        io.to(nextHost).emit('audio_room_you_are_host', { roomId });
+      }
     }
     socket.to(roomId).emit('peer_left_call', { socketId: socket.id });
   }
   socket.on('leave_call', (data) => { if (data?.roomId) leaveCall(data.roomId); });
+
+  // ==================== SALA DE ÁUDIO AO VIVO (levantar a mão) ====================
+  // 'audio_room_raise_hand' é um puro retransmissor de sinalização (mesmo
+  // padrão de call_offer/call_answer/call_ice); aprovar/silenciar já exige
+  // ser mesmo o anfitrião (roomCallHost) — senão qualquer participante podia
+  // aprovar-se a si próprio ou silenciar os outros à revelia.
+  socket.on('audio_room_raise_hand', (data) => {
+    const roomId = data?.roomId;
+    if (!roomId) return;
+    socket.to(roomId).emit('audio_room_hand_raised', { roomId, socketId: socket.id, name: users[socket.id]?.name || 'Alguém' });
+  });
+  socket.on('audio_room_grant_speak', (data) => {
+    const roomId = data?.roomId;
+    if (!data?.targetSocketId || !roomId || roomCallHost[roomId] !== socket.id) return;
+    io.to(data.targetSocketId).emit('audio_room_speak_granted', { roomId });
+  });
+  socket.on('audio_room_revoke_speak', (data) => {
+    const roomId = data?.roomId;
+    if (!data?.targetSocketId || !roomId || roomCallHost[roomId] !== socket.id) return;
+    io.to(data.targetSocketId).emit('audio_room_speak_revoked', { roomId });
+  });
 
   // ==================== SALA DE REALIDADE VIRTUAL (avatares em 3D) ====================
   // roomId -> Map(socket.id -> { socketId, phone, name })
