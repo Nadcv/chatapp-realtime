@@ -357,6 +357,14 @@ Uma comunidade junta vários grupos já existentes debaixo de um mesmo nome (ex.
 - Apagar uma comunidade (só quem a criou) apaga o canal de anúncios junto, mas os grupos que lá estavam ligados continuam a existir normalmente, só perdem a ligação.
 - Tal como os grupos abertos, as comunidades são sempre públicas — visíveis a todos os utilizadores cadastrados, sem precisar de convite.
 
+## 🖥️ Interface em vários idiomas (PT/EN/ES)
+
+Além da tradução automática de **mensagens** (que já existia — ver "A língua que eu falo" no perfil), a própria **interface** da aplicação (botões, menus, ecrã de login) agora pode ser mostrada em português, inglês ou espanhol.
+
+- Muda-se num de dois sítios: os 3 botões de bandeira no próprio **ecrã de login** (funciona mesmo antes de entrar/criar conta), ou "Idioma da interface" no **modal de perfil** (já autenticado).
+- É uma preferência só deste aparelho (guardada no `localStorage`, tal como o idioma do tradutor rápido), não uma definição da conta sincronizada entre dispositivos — troca de aparelho volta a mostrar português por omissão.
+- **Cobertura deliberadamente reduzida** (a app tem milhares de strings específicas de cada funcionalidade — traduzir tudo não seria realista numa sessão): está coberto o ecrã de login/registo/verificação/recuperação de senha, o modal de perfil, os três menus em grelha de funcionalidades ("Mais funcionalidades", "TV/Media", "Grupos/contactos/chamadas"), e as palavras de ação genéricas que se repetem em dezenas de modais por toda a app (Cancelar, Fechar, Guardar, Criar, Enviar, Apagar, Confirmar, etc. — traduzidas automaticamente onde quer que apareçam, sem precisar anotar cada modal um a um). Os textos explicativos específicos de cada funcionalidade (ex.: as instruções dentro de Transportes, Turismo, etc.) continuam em português.
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.
