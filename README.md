@@ -365,6 +365,15 @@ Além da tradução automática de **mensagens** (que já existia — ver "A lí
 - É uma preferência só deste aparelho (guardada no `localStorage`, tal como o idioma do tradutor rápido), não uma definição da conta sincronizada entre dispositivos — troca de aparelho volta a mostrar português por omissão.
 - **Cobertura deliberadamente reduzida** (a app tem milhares de strings específicas de cada funcionalidade — traduzir tudo não seria realista numa sessão): está coberto o ecrã de login/registo/verificação/recuperação de senha, o modal de perfil, os três menus em grelha de funcionalidades ("Mais funcionalidades", "TV/Media", "Grupos/contactos/chamadas"), e as palavras de ação genéricas que se repetem em dezenas de modais por toda a app (Cancelar, Fechar, Guardar, Criar, Enviar, Apagar, Confirmar, etc. — traduzidas automaticamente onde quer que apareçam, sem precisar anotar cada modal um a um). Os textos explicativos específicos de cada funcionalidade (ex.: as instruções dentro de Transportes, Turismo, etc.) continuam em português.
 
+## 🏆 Conquistas/gamificação
+
+Um pequeno sistema de badges por marcos de uso, visível em "📊 As minhas estatísticas" (secção "🏆 Conquistas").
+
+- Ao contrário das estatísticas normais (que são recalculadas a partir do histórico local de mensagens), os badges são **desbloqueados e guardados no servidor**, por isso continuam lá mesmo depois de reinstalar a app ou trocar de aparelho.
+- Marcos cobertos: primeira mensagem enviada, 100 mensagens, primeiro grupo criado, primeira comunidade criada, primeira chamada atendida (chamadas perdidas/recusadas não contam), 10 chamadas atendidas, primeira despesa dividida registada, primeiro jogo iniciado (Galo/Damas/UNO), 50 fotos enviadas, uma mensagem enviada entre a meia-noite e as 5h ("Coruja"), e uma sequência de 7 dias seguidos a falar.
+- Existe também um meta-badge, "🏅 Colecionador", que se desbloqueia sozinho ao atingir 5 badges normais.
+- Ao desbloquear um badge novo aparece um aviso (toast) no ecrã, e o badge fica a cores na grelha (os ainda por desbloquear aparecem esbatidos/a cinzento).
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.

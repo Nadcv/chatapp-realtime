@@ -61,7 +61,19 @@ const accountSchema = new mongoose.Schema({
   devices: { type: [Object], default: [] }, // [{id, name, lastSeenAt}] — máximo 2 por conta, ver /api/login
   hideOnlineStatus: { type: Boolean, default: false }, // esconde "online"/última vez dos contactos (sempre aparece offline)
   hideReadReceipts: { type: Boolean, default: false }, // não envia confirmação de leitura (✓✓ azul) às mensagens que eu recebo
-  twoFactorEnabled: { type: Boolean, default: false } // pede um código por email ao entrar num dispositivo novo (ver /api/login)
+  twoFactorEnabled: { type: Boolean, default: false }, // pede um código por email ao entrar num dispositivo novo (ver /api/login)
+  // NOTA: faltava aqui antes — sem isto, com o Mongo ligado (schema em modo
+  // 'strict', o padrão), o campo era sempre ignorado em qualquer updateOne(),
+  // por isso a chave Pix nunca chegava a ficar gravada na base de dados
+  // (só "funcionava" em ficheiro local, onde não há schema nenhum).
+  pixKey: String, // chave Pix (CPF, email, telefone ou aleatória) para "Acertar contas"
+  // ==================== CONQUISTAS/GAMIFICAÇÃO ====================
+  badges: { type: [String], default: [] }, // ids já desbloqueados (ver BADGE_CATALOG)
+  messagesSentCount: { type: Number, default: 0 },
+  photosSentCount: { type: Number, default: 0 },
+  answeredCallsCount: { type: Number, default: 0 },
+  lastActiveDateStr: String, // 'YYYY-MM-DD' (UTC) do último dia em que enviou uma mensagem — para a sequência de dias
+  streakDays: { type: Number, default: 0 }
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -3790,6 +3802,86 @@ function broadcastCommunitiesUpdate() {
   io.emit('communities_update', Object.values(communities));
 }
 
+// ==================== CONQUISTAS/GAMIFICAÇÃO ====================
+// Badges desbloqueados por marcos de uso — tudo persistido no lado do
+// servidor (não recalculado a partir do histórico local de mensagens, ao
+// contrário das "Minhas estatísticas") para que sejam fiáveis mesmo depois
+// de trocar de aparelho ou reinstalar a app. 'collector' é um meta-badge:
+// desbloqueia sozinho ao atingir 5 badges normais, por isso nunca entra na
+// contagem que o desbloqueia (evita-se recursão infinita).
+const BADGE_CATALOG = {
+  first_message: { emoji: '💬', title: 'Primeira conversa', desc: 'Enviaste a tua primeira mensagem.' },
+  messages_100: { emoji: '🗣️', title: 'Tagarela', desc: 'Enviaste 100 mensagens.' },
+  first_group: { emoji: '👥', title: 'Fundador', desc: 'Criaste o teu primeiro grupo.' },
+  first_community: { emoji: '🌐', title: 'Organizador', desc: 'Criaste a tua primeira comunidade.' },
+  first_call: { emoji: '📞', title: 'Primeira chamada', desc: 'Completaste a tua primeira chamada.' },
+  calls_10: { emoji: '☎️', title: 'Sempre em linha', desc: 'Completaste 10 chamadas.' },
+  first_expense: { emoji: '💰', title: 'Organizado', desc: 'Registaste a tua primeira despesa dividida.' },
+  first_game: { emoji: '🃏', title: 'Jogador', desc: 'Jogaste o teu primeiro jogo.' },
+  photos_50: { emoji: '📸', title: 'Fotógrafo', desc: 'Enviaste 50 fotos.' },
+  night_owl: { emoji: '🌙', title: 'Coruja', desc: 'Enviaste uma mensagem entre a meia-noite e as 5h.' },
+  streak_7: { emoji: '🔥', title: 'Sequência de 7 dias', desc: 'Falaste 7 dias seguidos.' },
+  collector: { emoji: '🏅', title: 'Colecionador', desc: 'Desbloqueaste 5 conquistas diferentes.' },
+};
+async function unlockBadge(phone, badgeId) {
+  const account = accounts[phone];
+  if (!account || !BADGE_CATALOG[badgeId]) return;
+  if (!account.badges) account.badges = [];
+  if (account.badges.includes(badgeId)) return;
+  account.badges.push(badgeId);
+
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { badges: account.badges }).catch(e => console.error('Erro Mongo (badge):', e.message));
+  } else {
+    saveUsers();
+  }
+  deliverToPhone(phone, 'badge_unlocked', { id: badgeId, ...BADGE_CATALOG[badgeId] }, null);
+  deliverToPhone(phone, 'badges_update', account.badges, null);
+
+  if (badgeId !== 'collector' && account.badges.filter(b => b !== 'collector').length >= 5) {
+    await unlockBadge(phone, 'collector');
+  }
+}
+// Chamado no fim do 'send_message' (fire-and-forget — nunca atrasa a
+// entrega da mensagem em si) para todos os contadores/badges ligados a
+// mandar mensagens: primeira mensagem, marco de 100, primeira despesa,
+// primeiro jogo, fotos enviadas, "coruja" (mensagem de madrugada) e a
+// sequência de dias seguidos a falar.
+async function trackMessageBadges(phone, data) {
+  const account = accounts[phone];
+  if (!account) return;
+  account.messagesSentCount = (account.messagesSentCount || 0) + 1;
+  if (account.messagesSentCount === 1) await unlockBadge(phone, 'first_message');
+  if (account.messagesSentCount === 100) await unlockBadge(phone, 'messages_100');
+
+  if (data.fileType && data.fileType.startsWith('image/') && data.fileType !== 'image/gif') {
+    account.photosSentCount = (account.photosSentCount || 0) + 1;
+    if (account.photosSentCount === 50) await unlockBadge(phone, 'photos_50');
+  }
+  if (data.expense) await unlockBadge(phone, 'first_expense');
+  if (data.game) await unlockBadge(phone, 'first_game');
+
+  const hour = parseInt((data.time || '').split(':')[0], 10);
+  if (!Number.isNaN(hour) && hour >= 0 && hour < 5) await unlockBadge(phone, 'night_owl');
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (account.lastActiveDateStr !== today) {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    account.streakDays = (account.lastActiveDateStr === yesterday) ? (account.streakDays || 0) + 1 : 1;
+    account.lastActiveDateStr = today;
+    if (account.streakDays >= 7) await unlockBadge(phone, 'streak_7');
+  }
+
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, {
+      messagesSentCount: account.messagesSentCount, photosSentCount: account.photosSentCount,
+      lastActiveDateStr: account.lastActiveDateStr, streakDays: account.streakDays
+    }).catch(e => console.error('Erro Mongo (contadores de badges):', e.message));
+  } else {
+    saveUsers();
+  }
+}
+
 // ==================== ATIVIDADES (estilo Strava — corridas/caminhadas/bicicleta) ====================
 const ACTIVITIES_FILE = path.join(__dirname, 'activities.json');
 let activities = []; // lista simples, mais recente primeiro
@@ -4399,6 +4491,7 @@ io.on('connection', (socket) => {
       socket.emit('shopping_list_updated', getMyShoppingList(myPhone));
       socket.emit('reminders_list', remindersByPhone[myPhone] || []);
       socket.emit('pinned_chats_list', pinnedChatsByPhone[myPhone] || []);
+      socket.emit('badges_update', accounts[myPhone]?.badges || []);
       socket.emit('groups_update', visibleGroupsForPhone(myPhone)); // agora já sabemos o telefone — inclui os grupos privados de que é membro
       socket.emit('privacy_updated', { hideOnlineStatus: !!accounts[myPhone]?.hideOnlineStatus, hideReadReceipts: !!accounts[myPhone]?.hideReadReceipts });
       pruneExpiredStatuses();
@@ -4581,6 +4674,7 @@ io.on('connection', (socket) => {
     }
 
     broadcastGroupsUpdate();
+    unlockBadge(creatorPhone, 'first_group').catch(e => console.error('Erro ao atualizar conquistas:', e.message));
   });
 
   function isGroupAdmin(group, phone) { return group?.admins?.includes(phone); }
@@ -4728,6 +4822,7 @@ io.on('connection', (socket) => {
     }
     broadcastGroupsUpdate();
     broadcastCommunitiesUpdate();
+    unlockBadge(creatorPhone, 'first_community').catch(e => console.error('Erro ao atualizar conquistas:', e.message));
   });
 
   // Liga um grupo já existente a uma comunidade — só quem é admin da
@@ -4930,6 +5025,9 @@ io.on('connection', (socket) => {
     }
 
     socket.to(data.chatId).emit('receive_message', data);
+
+    // Fire-and-forget — nunca atrasa a entrega da mensagem em si.
+    if (myPhone) trackMessageBadges(myPhone, data).catch(e => console.error('Erro ao atualizar conquistas:', e.message));
 
     // Notificação push (mesmo com a app fechada) — conversas 1-para-1 e grupos.
     const senderName = data.sender || 'Alguém';
@@ -5471,6 +5569,25 @@ io.on('connection', (socket) => {
     callLogByPhone[myPhone] = callLogByPhone[myPhone].slice(0, 200);
     saveCallLogLocal();
     deliverToPhone(myPhone, 'call_log_update', callLogByPhone[myPhone], null);
+
+    // Só conta para as conquistas uma chamada que realmente ligou (não uma
+    // perdida/recusada) — status 'answered' com alguma duração.
+    if (entry.status === 'answered' && entry.durationSec > 0) {
+      const account = accounts[myPhone];
+      if (account) {
+        account.answeredCallsCount = (account.answeredCallsCount || 0) + 1;
+        const count = account.answeredCallsCount;
+        (async () => {
+          if (isDbConnected) {
+            await AccountModel.updateOne({ phone: myPhone }, { answeredCallsCount: count }).catch(e => console.error('Erro Mongo (contador de chamadas):', e.message));
+          } else {
+            saveUsers();
+          }
+          if (count === 1) await unlockBadge(myPhone, 'first_call');
+          if (count === 10) await unlockBadge(myPhone, 'calls_10');
+        })().catch(e => console.error('Erro ao atualizar conquistas:', e.message));
+      }
+    }
   });
   socket.on('get_call_log', () => {
     const myPhone = users[socket.id]?.phone;
