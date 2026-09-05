@@ -15,10 +15,17 @@ const { chromium } = require('playwright');
   await page1.fill('#regUsername', 'nomail_' + ts);
   await page1.fill('#regPhone', phone);
   await page1.selectOption('#regCountry', 'Portugal');
-  // No email on purpose.
+  // O registo agora exige email — regista com um temporário e apaga-o logo a
+  // seguir pelo perfil, para chegar ao estado de teste pretendido ("sem
+  // email guardado"). Este lote não tem EMAIL_USER/EMAIL_PASS configurados,
+  // por isso o registo em si segue direto, sem pedir confirmação nenhuma.
+  await page1.fill('#regEmail', 'nomailtemp' + ts + '@test.com');
   await page1.fill('#regPassword', 'senhaOriginal123');
   await page1.click('button:has-text("Criar conta")');
   await page1.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
+  await page1.evaluate(() => {
+    return new Promise((resolve) => { socket.once('email_updated', resolve); socket.emit('set_email', { email: '' }); });
+  });
 
   // --- No email on file ---
   const noEmailRes = await page1.evaluate(async (p) => {

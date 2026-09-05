@@ -324,16 +324,38 @@ function publicUser(u) {
   return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null };
 }
 
+// Cria mesmo a conta (contas[phone], índice de username, sessão) a partir de
+// dados já validados — usado tanto pelo registo direto (sem verificação de
+// email, quando o servidor não tem email configurado) como pela confirmação
+// do código de email (ver /api/register/verify-email).
+async function createAccountFromPendingRegistration(p) {
+  const devices = p.deviceId ? [{ id: p.deviceId, name: p.deviceName, lastSeenAt: new Date().toISOString() }] : [];
+  const user = { id: 'u_' + Date.now(), name: p.name, phone: p.phone, username: p.username, country: p.country, email: p.email || '', birthday: p.birthday || null, salt: p.salt, passwordHash: p.passwordHash, createdAt: new Date().toISOString(), contacts: [], devices, isAdmin: !!p.isAdmin };
+  accounts[p.phone] = user;
+  usernameIndex[p.username] = p.phone;
+  if (!firstRegisteredPhone) firstRegisteredPhone = p.phone;
+  if (isDbConnected) {
+    await AccountModel.create(user).catch((e) => console.error('Erro ao gravar utilizador no Mongo:', e.message));
+  } else {
+    saveUsers();
+  }
+  const token = makeToken();
+  sessions[token] = p.phone;
+  log(`🆕 Novo cadastro: ${p.name} (@${p.username})${p.isAdmin ? ' — registado como ADMINISTRADOR' : ''}`, 'AUTH');
+  return { user, token };
+}
+
 app.post('/api/register', async (req, res) => {
   const { name, phone, country, email, password, birthday, adminSecret } = req.body || {};
   let { username } = req.body || {};
-  if (!name || !phone || !country || !password || !username) {
-    return res.status(400).json({ error: 'Nome, nome de utilizador, telefone, país e senha são obrigatórios.' });
+  if (!name || !phone || !country || !password || !username || !email) {
+    return res.status(400).json({ error: 'Nome, nome de utilizador, telefone, país, email e senha são obrigatórios.' });
   }
   username = String(username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
   if (username.length < 3) return res.status(400).json({ error: 'O nome de utilizador deve ter pelo menos 3 caracteres (letras, números ou _).' });
-  if (accounts[phone]) return res.status(409).json({ error: 'Já existe uma conta com esse número de telefone.' });
-  if (usernameIndex[username]) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
+  if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'Esse email não parece válido — confirma que está bem escrito.' });
+  if (accounts[phone] || isPendingRegistrationActive(phone)) return res.status(409).json({ error: 'Já existe uma conta com esse número de telefone.' });
+  if (usernameIndex[username] || isPendingUsernameActive(username)) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
   if (String(password).length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
   if (isWeakPassword(password)) return res.status(400).json({ error: 'Essa senha é demasiado comum/fácil de adivinhar (ex.: sequências ou senhas muito usadas). Escolhe uma diferente.' });
   // Registo como administrador: pede uma senha DIFERENTE da senha da conta
@@ -352,25 +374,45 @@ app.post('/api/register', async (req, res) => {
   const validBirthday = typeof birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(birthday) ? birthday : null;
   const deviceId = (req.body?.deviceId || '').trim();
   const deviceName = (req.body?.deviceName || 'Dispositivo desconhecido').trim().slice(0, 60);
-  const devices = deviceId ? [{ id: deviceId, name: deviceName, lastSeenAt: new Date().toISOString() }] : [];
-  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', birthday: validBirthday, salt, passwordHash, createdAt: new Date().toISOString(), contacts: [], devices, isAdmin: wantsAdmin };
-  accounts[phone] = user;
-  usernameIndex[username] = phone;
-  if (!firstRegisteredPhone) firstRegisteredPhone = phone;
+  const pendingData = { name, phone, username, country, email, salt, passwordHash, birthday: validBirthday, deviceId, deviceName, isAdmin: wantsAdmin };
 
-  if (isDbConnected) {
-    try {
-      await AccountModel.create(user);
-    } catch (e) {
-      console.error('Erro ao gravar utilizador no Mongo:', e.message);
+  // Exige um email de verdade: sem isto, qualquer endereço inventado/alheio
+  // registava-se à vontade. Com o servidor de email configurado, a conta só
+  // é criada a sério depois de confirmado um código enviado para esse
+  // endereço — nunca chega a ninguém que tenha escrito um email que não
+  // existe ou não é dela.
+  if (getMailTransporter()) {
+    const code = generateLoginCode();
+    pendingRegistrations[phone] = { ...pendingData, code, attempts: 0, expiresAt: Date.now() + REGISTRATION_CODE_TTL_MS };
+    const sent = await sendRegistrationVerificationEmail(email, code);
+    if (sent) {
+      log(`📧 Código de confirmação de registo enviado para ${name} (@${username})`, 'AUTH');
+      return res.json({ needsEmailVerification: true, maskedEmail: maskEmail(email) });
     }
-  } else {
-    saveUsers();
+    delete pendingRegistrations[phone]; // falha ao enviar — não bloqueia quem se está a tentar registar de boa fé
   }
 
-  const token = makeToken();
-  sessions[token] = phone;
-  log(`🆕 Novo cadastro: ${name} (@${username})${wantsAdmin ? ' — registado como ADMINISTRADOR' : ''}`, 'AUTH');
+  const { user, token } = await createAccountFromPendingRegistration(pendingData);
+  res.json({ success: true, user: publicUser(user), token });
+});
+
+app.post('/api/register/verify-email', async (req, res) => {
+  const { phone, code } = req.body || {};
+  const pending = phone && pendingRegistrations[phone];
+  if (!pending) return res.status(400).json({ error: 'Não há nenhum registo pendente para este telefone. Regista-te novamente.' });
+  if (Date.now() > pending.expiresAt) { delete pendingRegistrations[phone]; return res.status(400).json({ error: 'O código expirou. Regista-te novamente para receberes um novo.' }); }
+  if (pending.attempts >= 5) { delete pendingRegistrations[phone]; return res.status(429).json({ error: 'Demasiadas tentativas erradas. Regista-te novamente para receberes um novo código.' }); }
+  if (String(code || '').trim() !== pending.code) {
+    pending.attempts++;
+    return res.status(401).json({ error: 'Código incorreto.' });
+  }
+  delete pendingRegistrations[phone];
+  // Confirma de novo a disponibilidade — o telefone/username podiam ter sido
+  // ocupados por outra pessoa entretanto (raro, mas o código pode demorar
+  // minutos a ser inserido).
+  if (accounts[phone]) return res.status(409).json({ error: 'Já existe uma conta com esse número de telefone.' });
+  if (usernameIndex[pending.username]) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
+  const { user, token } = await createAccountFromPendingRegistration(pending);
   res.json({ success: true, user: publicUser(user), token });
 });
 
@@ -2797,6 +2839,43 @@ async function sendLoginCodeEmail(user, code) {
     return true;
   } catch (err) {
     console.error('Erro ao enviar código de verificação:', err.message);
+    return false;
+  }
+}
+
+// ==================== CONFIRMAÇÃO DE EMAIL NO REGISTO ====================
+// Exige um email real ao criar conta — ver /api/register. Só entra em ação
+// quando o servidor tem email configurado (getMailTransporter()); sem isso,
+// não há como mandar nada, e o registo segue em frente sem confirmar (nunca
+// bloqueia alguém de se registar só porque o servidor não tem email pronto).
+// Guardado por telefone (não por conta — a conta só é criada DEPOIS de
+// confirmado), com todos os dados já validados prontos a gravar.
+const pendingRegistrations = {}; // phone -> {..., code, attempts, expiresAt}
+const REGISTRATION_CODE_TTL_MS = 15 * 60 * 1000;
+function isPendingRegistrationActive(phone) {
+  const p = pendingRegistrations[phone];
+  return !!p && Date.now() <= p.expiresAt;
+}
+function isPendingUsernameActive(username) {
+  return Object.values(pendingRegistrations).some((p) => p.username === username && Date.now() <= p.expiresAt);
+}
+function isValidEmailFormat(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+async function sendRegistrationVerificationEmail(email, code) {
+  const transporter = getMailTransporter();
+  if (!transporter) return false;
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: '✅ Confirma o teu registo — ChatApp',
+      text: `O teu código de confirmação de registo é: ${code}\n\nVálido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.`,
+      html: `<p>O teu código de confirmação de registo é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.</p>`
+    });
+    return true;
+  } catch (err) {
+    console.error('Erro ao enviar código de confirmação de registo:', err.message);
     return false;
   }
 }

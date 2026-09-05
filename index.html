@@ -1371,6 +1371,15 @@
             <div class="login-switch" onclick="cancelLoginVerification()" data-i18n="backBtn">Voltar</div>
         </div>
 
+        <!-- Confirmar o registo: código enviado para o email indicado no "Criar conta" — só entra em ação quando o servidor tem email configurado (ver /api/register) -->
+        <div id="registerVerifyBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
+            <p style="color:#8696a0;text-align:center;font-size:13px;">✅ Enviámos um código de confirmação para <strong id="registerVerifyEmailLabel"></strong> — insere-o abaixo para ativares a conta.</p>
+            <input type="text" id="registerVerifyCodeInput" placeholder="Código de 6 dígitos" inputmode="numeric" maxlength="6">
+            <div class="login-error" id="registerVerifyError"></div>
+            <button class="btn btn-primary" onclick="doVerifyRegistrationEmail()">✅ Confirmar</button>
+            <div class="login-switch" onclick="cancelRegisterVerification()">Voltar</div>
+        </div>
+
         <!-- Esqueci a senha: passo 1, pedir o código por email -->
         <div id="forgotPasswordBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
             <p style="color:#8696a0;text-align:center;font-size:13px;" data-i18n="forgotIntro">Indica o teu número de telemóvel — enviamos um código por email para redefinires a senha.</p>
@@ -3405,14 +3414,12 @@
                 <strong>📺 TV em Direto</strong>
                 <button onclick="closeTvScreen()">✖️</button>
             </div>
-            <div id="tvCategoryTabs" style="display:flex;gap:8px;padding:10px 12px 0;flex-shrink:0;overflow-x:auto;"></div>
             <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px 0;margin:0;">👉 Desliza a lista de canais abaixo para o lado com o dedo para ver mais opções</p>
             <div id="tvTabs" style="display:flex;gap:8px;padding:8px 12px 10px;flex-shrink:0;overflow-x:auto;"></div>
-            <div id="tvMovieList" style="display:none;flex-direction:column;gap:6px;padding:0 12px 10px;flex-shrink:0;max-height:140px;overflow-y:auto;"></div>
             <div style="flex:1;position:relative;background:#000;">
                 <iframe id="tvFrame" style="position:absolute;inset:0;width:100%;height:100%;border:none;" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
             </div>
-            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Nas notícias, se um canal aparecer "offline", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app). Os filmes são de domínio público (Internet Archive) — escolhe o género e o título.</p>
+            <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Se um canal aparecer "offline", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app).</p>
         </div>
 
         <!-- ============ ONDE ASSISTIR ============ -->
@@ -4238,11 +4245,13 @@
         document.getElementById('loginFormBox').style.display = which === 'login' ? 'flex' : 'none';
         document.getElementById('registerFormBox').style.display = which === 'register' ? 'flex' : 'none';
         document.getElementById('verifyCodeBox').style.display = 'none';
+        document.getElementById('registerVerifyBox').style.display = which === 'registerVerify' ? 'flex' : 'none';
         document.getElementById('forgotPasswordBox').style.display = which === 'forgotPassword' ? 'flex' : 'none';
         document.getElementById('resetPasswordBox').style.display = 'none';
         document.getElementById('loginError').textContent = '';
         document.getElementById('registerError').textContent = '';
         if (which === 'forgotPassword') document.getElementById('forgotPasswordError').textContent = '';
+        if (which === 'registerVerify') document.getElementById('registerVerifyError').textContent = '';
     }
 
     let pendingResetPhone = null; // guardado só entre pedir o código e confirmar a nova senha
@@ -4336,6 +4345,36 @@
         showAuthForm('login');
     }
 
+    // Guardado só entre "Criar conta" devolver "precisa de confirmar o email"
+    // e a pessoa inserir o código — usado tanto pelo registo normal como pela
+    // Área do administrador (as duas passam por aqui, ver /api/register).
+    let pendingRegisterPhone = null;
+    function goToRegisterEmailVerification(phone, maskedEmail) {
+        pendingRegisterPhone = phone;
+        document.getElementById('registerVerifyEmailLabel').textContent = maskedEmail || 'o teu email';
+        document.getElementById('registerVerifyCodeInput').value = '';
+        showAuthForm('registerVerify');
+    }
+    async function doVerifyRegistrationEmail() {
+        const code = document.getElementById('registerVerifyCodeInput').value.trim();
+        const errEl = document.getElementById('registerVerifyError');
+        errEl.textContent = '';
+        if (!pendingRegisterPhone) return cancelRegisterVerification();
+        if (!code) { errEl.textContent = 'Insere o código recebido por email.'; return; }
+        try {
+            const res = await fetch('/api/register/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: pendingRegisterPhone, code }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao verificar o código.'; return; }
+            pendingRegisterPhone = null;
+            enterApp(data.user, data.token);
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+    function cancelRegisterVerification() {
+        pendingRegisterPhone = null;
+        showAuthForm('register');
+    }
     async function doRegister() {
         const name = document.getElementById('regName').value.trim();
         const username = document.getElementById('regUsername').value.trim();
@@ -4346,11 +4385,12 @@
         const password = document.getElementById('regPassword').value;
         const errEl = document.getElementById('registerError');
         errEl.textContent = '';
-        if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
+        if (!name || !username || !phone || !country || !password || !email) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país, email e senha.'; return; }
         try {
             const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
+            if (data.needsEmailVerification) { goToRegisterEmailVerification(phone, data.maskedEmail); return; }
             enterApp(data.user, data.token);
         } catch (err) {
             errEl.textContent = 'Não foi possível ligar ao servidor.';
@@ -4377,12 +4417,13 @@
         const adminSecret = document.getElementById('adminRegSecret').value;
         const errEl = document.getElementById('adminRegisterError');
         errEl.textContent = '';
-        if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
+        if (!name || !username || !phone || !country || !password || !email) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país, email e senha.'; return; }
         if (!adminSecret) { errEl.textContent = 'Preencha a senha de administrador.'; return; }
         try {
             const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, password, adminSecret, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
+            if (data.needsEmailVerification) { closeModal('modalAdminRegister'); goToRegisterEmailVerification(phone, data.maskedEmail); return; }
             closeModal('modalAdminRegister');
             enterApp(data.user, data.token);
         } catch (err) {
@@ -7573,74 +7614,23 @@
         { id: 'dw', name: 'DW Español', flag: '🇩🇪', channelId: 'UCT4Jg8h03dD0iN3Pb5L0PMA' },
         { id: 'doce', name: 'El Doce', flag: '🇦🇷', channelId: 'UCiaePeoCqpU8hBHiNrgkzrA' }
     ];
-    const TV_CATEGORIES = [
-        { id: 'news', name: '📰 Notícias', channels: TV_NEWS_CHANNELS },
-        { id: 'filmes', name: '🎬 Filmes' }
-    ];
-    // Filmes: ao contrário das notícias, não há canais "ao vivo" gratuitos e
-    // fiáveis para filmes — por isso aqui é antes uma lista para escolher e ver,
-    // com filmes de domínio público do Internet Archive (arquivo público oficial,
-    // com suporte a incorporação — https://archive.org/embed/<identificador>).
-    const MOVIE_GENRES = [
-        { id: 'comedia', name: '😂 Comédia', movies: [
-            { title: 'His Girl Friday (1940)', archiveId: 'his_girl_friday' },
-            { title: 'The General (1926, mudo, Buster Keaton)', archiveId: 'the-general-1926' }
-        ]},
-        { id: 'ficcao', name: '🚀 Ficção Científica', movies: [
-            { title: 'Plan 9 from Outer Space (1959)', archiveId: 'plan-9-from-outer-space' }
-        ]},
-        { id: 'classicos', name: '🎭 Clássicos e Noir', movies: [
-            { title: 'Detour (1945)', archiveId: 'Detour' }
-        ]}
-    ];
-    const TV = { category: 'news', current: null, movieGenre: 'comedia', movieId: null };
+    const TV = { current: null };
     // DOM guardado uma única vez (evita repetir getElementById em cada função).
     const tvEl = {
         get screen() { return document.getElementById('tvScreen'); },
-        get categoryTabs() { return document.getElementById('tvCategoryTabs'); },
         get channelTabs() { return document.getElementById('tvTabs'); },
-        get movieList() { return document.getElementById('tvMovieList'); },
         get frame() { return document.getElementById('tvFrame'); }
     };
     function openTvScreen() {
         tvEl.screen.classList.add('active');
-        renderTvCategoryTabs();
         renderTvChannelTabs();
-        if (TV.category === 'news' && !TV.current) selectTvChannel(TV_NEWS_CHANNELS[0].id);
+        if (!TV.current) selectTvChannel(TV_NEWS_CHANNELS[0].id);
     }
     function closeTvScreen() {
         tvEl.screen.classList.remove('active');
         tvEl.frame.src = 'about:blank'; // para o vídeo parar de correr em segundo plano
     }
-    function renderTvCategoryTabs() {
-        tvEl.categoryTabs.innerHTML = TV_CATEGORIES.map(cat => `
-            <button class="btn-small tv-tab ${TV.category === cat.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectTvCategory('${cat.id}')">${cat.name}</button>
-        `).join('');
-    }
-    function selectTvCategory(catId) {
-        const cat = TV_CATEGORIES.find(c => c.id === catId);
-        if (!cat) return;
-        TV.category = catId;
-        renderTvCategoryTabs();
-        tvEl.frame.src = 'about:blank';
-        if (catId === 'filmes') {
-            TV.movieId = null;
-            renderTvChannelTabs();
-        } else {
-            renderTvChannelTabs();
-            selectTvChannel(cat.channels[0].id);
-        }
-    }
     function renderTvChannelTabs() {
-        if (TV.category === 'filmes') {
-            tvEl.channelTabs.innerHTML = MOVIE_GENRES.map(g => `
-                <button class="btn-small tv-tab ${TV.movieGenre === g.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectMovieGenre('${g.id}')">${g.name}</button>
-            `).join('');
-            tvEl.movieList.style.display = 'flex';
-            renderMovieList();
-            return;
-        }
-        tvEl.movieList.style.display = 'none';
         tvEl.channelTabs.innerHTML = TV_NEWS_CHANNELS.map(c => `
             <button class="btn-small tv-tab ${TV.current === c.id ? 'btn-accept' : ''}" style="flex-shrink:0;" onclick="selectTvChannel('${c.id}')">${c.flag} ${c.name}</button>
         `).join('');
@@ -7651,23 +7641,6 @@
         TV.current = id;
         renderTvChannelTabs();
         tvEl.frame.src = ch.directUrl || `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
-    }
-    function selectMovieGenre(genreId) {
-        TV.movieGenre = genreId;
-        TV.movieId = null;
-        tvEl.frame.src = 'about:blank';
-        renderTvChannelTabs();
-    }
-    function renderMovieList() {
-        const genre = MOVIE_GENRES.find(g => g.id === TV.movieGenre);
-        tvEl.movieList.innerHTML = (genre?.movies || []).map(m => `
-            <button class="btn-small ${TV.movieId === m.archiveId ? 'btn-accept' : ''}" style="text-align:left;justify-content:flex-start;" onclick="selectMovie('${m.archiveId}')">🎬 ${escapeHtml(m.title)}</button>
-        `).join('');
-    }
-    function selectMovie(archiveId) {
-        TV.movieId = archiveId;
-        renderMovieList();
-        tvEl.frame.src = `https://archive.org/embed/${archiveId}`;
     }
 
     // ==================== ONDE ASSISTIR (filmes e séries) ====================
