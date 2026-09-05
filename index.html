@@ -2206,6 +2206,7 @@
                     <button class="btn-small" onclick="closeModal('modalExpenses')">Fechar</button>
                     <button class="btn-small" onclick="openRecurringExpensesModal()">🔁 Fixas</button>
                     <button class="btn-small" onclick="openExpensesChartModal()">📈 Gráfico</button>
+                    <button class="btn-small" onclick="exportExpensesToPdf()">📄 PDF</button>
                     <button class="btn-small btn-accept" onclick="openAddExpenseForm()">➕ Nova despesa</button>
                 </div>
             </div>
@@ -13331,6 +13332,94 @@
                 <div style="opacity:0.75;">Pago por ${escapeHtml(participantDisplayLabel(exp.paidBy))} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}</div>
             </div>`).join('') : '';
         document.getElementById('expensesList').innerHTML = listHtml;
+    }
+    // Reaproveita os mesmos dados/cálculos de renderExpensesModal() (lista de
+    // despesas, saldos e "como acertar contas"), só que num PDF para
+    // guardar/partilhar fora da app — mesmo gerador (jsPDF, carregado sob
+    // demanda) já usado para a conversa e a lista de compras.
+    async function exportExpensesToPdf() {
+        if (!APP.currentChatId) return;
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        const expenses = getChatExpenses(APP.currentChatId);
+        const balances = {};
+        expenses.forEach(exp => {
+            const share = exp.amountEUR / exp.participants.length;
+            balances[exp.paidBy] = (balances[exp.paidBy] || 0) + exp.amountEUR;
+            exp.participants.forEach(p => { balances[p] = (balances[p] || 0) - share; });
+        });
+        const transfers = simplifyDebts(balances);
+        try {
+            await loadJsPdfScript();
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const marginX = 14;
+            const maxWidth = doc.internal.pageSize.getWidth() - marginX * 2;
+            let y = 18;
+            const ensureSpace = (needed = 8) => { if (y > 297 - needed) { doc.addPage(); y = 20; } };
+            doc.setFontSize(16);
+            doc.text(`Despesas: ${chat?.name || 'Conversa'}`, marginX, y);
+            y += 7;
+            doc.setFontSize(9);
+            doc.setTextColor(120);
+            doc.text(`Exportado em ${new Date().toLocaleString('pt-BR')}`, marginX, y);
+            doc.setTextColor(0);
+            y += 10;
+
+            doc.setFontSize(13);
+            doc.text('Saldos', marginX, y);
+            y += 7;
+            doc.setFontSize(11);
+            if (!Object.keys(balances).length) {
+                doc.text('Ainda sem despesas registadas.', marginX, y);
+                y += 7;
+            } else {
+                Object.entries(balances).forEach(([name, val]) => {
+                    const rounded = Math.round(val * 100) / 100;
+                    const label = rounded > 0.01 ? `deve receber ${rounded.toFixed(2)}€` : (rounded < -0.01 ? `deve ${Math.abs(rounded).toFixed(2)}€` : 'em dia');
+                    ensureSpace();
+                    doc.text(`${participantDisplayLabel(name)}: ${label}`, marginX, y);
+                    y += 7;
+                });
+            }
+            y += 4;
+
+            if (transfers.length) {
+                ensureSpace(14);
+                doc.setFontSize(13);
+                doc.text('Como acertar contas', marginX, y);
+                y += 7;
+                doc.setFontSize(11);
+                transfers.forEach(t => {
+                    ensureSpace();
+                    doc.text(`${participantDisplayLabel(t.from)} → ${participantDisplayLabel(t.to)}: ${t.amountEUR.toFixed(2)}€`, marginX, y);
+                    y += 7;
+                });
+                y += 4;
+            }
+
+            ensureSpace(14);
+            doc.setFontSize(13);
+            doc.text('Despesas', marginX, y);
+            y += 7;
+            doc.setFontSize(11);
+            if (!expenses.length) {
+                doc.text('(Nenhuma despesa nesta conversa.)', marginX, y);
+            } else {
+                expenses.forEach((exp) => {
+                    const line1 = `${exp.description} — ${exp.amount.toLocaleString('pt-PT', { maximumFractionDigits: 2 })} ${exp.currency}`;
+                    const line2 = `Pago por ${participantDisplayLabel(exp.paidBy)} · dividido por ${exp.participants.length} pessoa${exp.participants.length !== 1 ? 's' : ''}`;
+                    [...doc.splitTextToSize(line1, maxWidth), ...doc.splitTextToSize(line2, maxWidth)].forEach((line) => {
+                        ensureSpace();
+                        doc.text(line, marginX, y);
+                        y += 6;
+                    });
+                    y += 2;
+                });
+            }
+            doc.save(`despesas_${(chat?.name || 'chat').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+        } catch (err) {
+            alert('⚠️ Não foi possível gerar o PDF agora: ' + err.message);
+        }
     }
     // ==================== ACERTAR CONTAS (MB WAY / Pix) ====================
     // Reaproveita os saldos já calculados em renderExpensesModal() (quem deve/tem
