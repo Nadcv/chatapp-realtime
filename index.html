@@ -1349,14 +1349,11 @@
             <button class="btn" onclick="openQrScanModal()" style="background:var(--bg-tertiary);" data-i18n="loginQrBtn">🔗 Associar por QR (já tenho conta noutro aparelho)</button>
             <div class="login-switch" onclick="showAuthForm('register')" data-i18n="loginNoAccount">Não tem conta? Criar conta</div>
             <div class="login-switch" onclick="showAuthForm('forgotPassword')" data-i18n="loginForgotPassword">Esqueceste a senha?</div>
+            <div class="login-switch" onclick="openAdminRegisterModal()">🔑 Área do administrador</div>
         </div>
 
         <!-- Formulário de CRIAR CONTA -->
         <div id="registerFormBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
-                <input type="checkbox" id="regAdminCheck" onchange="toggleRegAdminSecretField(this.checked)"> 🔑 Registar como administrador
-            </label>
-            <input type="password" id="regAdminSecret" placeholder="Senha de administrador" style="display:none;">
             <input type="text" id="regName" placeholder="Seu nome" data-i18n-placeholder="regNamePlaceholder">
             <input type="text" id="regUsername" placeholder="Nome de utilizador (ex: joao_silva) — usado para te encontrarem" data-i18n-placeholder="regUsernamePlaceholder">
             <div class="login-row">
@@ -1420,6 +1417,37 @@
             </div>
             <div class="modal-actions">
                 <button class="btn-small" onclick="closeQrScanModal()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Janela própria para criar uma conta de ADMINISTRADOR — separada do
+         formulário normal de criar conta, de propósito (ver conversa: a
+         pessoa que pediu isto não queria a opção misturada no registo
+         normal). Continua a exigir a senha de administrador do servidor
+         (ADMIN_SIGNUP_SECRET) — só o local mudou, a validação é a mesma. -->
+    <div class="modal-overlay" id="modalAdminRegister">
+        <div class="modal">
+            <h3>🔑 Área do administrador</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-top:-6px;">Cria uma conta de administrador — pede a senha de administrador do servidor, diferente da senha da conta.</p>
+            <input type="text" id="adminRegName" placeholder="Seu nome">
+            <input type="text" id="adminRegUsername" placeholder="Nome de utilizador (ex: joao_silva)">
+            <div class="login-row">
+                <input type="text" id="adminRegPhone" placeholder="Número de telemóvel">
+                <select id="adminRegCountry">
+                    <option value="">País</option>
+                    <option>Portugal</option><option>Brasil</option><option>Angola</option>
+                    <option>Moçambique</option><option>Cabo Verde</option><option>Estados Unidos</option>
+                    <option>Espanha</option><option>França</option><option>Reino Unido</option><option>Outro</option>
+                </select>
+            </div>
+            <input type="email" id="adminRegEmail" placeholder="Email">
+            <input type="password" id="adminRegPassword" placeholder="Senha da conta (mín. 8 caracteres, nada óbvio)" style="margin-top:8px;">
+            <input type="password" id="adminRegSecret" placeholder="🔑 Senha de administrador" style="margin-top:8px;">
+            <div class="login-error" id="adminRegisterError" style="margin-top:8px;"></div>
+            <div class="modal-actions">
+                <button class="btn-small" onclick="closeModal('modalAdminRegister')">Cancelar</button>
+                <button class="btn-small btn-accept" onclick="doAdminRegister()">✅ Criar conta de administrador</button>
             </div>
         </div>
     </div>
@@ -4327,13 +4355,6 @@
         showAuthForm('login');
     }
 
-    // Mostra/esconde o campo da senha de administrador — separada da senha da
-    // própria conta, exigida pelo servidor (ADMIN_SIGNUP_SECRET) para marcar
-    // a conta nova como administradora (ver /api/register).
-    function toggleRegAdminSecretField(checked) {
-        document.getElementById('regAdminSecret').style.display = checked ? 'block' : 'none';
-        if (!checked) document.getElementById('regAdminSecret').value = '';
-    }
     async function doRegister() {
         const name = document.getElementById('regName').value.trim();
         const username = document.getElementById('regUsername').value.trim();
@@ -4342,16 +4363,46 @@
         const email = document.getElementById('regEmail').value.trim();
         const birthday = document.getElementById('regBirthday').value || null;
         const password = document.getElementById('regPassword').value;
-        const wantsAdmin = document.getElementById('regAdminCheck').checked;
-        const adminSecret = wantsAdmin ? document.getElementById('regAdminSecret').value : undefined;
         const errEl = document.getElementById('registerError');
         errEl.textContent = '';
         if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
-        if (wantsAdmin && !adminSecret) { errEl.textContent = 'Preencha a senha de administrador, ou desmarque "Registar como administrador".'; return; }
         try {
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password, adminSecret, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
+            enterApp(data.user, data.token);
+        } catch (err) {
+            errEl.textContent = 'Não foi possível ligar ao servidor.';
+        }
+    }
+
+    // ==================== ÁREA DO ADMINISTRADOR (janela própria) ====================
+    // Janela dedicada, separada do formulário normal de criar conta, para
+    // registar uma conta de administrador — continua a exigir a senha de
+    // administrador do servidor (ADMIN_SIGNUP_SECRET); só o local mudou.
+    function openAdminRegisterModal() {
+        ['adminRegName', 'adminRegUsername', 'adminRegPhone', 'adminRegEmail', 'adminRegPassword', 'adminRegSecret'].forEach(id => { document.getElementById(id).value = ''; });
+        document.getElementById('adminRegCountry').value = '';
+        document.getElementById('adminRegisterError').textContent = '';
+        document.getElementById('modalAdminRegister').classList.add('active');
+    }
+    async function doAdminRegister() {
+        const name = document.getElementById('adminRegName').value.trim();
+        const username = document.getElementById('adminRegUsername').value.trim();
+        const phone = document.getElementById('adminRegPhone').value.trim();
+        const country = document.getElementById('adminRegCountry').value;
+        const email = document.getElementById('adminRegEmail').value.trim();
+        const password = document.getElementById('adminRegPassword').value;
+        const adminSecret = document.getElementById('adminRegSecret').value;
+        const errEl = document.getElementById('adminRegisterError');
+        errEl.textContent = '';
+        if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
+        if (!adminSecret) { errEl.textContent = 'Preencha a senha de administrador.'; return; }
+        try {
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, password, adminSecret, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
+            closeModal('modalAdminRegister');
             enterApp(data.user, data.token);
         } catch (err) {
             errEl.textContent = 'Não foi possível ligar ao servidor.';
