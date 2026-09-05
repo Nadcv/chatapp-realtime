@@ -2856,6 +2856,14 @@
                 <p style="color:#8696a0;font-size:13px;" id="profileNameLabel"></p>
                 <p style="color:#8696a0;font-size:12px;margin-top:2px;" id="profilePhoneLabel"></p>
                 <div style="text-align:left;margin-top:14px;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🔖 Nome de utilizador (@)</label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="profileUsernameInput" placeholder="nome_de_utilizador" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
+                        <button class="btn-small" onclick="saveProfileUsername()">Guardar</button>
+                    </div>
+                    <p style="color:#8696a0;font-size:11px;margin-top:6px;">É por aqui que outras pessoas te encontram em "🔍 Procurar utilizador". Mínimo 3 caracteres — só letras minúsculas, números e "_".</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;">
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;" data-i18n="profileSpokenLangLabel">🌐 A língua que eu falo</label>
                     <select id="profileLangSelect" onchange="setPreferredLang(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);"></select>
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;" data-i18n="profileSpokenLangHint">As mensagens que recebes são traduzidas automaticamente para esta língua quando a "Tradução automática" está ligada numa conversa (ícone 🌐🔁 no cabeçalho).</p>
@@ -5461,6 +5469,7 @@
         document.getElementById('profilePhotoPreview').innerHTML = avatarInnerHtml(APP.user.name, APP.user.avatarUrl);
         document.getElementById('profileNameLabel').textContent = APP.user.name;
         document.getElementById('profilePhoneLabel').textContent = APP.user.phone + (APP.user.username ? ' · @' + APP.user.username : '');
+        document.getElementById('profileUsernameInput').value = APP.user.username || '';
         const select = document.getElementById('profileLangSelect');
         select.innerHTML = TRANSLATE_LANGUAGES.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
         select.value = APP.user.preferredLang || 'pt';
@@ -5474,6 +5483,19 @@
         if (window.PublicKeyCredential) { document.getElementById('webauthnSection').style.display = 'block'; loadWebauthnCredentials(); }
         document.getElementById('modalProfile').classList.add('active');
     }
+    function saveProfileUsername() {
+        if (!APP.user) return;
+        const username = document.getElementById('profileUsernameInput').value.trim();
+        if (!username) return;
+        socket.emit('set_username', { username });
+    }
+    socket.on('username_updated', (data) => {
+        if (!APP.user || !data) return;
+        document.getElementById('profileUsernameInput').value = data.username || '';
+        if (data.error) { alert(data.error); return; }
+        APP.user.username = data.username;
+        document.getElementById('profilePhoneLabel').textContent = APP.user.phone + (APP.user.username ? ' · @' + APP.user.username : '');
+    });
     function saveProfileEmail(email) {
         if (!APP.user) return;
         socket.emit('set_email', { email: email.trim() });
