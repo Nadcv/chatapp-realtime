@@ -1232,4 +1232,14 @@ Em "Gerir grupo" há agora um interruptor "🗒️ Resumo diário automático (I
 
 **Limitação conhecida**: o disparo real só acontece às 22h no relógio do servidor, o que não é praticável testar de forma automatizada e determinística (o mesmo problema já aceite noutras funcionalidades desta app que dependem da hora do dia) — os testes automatizados cobrem o interruptor em si (só admins o podem ligar/desligar, e o estado fica sincronizado para todos os membros do grupo), não o disparo agendado.
 
+## 📴 Modo offline com fila de mensagens
+
+Quando o telemóvel/browser perde a ligação (rede em baixo, avião, socket a tentar reconectar), aparece um aviso "📴 Sem ligação" no topo da lista de conversas, e qualquer mensagem que escrevas continua a aparecer normalmente na conversa — só que marcada com um relógio 🕓 em vez do "✓" habitual — em vez de se perder ou de parecer enviada sem ter saído do aparelho. As mensagens ficam guardadas (memória e `localStorage`, por conta) e são enviadas a sério, pela ordem em que foram escritas, assim que a ligação volta — o relógio 🕓 passa então a "✓" como qualquer mensagem normal.
+
+**Sobrevive a fechar a app**: se recarregares a página (ou reabrires a app) ainda sem ligação, as mensagens por enviar continuam visíveis como pendentes — não é preciso manter a aba aberta à espera da rede voltar.
+
+**Só se aplica a conversas e grupos** — o assistente Gemini precisa sempre de uma ligação ativa para responder (é uma chamada direta à API), por isso continua a mostrar o erro normal se tentares usá-lo offline, sem entrar nesta fila.
+
+
+
 
