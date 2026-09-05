@@ -970,7 +970,11 @@ app.get('/api/admin/users', (req, res) => {
   const token = req.query.token || req.headers['x-admin-token'];
   const phone = sessions[token];
   if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
-  res.json({ users: Object.values(accounts).map(publicUser) });
+  // Ao contrário de contactPublicInfo() (usado entre contactos normais), o
+  // administrador vê sempre o estado online real, mesmo que a conta tenha
+  // "esconder o meu estado online" ativado — é uma vista de gestão, não uma
+  // conversa entre pessoas.
+  res.json({ users: Object.values(accounts).map((u) => ({ ...publicUser(u), online: onlinePhones.has(u.phone) })) });
 });
 
 app.post('/api/publish-key', async (req, res) => {
