@@ -406,6 +406,14 @@ Em "⋯ Mais desta conversa" → "🎙️ Sala de áudio" (só em grupos). Const
 - Se o anfitrião sair a meio, o participante que está na sala há mais tempo é promovido automaticamente a anfitrião, para a sala continuar a funcionar.
 - **Limitação conhecida (redução de âmbito deliberada)**: uma vez aprovado para falar, só se volta a ficar ouvinte manualmente ("🔇 Silenciar-me outra vez") — não há um estado intermédio de "silenciado temporariamente mas ainda com o lugar de orador". Isto simplifica bastante a implementação (nenhuma troca de faixas de áudio a meio da chamada) ao preço de ser um pouco menos flexível do que um Clubhouse/Spaces "a sério".
 
+## 🎨 Filtros de vídeo ao vivo em chamadas
+
+Um botão "🎨" na barra de ações de qualquer videochamada (1-para-1 ou de grupo) — diferente do "🤳 Tirar self" (que só aplica um filtro a uma FOTO parada), este aplica-se ao vídeo AO VIVO da própria chamada e é visto também por quem está do outro lado, não só localmente.
+
+- Reaproveita a mesma lista de filtros do "Tirar self" (P&B, Sépia, Vívido, Frio, Quente, etc.). Cada frame do vídeo é desenhado num `<canvas>` escondido com o filtro CSS aplicado (`ctx.filter` aceita a mesma sintaxe), e a faixa capturada desse canvas substitui a que está a ser enviada — mesmo mecanismo já usado por "Compartilhar vídeo/tela" (`getActiveSenders`), por isso funciona automaticamente tanto numa chamada 1-para-1 como numa chamada de grupo inteira.
+- Quem entra numa chamada de grupo DEPOIS de um filtro já estar ativo recebe-o logo desde o primeiro frame, sem ninguém precisar de o reaplicar.
+- Escolher "Normal" para o filtro devolve a faixa crua da câmara e para o processamento por canvas (poupa CPU/bateria quando não há filtro nenhum ativo).
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.
