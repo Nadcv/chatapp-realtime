@@ -1284,3 +1284,11 @@ Além do email, o número de telemóvel passa por uma validação num serviço d
 - **Diferença importante em relação ao email**: isto confirma que o NÚMERO existe e está atribuído — não confirma que a PESSOA que se está a registar é a dona dele (não manda nenhum SMS com código). Uma confirmação "a sério" por SMS exigiria um serviço pago (Twilio, Vonage, etc., com custo por mensagem) — não implementado, mas dá para adicionar depois seguindo o mesmo padrão usado para o email, se um dia quiseres.
 - **Nunca bloqueia por causa de um problema dos próprios provedores** (rede em baixo, timeout, quota mensal gratuita esgotada) — só recusa o registo quando ALGUM provedor responde mesmo `"válido": false`; se os três estiverem esgotados/indisponíveis (ou nenhum configurado), o registo segue em frente normalmente, para nunca impedir alguém de se registar de boa fé por um problema alheio a ele.
 
+## 🔖 Definir/mudar o nome de utilizador no perfil
+
+O "🔍 Procurar utilizador" só encontra alguém pelo **@username exato** — não lista ninguém, por privacidade. Contas criadas antes de o nome de utilizador existir ou ser obrigatório ficaram sem username, e por isso nunca podiam ser encontradas por essa pesquisa (foi exatamente isto que um utilizador reportou: "não encontro outros utilizadores").
+
+- **Perfil (👤) → "🔖 Nome de utilizador (@)"** deixa qualquer conta definir um pela primeira vez ou mudar o que já tinha.
+- Mesma validação do registo: mínimo 3 caracteres, só letras minúsculas/números/`_`, e recusa se já estiver a ser usado por outra conta.
+- Ao mudar de username, o antigo deixa de encontrar essa conta na pesquisa e passa a ser o novo — tal como mudar de "handle" noutras apps.
+

@@ -5223,6 +5223,40 @@ io.on('connection', (socket) => {
     socket.emit('email_updated', { email, twoFactorEnabled: account.twoFactorEnabled });
   });
 
+  // Define ou muda o nome de utilizador (@username) — é por aqui que outras
+  // pessoas te encontram em "🔍 Procurar utilizador" (pesquisa exata, não
+  // lista ninguém). Contas criadas antes de o username existir/ser
+  // obrigatório ficam sem ele, e por isso nunca podem ser encontradas — este
+  // é o único sítio onde uma conta assim consegue definir um, sem precisar
+  // de se registar de novo.
+  socket.on('set_username', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const account = accounts[myPhone];
+    if (!myPhone || !account) return;
+    const username = String(data?.username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (username.length < 3) {
+      socket.emit('username_updated', { username: account.username || null, error: 'O nome de utilizador deve ter pelo menos 3 caracteres (letras, números ou _).' });
+      return;
+    }
+    if (username === account.username) {
+      socket.emit('username_updated', { username });
+      return;
+    }
+    if (usernameIndex[username]) {
+      socket.emit('username_updated', { username: account.username || null, error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
+      return;
+    }
+    if (account.username) delete usernameIndex[account.username];
+    account.username = username;
+    usernameIndex[username] = myPhone;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone: myPhone }, { username }).catch(e => console.error('Erro Mongo (username):', e.message));
+    } else {
+      saveUsers();
+    }
+    socket.emit('username_updated', { username });
+  });
+
   // Guarda a cor de destaque escolhida na personalização da app, para
   // acompanhar a pessoa em qualquer aparelho onde faça login (não é
   // partilhada com contactos, é só uma preferência pessoal de aparência).
