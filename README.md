@@ -1316,3 +1316,11 @@ A "partilha de vídeo" (assistir um ficheiro/URL de vídeo em conjunto durante u
 - **Correção**: quando `captureStream()` não existe, os frames do vídeo são desenhados num `<canvas>` próprio (a um ritmo fixo) e é ESSE canvas que é capturado via `canvas.captureStream()` — método que o Safari suporta, por ser um elemento controlado pela própria página. Funciona tanto em chamadas 1-para-1 como de grupo.
 - **Importante não confundir com "partilhar o ecrã do telemóvel"**: capturar o ecrã de sistema do iPhone (outras apps, ecrã principal) exigiria `navigator.mediaDevices.getDisplayMedia()`, que a Apple **não implementa** no Safari iOS por política de segurança — isso continua a ser impossível de contornar por código, em qualquer site. Este fix é só para o vídeo que já toca dentro da própria app.
 
+## 📚 Biblioteca (Project Gutenberg + leitor de EPUB)
+
+Nova secção em "⋯ Mais funcionalidades" — lê livros de domínio público gratuitamente ou um EPUB próprio, sem sair da app.
+
+- **"Carregar livros gratuitos"** lista livros em português com EPUB disponível, indexados a partir do Project Gutenberg pelo **Gutendex** (gutendex.com) — uma API gratuita e sem chave. Tal como as outras integrações externas desta app, o pedido passa pelo servidor (`/api/library/gutenberg`), nunca diretamente do browser; o resultado fica em cache 1 hora.
+- **"Lê o teu próprio EPUB"** abre qualquer ficheiro `.epub` do teu telemóvel/computador, sem enviar nada para o servidor (fica só no browser).
+- A leitura em si usa a biblioteca **epub.js** (carregada via CDN, tal como o Leaflet e o Three.js já usados na app). Se o livro não abrir (ficheiro inválido, CDN em baixo, etc.), mostra um aviso claro em vez de travar o ecrã.
+

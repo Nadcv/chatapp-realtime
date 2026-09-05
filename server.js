@@ -3227,6 +3227,31 @@ app.get('/api/watch/providers', async (req, res) => {
   }
 });
 
+// ==================== BIBLIOTECA GRATUITA (Project Gutenberg) ====================
+// Lista livros de domínio público em português com EPUB disponível, via
+// Gutendex (gutendex.com) — um índice gratuito e sem chave do catálogo do
+// Project Gutenberg. Tal como as outras integrações externas desta app, o
+// pedido passa pelo servidor (nunca diretamente do browser), e a URL base é
+// configurável (GUTENDEX_API_BASE) para os testes apontarem a um mock local.
+const GUTENDEX_API_BASE = process.env.GUTENDEX_API_BASE || 'https://gutendex.com';
+app.get('/api/library/gutenberg', async (req, res) => {
+  try {
+    const data = await cachedFetch('gutendex_pt_epub', `${GUTENDEX_API_BASE}/books?languages=pt&mime_type=application/epub%2Bzip`, 60 * 60 * 1000);
+    const books = (data.results || [])
+      .filter((b) => b.formats && b.formats['application/epub+zip'])
+      .map((b) => ({
+        id: b.id,
+        title: b.title || 'Sem título',
+        author: b.authors?.[0]?.name || 'Autor desconhecido',
+        epubUrl: b.formats['application/epub+zip']
+      }));
+    res.json({ books });
+  } catch (err) {
+    console.error('Erro ao carregar biblioteca (Gutendex):', err.message);
+    res.status(502).json({ error: 'Não foi possível carregar os livros agora. Tenta novamente mais tarde.' });
+  }
+});
+
 // ==================== CÂMBIO (conversor de moedas) ====================
 // API gratuita, mundial, sem chave nem registo — ExchangeRate-API (endpoint
 // de acesso livre, atualizado uma vez por dia). Cobre ~160 moedas, incluindo
