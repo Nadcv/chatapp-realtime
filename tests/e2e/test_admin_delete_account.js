@@ -40,29 +40,32 @@ async function register(context, name, prefix) {
   }, admin.phone);
   console.log('Uma conta não-admin não consegue apagar contas (403):', forbiddenRes.status === 403);
 
-  // --- Admin panel shows the delete button, but not for the admin's own row ---
+  // --- Admin panel shows the delete button, but not for the admin's own card ---
+  // Cartões (um <div> por utilizador), não linhas de tabela — ver
+  // openAdminModal() em index.html (mudou de <table> para cartões para não
+  // cortar em ecrãs de telemóvel).
   await admin.page.evaluate(() => openAdminModal());
   await admin.page.waitForSelector('#modalAdmin.active', { timeout: 3000 });
   await admin.page.waitForTimeout(300);
   const victimRowHasDeleteBtn = await admin.page.evaluate((phone) => {
-    const rows = [...document.querySelectorAll('#adminUsersBody tr')];
-    const row = rows.find(r => r.textContent.includes(phone));
-    return !!row && !!row.querySelector('button');
+    const cards = [...document.querySelectorAll('#adminUsersBody > div')];
+    const card = cards.find(c => c.textContent.includes(phone));
+    return !!card && !!card.querySelector('button');
   }, victim.phone);
-  console.log('A linha da vítima tem um botão de apagar:', victimRowHasDeleteBtn);
+  console.log('O cartão da vítima tem um botão de apagar:', victimRowHasDeleteBtn);
   const adminRowHasNoDeleteBtn = await admin.page.evaluate((phone) => {
-    const rows = [...document.querySelectorAll('#adminUsersBody tr')];
-    const row = rows.find(r => r.textContent.includes(phone));
-    return !!row && !row.querySelector('button');
+    const cards = [...document.querySelectorAll('#adminUsersBody > div')];
+    const card = cards.find(c => c.textContent.includes(phone));
+    return !!card && !card.querySelector('button');
   }, admin.phone);
-  console.log('A própria linha do admin NÃO tem botão de apagar (proteção):', adminRowHasNoDeleteBtn);
+  console.log('O próprio cartão do admin NÃO tem botão de apagar (proteção):', adminRowHasNoDeleteBtn);
 
   // --- Admin deletes the victim's account via the UI flow ---
   admin.page.on('dialog', d => d.accept());
   await admin.page.evaluate(({ phone, name }) => adminDeleteAccount(phone, name), { phone: victim.phone, name: 'Vitima Esqueceu Senha' });
   await admin.page.waitForTimeout(500);
   const victimGoneFromTable = await admin.page.evaluate((phone) => !document.getElementById('adminUsersBody').textContent.includes(phone), victim.phone);
-  console.log('A conta da vítima desaparece da tabela depois de apagada:', victimGoneFromTable);
+  console.log('A conta da vítima desaparece do painel depois de apagada:', victimGoneFromTable);
 
   // --- Old credentials no longer work; the phone/username are free again ---
   const oldLoginRes = await admin.page.evaluate(async (phone) => {
