@@ -1275,5 +1275,11 @@ O email passou a ser **obrigatório** ao criar conta (antes era opcional), e —
 - **Código errado nunca deixa passar**, e ao fim de 5 tentativas erradas ou 15 minutos sem confirmar, é preciso registar-se de novo (pede um código novo).
 - **Aplica-se aos dois caminhos de registo** — o formulário normal e a "Área do administrador" — já que ambos passam pelo mesmo `/api/register`.
 - **Sem `EMAIL_USER`/`EMAIL_PASS` configurados no servidor**, este passo não acontece (não há como mandar nada) — o registo segue em frente diretamente, como acontecia antes. Ou seja, para "só aceitar emails verdadeiros" funcionar a sério em produção, o servidor de email tem mesmo de estar configurado.
-- **Sobre números de telemóvel verdadeiros**: ao contrário do email, não existe forma gratuita de confirmar que um número de telemóvel é real (isso exigiria um serviço pago de SMS, tipo Twilio ou Vonage, com custo por mensagem enviada) — por isso esta funcionalidade, por agora, cobre só o email. Se quiseres SMS de confirmação a sério, é preciso escolher e configurar um desses serviços (dá para adicionar depois, seguindo o mesmo padrão usado aqui para o email).
+## 📱 Validação de telemóvel no registo (Numverify)
+
+Além do email, o número de telemóvel passa por uma validação através do **Numverify** (apilayer.net) — confirma se o número tem um formato e prefixo de operadora reais atribuídos (país, operadora, se é móvel ou fixo). Números claramente inventados ou impossíveis são recusados logo no registo, com uma mensagem clara.
+
+- **Precisa da variável `NUMVERIFY_API_KEY`** configurada no servidor (plano gratuito do Numverify: 100 pedidos/mês) — sem ela, este passo é simplesmente saltado, tal como acontece com o email sem servidor configurado.
+- **Diferença importante em relação ao email**: isto confirma que o NÚMERO existe e está atribuído — não confirma que a PESSOA que se está a registar é a dona dele (não manda nenhum SMS com código). Uma confirmação "a sério" por SMS exigiria um serviço pago (Twilio, Vonage, etc., com custo por mensagem) — não implementado, mas dá para adicionar depois seguindo o mesmo padrão usado para o email, se um dia quiseres.
+- **Nunca bloqueia por causa de um problema do próprio Numverify** (rede em baixo, timeout, quota mensal gratuita esgotada) — só recusa o registo quando a resposta diz mesmo `"válido": false`; qualquer outro caso (incluindo não estar configurado) deixa o registo seguir em frente normalmente, para nunca impedir alguém de se registar de boa fé por um problema alheio.
 
