@@ -1292,3 +1292,20 @@ O "🔍 Procurar utilizador" só encontra alguém pelo **@username exato** — n
 - Mesma validação do registo: mínimo 3 caracteres, só letras minúsculas/números/`_`, e recusa se já estiver a ser usado por outra conta.
 - Ao mudar de username, o antigo deixa de encontrar essa conta na pesquisa e passa a ser o novo — tal como mudar de "handle" noutras apps.
 
+## 🔇 Deteção de chamada "Conectado" mas muda/preta (relay TURN a falhar)
+
+Um utilizador reportou chamadas 1-para-1 (voz e vídeo) que "ligam" (o ecrã mostra "Conectado ✅") mas ninguém ouve nem vê nada dos dois lados — em qualquer tipo de rede. A causa: o ICE pode negociar e chegar a "connected" mesmo quando o relay TURN (o gratuito público usado por omissão — ver a secção seguinte) começa a falhar/fica sobrecarregado **depois** da negociação inicial. Nenhum pacote real chega, mas nada avisava disso — o indicador de sinal (🟢/🟡/🔴) até calculava "0% de perda" (0 perdidos em 0 recebidos) e mostrava **"🟢 Sinal bom"**, o oposto do que se passava.
+
+- **Agora deteta isto de verdade**: se, depois de "Conectado", nenhum pacote chegar durante ~8 segundos, o indicador passa a mostrar **"⚠️ Sem sinal"** em vez do falso "Sinal bom".
+- **Tenta recuperar sozinho**: quem LIGOU reenvia automaticamente uma nova oferta ICE (a mesma mecânica já usada quando a ligação cai de verdade), e o ecrã de ambos avisa "🔇 Sem áudio/vídeo — a tentar recuperar...". Se não conseguir depois de 3 tentativas, mostra claramente "❌ Não foi possível recuperar a ligação" em vez de ficar preso para sempre em "Conectado" enganosamente.
+- **Não resolve a causa raiz** (o relay TURN gratuito continua a ser o mesmo) — só torna o problema visível e tenta recuperar automaticamente. Para reduzir a frequência disto a sério, configura um provedor TURN próprio (ver secção abaixo).
+
+## 📞 TURN configurável (Cloudflare Calls ou Metered.ca)
+
+Por omissão, as chamadas usam TURN público gratuito (OpenRelay) — funciona para testes, mas não é fiável a sério em produção (é um serviço partilhado, sem garantias de capacidade). Já existe suporte pronto para dois provedores melhores, bastando configurar as variáveis no Railway:
+
+- **Cloudflare Calls** (recomendado, tem plano gratuito generoso): `CF_TURN_KEY_ID` e `CF_TURN_API_TOKEN`.
+- **Metered.ca**: `METERED_APP_NAME` e `METERED_API_KEY`.
+
+Sem nenhuma destas configuradas, a app usa o fallback público automaticamente — nada quebra, só fica sujeito à fiabilidade desse serviço gratuito partilhado.
+

@@ -15508,12 +15508,20 @@
                 }
             });
             const lossRatio = received > 0 ? lost / (lost + received) : 0;
-            return { rttMs, lossRatio };
+            return { rttMs, lossRatio, received };
         } catch (e) { return null; }
     }
     function classifyQuality(samples) {
         const valid = samples.filter(Boolean);
         if (!valid.length) return null;
+        // "received === 0 em todas as ligações" não é "0% de perda" (sinal bom) —
+        // é o oposto: NADA está a chegar. Sem esta distinção, uma chamada com
+        // relay TURN a falhar silenciosamente (ICE diz "connected" mas nenhum
+        // pacote real chega) mostrava "🟢 Sinal bom" enquanto a chamada estava
+        // completamente muda/preta dos dois lados — o indicador dizia o oposto
+        // do que se passava. Ver watchForSilentMedia1to1, que usa o mesmo sinal
+        // para tentar recuperar a ligação a sério.
+        if (valid.every((s) => s.received === 0 && s.lossRatio === 0)) return { icon: '⚠️', label: 'Sem sinal' };
         const worst = valid.reduce((a, b) => {
             const scoreA = (a.rttMs || 0) + a.lossRatio * 1000;
             const scoreB = (b.rttMs || 0) + b.lossRatio * 1000;
@@ -15523,8 +15531,14 @@
         if (worst.lossRatio > 0.02 || (worst.rttMs && worst.rttMs > 200)) return { icon: '🟡', label: 'Sinal instável' };
         return { icon: '🟢', label: 'Sinal bom' };
     }
+    // Quantas amostras seguidas (a cada 4s) já não receberam NENHUM pacote no
+    // 1-para-1 — passa a ser motivo de recuperação ativa depois de confirmado
+    // por 2 amostras seguidas (~8s), para não disparar por causa dos primeiros
+    // instantes normais a seguir a "Conectado" (ainda sem estatísticas).
+    let silentStreak1to1 = 0;
     function startCallQualityMonitor() {
         if (callQualityInterval) return;
+        silentStreak1to1 = 0;
         const el = document.getElementById('callQuality');
         el.style.display = 'block';
         callQualityInterval = setInterval(async () => {
@@ -15535,6 +15549,29 @@
             const samples = await Promise.all(pcs.map(sampleConnectionQuality));
             const result = classifyQuality(samples);
             if (result) el.textContent = `${result.icon} ${result.label}`;
+            // Recuperação ativa só faz sentido para 1-para-1 (grupo tem uma
+            // ligação por participante — não dá para saber qual delas está muda
+            // só por este resumo agregado).
+            if (!peerConnection || GROUP_CALL.active) { silentStreak1to1 = 0; return; }
+            const my1to1Sample = samples[0];
+            if (my1to1Sample && my1to1Sample.received === 0 && my1to1Sample.lossRatio === 0) {
+                silentStreak1to1++;
+            } else {
+                silentStreak1to1 = 0;
+            }
+            if (silentStreak1to1 === 2) {
+                // Confirmado: "Conectado" mas nenhum pacote real chegou em ~8s —
+                // o relay TURN provavelmente falhou depois da negociação inicial
+                // (o caso mais comum: serviço TURN público gratuito sobrecarregado).
+                // Só quem LIGOU tenta recuperar (mesma regra anti-glare do resto
+                // do ficheiro) — quem recebeu só vê o aviso, à espera dessa tentativa.
+                // Volta a 0 para poder detetar e tentar de novo se esta tentativa
+                // não resolver (attemptIceRestart1to1 já limita a 3 no total).
+                silentStreak1to1 = 0;
+                const statusEl = document.getElementById('callStatus');
+                if (statusEl) statusEl.textContent = '🔇 Sem áudio/vídeo — a tentar recuperar...';
+                if (APP.callDirection === 'outgoing') attemptIceRestart1to1();
+            }
         }, 4000);
     }
     function stopCallQualityMonitor() {
