@@ -1260,6 +1260,12 @@ Em "📇 Grupos, chamadas e contactos → 📍 Amigos por perto" há um interrup
 - **Só a distância aproximada**: a lista mostra "📍 350 m" ou "📍 2.1 km", nunca coordenadas nem um mapa com a posição exata de outra pessoa — o cálculo da distância é feito inteiramente no servidor, que nunca envia as coordenadas de ninguém para o cliente de outra pessoa.
 - **Expira sozinho**: uma localização com mais de 15 minutos deixa de contar como "por perto", mesmo que a pessoa se tenha esquecido de desativar (ex.: fechou a aba sem desligar primeiro).
 
+## 🔑 Registar como administrador (senha separada)
 
+Antes, o **primeiro** utilizador a registar-se no servidor era sempre o único administrador, sem nenhuma outra forma de se tornar admin. Agora, no ecrã de "Criar conta" há uma caixa "🔑 Registar como administrador" no topo do formulário — ao marcá-la, aparece um campo extra "Senha de administrador" (diferente da senha da própria conta).
+
+- **Precisa da variável `ADMIN_SIGNUP_SECRET`** configurada no servidor — sem isso, marcar a caixa e tentar registar dá sempre erro ("O registo de administrador não está configurado neste servidor"), nunca deixa passar silenciosamente.
+- **Senha errada recusa o registo por completo** — a conta nem chega a ser criada (não é só "criada mas sem admin"), para nunca ficar ninguém confuso a pensar que é administrador sem ser.
+- Continua a valer a regra antiga (primeiro utilizador registado = admin) como retrocompatibilidade, e a variável `ADMIN_PHONE` (se definida) continua a fixar um único telefone como admin — este novo caminho soma-se aos dois, não os substitui.
 
 

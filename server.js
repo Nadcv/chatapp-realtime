@@ -79,7 +79,11 @@ const accountSchema = new mongoose.Schema({
   // ==================== SOS/EMERGÊNCIA ====================
   trustedContacts: { type: [String], default: [] }, // telefones de contactos de confiança (máx. 10) — ver 'sos_alert'
   // ==================== FACE ID / TOUCH ID (WEBAUTHN/PASSKEYS) ====================
-  webauthnCredentials: { type: [Object], default: [] } // [{id (base64url), publicKey (base64url), counter, transports, deviceName, createdAt}] — ver /api/webauthn/*
+  webauthnCredentials: { type: [Object], default: [] }, // [{id (base64url), publicKey (base64url), counter, transports, deviceName, createdAt}] — ver /api/webauthn/*
+  // Administrador registado explicitamente com a senha de administrador do
+  // servidor (ADMIN_SIGNUP_SECRET) — ver isAdminPhone() e /api/register.
+  // Independente do "primeiro utilizador é sempre admin", que continua a valer.
+  isAdmin: { type: Boolean, default: false }
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -308,6 +312,7 @@ function isWeakPassword(password) {
 }
 
 function isAdminPhone(phone) {
+  if (accounts[phone]?.isAdmin) return true; // registado explicitamente com a senha de administrador — ver /api/register
   if (process.env.ADMIN_PHONE) return phone === process.env.ADMIN_PHONE;
   return phone === firstRegisteredPhone;
 }
@@ -320,7 +325,7 @@ function publicUser(u) {
 }
 
 app.post('/api/register', async (req, res) => {
-  const { name, phone, country, email, password, birthday } = req.body || {};
+  const { name, phone, country, email, password, birthday, adminSecret } = req.body || {};
   let { username } = req.body || {};
   if (!name || !phone || !country || !password || !username) {
     return res.status(400).json({ error: 'Nome, nome de utilizador, telefone, país e senha são obrigatórios.' });
@@ -331,13 +336,24 @@ app.post('/api/register', async (req, res) => {
   if (usernameIndex[username]) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
   if (String(password).length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
   if (isWeakPassword(password)) return res.status(400).json({ error: 'Essa senha é demasiado comum/fácil de adivinhar (ex.: sequências ou senhas muito usadas). Escolhe uma diferente.' });
+  // Registo como administrador: pede uma senha DIFERENTE da senha da conta
+  // (ADMIN_SIGNUP_SECRET, configurada só no servidor) — nunca silenciosa: se
+  // a pessoa marcou "Sou administrador" mas a senha está errada ou o servidor
+  // nem sequer tem isto configurado, a conta não chega a ser criada, para não
+  // ficar ninguém a pensar que é admin sem ser.
+  let wantsAdmin = false;
+  if (typeof adminSecret === 'string' && adminSecret.length) {
+    if (!process.env.ADMIN_SIGNUP_SECRET) return res.status(403).json({ error: 'O registo de administrador não está configurado neste servidor.' });
+    if (adminSecret !== process.env.ADMIN_SIGNUP_SECRET) return res.status(403).json({ error: 'Senha de administrador incorreta.' });
+    wantsAdmin = true;
+  }
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
   const validBirthday = typeof birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(birthday) ? birthday : null;
   const deviceId = (req.body?.deviceId || '').trim();
   const deviceName = (req.body?.deviceName || 'Dispositivo desconhecido').trim().slice(0, 60);
   const devices = deviceId ? [{ id: deviceId, name: deviceName, lastSeenAt: new Date().toISOString() }] : [];
-  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', birthday: validBirthday, salt, passwordHash, createdAt: new Date().toISOString(), contacts: [], devices };
+  const user = { id: 'u_' + Date.now(), name, phone, username, country, email: email || '', birthday: validBirthday, salt, passwordHash, createdAt: new Date().toISOString(), contacts: [], devices, isAdmin: wantsAdmin };
   accounts[phone] = user;
   usernameIndex[username] = phone;
   if (!firstRegisteredPhone) firstRegisteredPhone = phone;
@@ -354,7 +370,7 @@ app.post('/api/register', async (req, res) => {
 
   const token = makeToken();
   sessions[token] = phone;
-  log(`🆕 Novo cadastro: ${name} (@${username})`, 'AUTH');
+  log(`🆕 Novo cadastro: ${name} (@${username})${wantsAdmin ? ' — registado como ADMINISTRADOR' : ''}`, 'AUTH');
   res.json({ success: true, user: publicUser(user), token });
 });
 
