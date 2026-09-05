@@ -414,6 +414,14 @@ Um botão "🎨" na barra de ações de qualquer videochamada (1-para-1 ou de gr
 - Quem entra numa chamada de grupo DEPOIS de um filtro já estar ativo recebe-o logo desde o primeiro frame, sem ninguém precisar de o reaplicar.
 - Escolher "Normal" para o filtro devolve a faixa crua da câmara e para o processamento por canvas (poupa CPU/bateria quando não há filtro nenhum ativo).
 
+## ♞🔤 Mais jogos: Xadrez e Forca
+
+Juntam-se ao Jogo do Galo/Damas/UNO já existentes no seletor de jogos (🎮), dentro de qualquer conversa 1-para-1 ou grupo.
+
+- **Xadrez — versão simplificada**: movimentos de cada peça validados normalmente (incluindo o bloqueio de peças a meio do caminho para torre/bispo/dama, e o salto do cavalo por cima de outras peças), com promoção automática do peão a dama ao chegar à última fila. **Sem deteção de xeque/xeque-mate, sem roque e sem "en passant"** — o jogo só termina quando um rei é mesmo CAPTURADO, não só ameaçado. Esta redução de âmbito evita todo o código de "verificar se um movimento deixaria o próprio rei em xeque", que tornaria a implementação bem mais complexa.
+- **Forca — cooperativa**: as duas pessoas da conversa tentam adivinhar juntas a mesma palavra secreta, sugerindo letras a qualquer momento (não há turnos — é cooperativo, não competitivo). A palavra é escolhida pelo **servidor** de uma pequena lista de palavras comuns em português — nunca chega ao cliente em claro antes do fim do jogo, só a versão mascarada (ex.: "_ A N A N A"), para nenhum dos dois lados poder "ver" a resposta a espreitar no código da página. 6 letras erradas acabam o jogo em derrota (a palavra é revelada só nesse momento).
+- **Limitação partilhada com o UNO**: tal como o UNO, o Xadrez e a Forca em conversas 1-para-1 só funcionam entre pessoas que já sejam contactos reais uma da outra dos dois lados (o caminho de criação do jogo no servidor não trata do "torna-se contacto automaticamente" que as mensagens normais já fazem) — normalmente resolve-se sozinho assim que já falaram uma vez.
+
 ## "A caminho" — ETA automático
 
 Quando duas pessoas estão a partilhar localização em tempo real na mesma conversa (📍), o app calcula automaticamente a distância e o tempo estimado de chegada de cada uma até à outra, com base na velocidade atual (ou uma estimativa de caminhada, se estiver parada). Aparece por baixo do mapa, atualizado a cada posição nova.

@@ -2296,6 +2296,8 @@
                     <button class="btn-small" id="gameChooserTicTacToeBtn" onclick="startTicTacToe()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🎯<span style="font-size:12px;">Jogo do Galo</span></button>
                     <button class="btn-small" id="gameChooserCheckersBtn" onclick="startCheckers()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">♟️<span style="font-size:12px;">Damas</span></button>
                     <button class="btn-small" onclick="startUno()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🃏<span style="font-size:12px;">UNO</span></button>
+                    <button class="btn-small" id="gameChooserChessBtn" onclick="startChess()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">♞<span style="font-size:12px;">Xadrez</span></button>
+                    <button class="btn-small" onclick="startHangman()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 4px;font-size:28px;">🔤<span style="font-size:12px;">Forca</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalGameChooser')">Cancelar</button>
@@ -11472,7 +11474,7 @@
                 ${topicLabel}
                 ${forwardedLabel}
                 ${replyHtml}
-                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.sosAlert ? renderSosAlertMessage(msg) : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : renderGame(msg))) : (msg.expense ? renderExpense(msg) : (msg.shoppingList ? renderSharedShoppingList(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId)))))))}${editedLabel}
+                ${msg.deleted ? `<em style="opacity:0.6;">🚫 Mensagem apagada</em>` : (msg.sosAlert ? renderSosAlertMessage(msg) : (msg.poll ? renderPoll(msg) : (msg.game ? (msg.game.type === 'checkers' ? renderCheckers(msg) : (msg.game.type === 'uno' ? renderUno(msg) : (msg.game.type === 'chess' ? renderChess(msg) : (msg.game.type === 'hangman' ? renderHangman(msg) : renderGame(msg))))) : (msg.expense ? renderExpense(msg) : (msg.shoppingList ? renderSharedShoppingList(msg) : ((msg.fileData || msg.viewOnce) ? renderAttachment(msg, isSent) : renderMessageBody(msg, APP.currentChatId)))))))}${editedLabel}
                 <div id="trans_${msg.id}" style="display:${msg.translatedText ? 'block' : 'none'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15);font-style:italic;color:#cfd6d9;">${msg.translatedText || ''}</div>
                 ${linkPreviewUrl ? `<div id="linkpreview_${msg.id}">${renderLinkPreviewCard(msg.linkPreview)}</div>` : ''}
                 ${reactionsHtml}
@@ -13622,7 +13624,8 @@
         closeModal('modalGameChooser');
         OPPONENT_PICKER.gameType = gameType;
         const contacts = APP.chats.filter(c => c.type === 'user');
-        document.getElementById('opponentPickerTitle').textContent = gameType === 'checkers' ? '♟️ Escolher adversário (Damas)' : '🎯 Escolher adversário (Jogo do Galo)';
+        const pickerTitles = { checkers: '♟️ Escolher adversário (Damas)', tictactoe: '🎯 Escolher adversário (Jogo do Galo)', chess: '♞ Escolher adversário (Xadrez)', hangman: '🔤 Escolher com quem jogar (Forca)' };
+        document.getElementById('opponentPickerTitle').textContent = pickerTitles[gameType] || 'Escolher adversário';
         const list = document.getElementById('opponentPickerList');
         list.innerHTML = contacts.length ? contacts.map(c => `
             <div class="chat-item" style="cursor:pointer;" onclick="confirmStartGameWithOpponent('${c.phone}')">
@@ -13638,6 +13641,10 @@
             startNewGameMessage({ type: 'checkers', board: initCheckersBoard(), players: [APP.user.phone, opponentPhone], turn: 'X', winner: null });
         } else if (OPPONENT_PICKER.gameType === 'tictactoe') {
             startNewGameMessage({ type: 'tictactoe', board: Array(9).fill(null), players: [APP.user.phone, opponentPhone], turn: 'X', winner: null });
+        } else if (OPPONENT_PICKER.gameType === 'chess') {
+            startNewGameMessage({ type: 'chess', board: initChessBoard(), players: [APP.user.phone, opponentPhone], turn: 'X', winner: null });
+        } else if (OPPONENT_PICKER.gameType === 'hangman') {
+            socket.emit('start_hangman', { chatId: APP.currentChatId, players: [APP.user.phone, opponentPhone] });
         }
     }
     function startNewGameMessage(game) {
@@ -13656,6 +13663,13 @@
         if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
         if (chat.type === 'group') { openOpponentPickerModal('tictactoe'); return; }
         startNewGameMessage({ type: 'tictactoe', board: Array(9).fill(null), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
+    }
+    function startHangman() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
+        closeModal('modalGameChooser');
+        if (chat.type === 'group') { openOpponentPickerModal('hangman'); return; }
+        socket.emit('start_hangman', { chatId: APP.currentChatId, players: [APP.user.phone, chat.phone] });
     }
     function renderGame(msg) {
         const game = msg.game;
@@ -13718,6 +13732,123 @@
         if (chat.type === 'group') { openOpponentPickerModal('checkers'); return; }
         startNewGameMessage({ type: 'checkers', board: initCheckersBoard(), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
     }
+
+    // ==================== XADREZ ====================
+    // Versão simplificada (ver comentário em server.js, 'move_chess'): sem
+    // deteção de xeque/xeque-mate, sem roque, sem "en passant" — o jogo
+    // termina quando um rei é mesmo capturado. Mesma convenção de "linha 0 =
+    // topo" já usada nas damas, com X (dono 0) nas linhas 0-1 e O (dono 1)
+    // nas linhas 6-7.
+    function initChessBoard() {
+        const board = Array(64).fill(null);
+        const backRank = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
+        backRank.forEach((type, col) => {
+            board[col] = { type, owner: 0 };
+            board[8 + col] = { type: 'p', owner: 0 };
+            board[48 + col] = { type: 'p', owner: 1 };
+            board[56 + col] = { type, owner: 1 };
+        });
+        return board;
+    }
+    function startChess() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || (chat.type !== 'user' && chat.type !== 'group')) return;
+        if (chat.type === 'group') { openOpponentPickerModal('chess'); return; }
+        startNewGameMessage({ type: 'chess', board: initChessBoard(), players: [APP.user.phone, chat.phone], turn: 'X', winner: null });
+    }
+    const CHESS_UNICODE = {
+        0: { p: '♙', r: '♖', n: '♘', b: '♗', q: '♕', k: '♔' },
+        1: { p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚' }
+    };
+    const CHESS_SELECTED = { messageId: null, cell: null };
+    function renderChess(msg) {
+        const game = msg.game;
+        const myMark = game.players[0] === APP.user.phone ? 'X' : (game.players[1] === APP.user.phone ? 'O' : null);
+        const myOwner = myMark === 'X' ? 0 : 1;
+        const turnName = nameForPhone(game.turn === 'X' ? game.players[0] : game.players[1]);
+        let statusLine;
+        if (game.winner) {
+            const winnerName = nameForPhone(game.winner === 'X' ? game.players[0] : game.players[1]);
+            statusLine = (game.winner === myMark ? '🎉 Ganhaste! (capturaste o rei)' : `😅 ${escapeHtml(winnerName)} ganhou!`);
+        }
+        else if (myMark === null) statusLine = `Vez de ${escapeHtml(turnName)} (só a ver)`;
+        else statusLine = (game.turn === myMark ? 'A tua vez' : `Vez de ${escapeHtml(turnName)}`) + ` (és ${myMark === 'X' ? '♙ brancas' : '♟ pretas'})`;
+        const selectedCell = CHESS_SELECTED.messageId === msg.id ? CHESS_SELECTED.cell : null;
+        const myTurn = !game.winner && game.turn === myMark;
+        const cellsHtml = game.board.map((piece, i) => {
+            const row = Math.floor(i / 8), col = i % 8;
+            const dark = (row + col) % 2 === 1;
+            const isSelected = selectedCell === i;
+            const isLastMove = game.lastMove && (game.lastMove.from === i || game.lastMove.to === i);
+            const content = piece ? (CHESS_UNICODE[piece.owner][piece.type] || '') : '';
+            // Qualquer casa é clicável na tua vez (tal como nas damas) — inclui
+            // casas com peças INIMIGAS, que são precisamente o destino de uma
+            // captura; clickChessCell() já trata bem cada caso (só permite
+            // SELECIONAR uma peça própria, mas o DESTINO de um movimento já
+            // escolhido pode ser qualquer casa, cabendo ao servidor validar).
+            const clickable = myTurn;
+            const bg = isSelected ? 'rgba(255,235,59,0.5)' : (isLastMove ? 'rgba(76,175,80,0.45)' : (dark ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.08)'));
+            return `<div data-cell="${i}" onclick="${clickable ? `clickChessCell('${msg.id}', ${i})` : ''}" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:18px;background:${bg};cursor:${clickable ? 'pointer' : 'default'};">${content}</div>`;
+        }).join('');
+        return `<div style="min-width:230px;">
+            <div style="font-size:12px;margin-bottom:6px;">${statusLine}</div>
+            <div style="display:grid;grid-template-columns:repeat(8,28px);gap:1px;">${cellsHtml}</div>
+            <div style="font-size:10px;opacity:0.7;margin-top:4px;">Versão simplificada — sem xeque-mate, roque ou "en passant"; ganha-se ao capturar o rei.</div>
+        </div>`;
+    }
+    function clickChessCell(messageId, cell) {
+        if (CHESS_SELECTED.messageId !== messageId) { CHESS_SELECTED.messageId = messageId; CHESS_SELECTED.cell = null; }
+        const msg = APP.messages[APP.currentChatId]?.find(m => m.id === messageId);
+        if (!msg?.game) return;
+        const myMark = msg.game.players[0] === APP.user.phone ? 'X' : 'O';
+        const myOwner = myMark === 'X' ? 0 : 1;
+        const piece = msg.game.board[cell];
+        if (CHESS_SELECTED.cell === null) {
+            if (piece && piece.owner === myOwner) { CHESS_SELECTED.cell = cell; renderMessages(); }
+        } else if (CHESS_SELECTED.cell === cell) {
+            CHESS_SELECTED.cell = null;
+            renderMessages();
+        } else {
+            const from = CHESS_SELECTED.cell;
+            CHESS_SELECTED.cell = null;
+            socket.emit('move_chess', { chatId: APP.currentChatId, messageId, from, to: cell });
+        }
+    }
+
+    // ==================== FORCA ====================
+    // Cooperativa: as duas pessoas da conversa tentam adivinhar juntas a
+    // mesma palavra secreta (escolhida pelo SERVIDOR — nunca chega ao
+    // cliente em claro antes do fim do jogo, ver sanitizeHangmanGame em
+    // server.js) sugerindo letras à vez de qualquer uma delas.
+    const HANGMAN_STAGES = ['🙂', '😕', '😟', '😧', '😨', '😰', '💀']; // 0 a 6 erros
+    function renderHangman(msg) {
+        const game = msg.game;
+        const isPlayer = game.players.includes(APP.user.phone);
+        let statusLine;
+        if (game.winner === 'won') statusLine = '🎉 Acertaram a palavra!';
+        else if (game.winner === 'lost') statusLine = `😵 Não foi desta vez — a palavra era "${escapeHtml(game.revealedWord || '')}".`;
+        else statusLine = isPlayer ? 'Sugere uma letra' : 'A ver o jogo';
+        const spacedWord = (game.maskedWord || '').split('').join(' ');
+        const guessedHtml = (game.guessedLetters || []).length ? `<div style="font-size:11px;opacity:0.75;margin-top:4px;">Já tentaram: ${escapeHtml(game.guessedLetters.join(', '))}</div>` : '';
+        const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const canGuess = isPlayer && !game.winner;
+        const keyboardHtml = canGuess ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:8px;max-width:230px;">${alphabet.split('').map((l) => {
+            const used = (game.guessedLetters || []).includes(l);
+            return `<button ${used ? 'disabled' : `onclick="guessHangmanLetter('${msg.id}','${l}')"`} style="width:22px;height:22px;font-size:11px;padding:0;border-radius:4px;border:none;cursor:${used ? 'default' : 'pointer'};background:${used ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)'};color:inherit;opacity:${used ? '0.35' : '1'};">${l}</button>`;
+        }).join('')}</div>` : '';
+        return `<div style="min-width:230px;">
+            <div style="font-size:24px;text-align:center;">${HANGMAN_STAGES[Math.min(game.wrongGuesses, 6)]}</div>
+            <div style="font-size:12px;margin:6px 0;">${statusLine}</div>
+            <div style="font-size:20px;letter-spacing:4px;font-family:monospace;text-align:center;">${escapeHtml(spacedWord)}</div>
+            <div style="font-size:11px;opacity:0.7;text-align:center;margin-top:2px;">${game.wrongGuesses}/${game.maxWrong} erros</div>
+            ${guessedHtml}
+            ${keyboardHtml}
+        </div>`;
+    }
+    function guessHangmanLetter(messageId, letter) {
+        socket.emit('hangman_guess', { chatId: APP.currentChatId, messageId, letter });
+    }
+
     // Estado só local (não sincronizado) de qual peça está selecionada
     // enquanto se escolhe o destino — um jogo de damas precisa de 2 cliques
     // por jogada (escolher a peça, depois o destino), ao contrário do galo.
