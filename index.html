@@ -126,21 +126,6 @@
             text-align: center;
             min-height: 16px;
         }
-        .admin-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-            color: var(--text-primary);
-        }
-        .admin-table th, .admin-table td {
-            padding: 6px 8px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            text-align: left;
-        }
-        .admin-table th {
-            color: var(--text-secondary);
-            font-weight: 600;
-        }
         .reply-quote {
             background: rgba(0,0,0,0.15);
             border-left: 3px solid var(--green, #7c5cff);
@@ -2452,12 +2437,7 @@
             <div class="modal">
                 <h3>⚙️ Utilizadores cadastrados</h3>
                 <p style="color:#8696a0;font-size:13px;">Visível apenas para o administrador.</p>
-                <div style="max-height:320px;overflow:auto;">
-                    <table class="admin-table" id="adminUsersTable">
-                        <thead><tr><th>Nome</th><th>Telemóvel</th><th>País</th><th>Email</th><th>Ações</th></tr></thead>
-                        <tbody id="adminUsersBody"></tbody>
-                    </table>
-                </div>
+                <div id="adminUsersBody" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalAdmin')">Fechar</button>
                 </div>
@@ -8856,26 +8836,32 @@
         APP.pendingOpenChatPhone = phone;
     }
 
+    // Cartões em vez de tabela de propósito: uma tabela larga (nome/telefone/
+    // país/email/ações lado a lado) fica cortada em ecrãs de telemóvel — a
+    // pessoa via só as primeiras colunas e precisava de adivinhar que dava
+    // para arrastar para o lado para ver o resto (incluindo o botão de
+    // apagar). Cada utilizador em cartão próprio nunca corta nada.
     async function openAdminModal() {
         if (!APP.user?.isAdmin) return;
+        const body = document.getElementById('adminUsersBody');
+        body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">A carregar...</p>';
+        document.getElementById('modalAdmin').classList.add('active');
         try {
             const res = await fetch('/api/admin/users?token=' + encodeURIComponent(APP.token));
             const data = await res.json();
-            const body = document.getElementById('adminUsersBody');
-            if (!res.ok) { body.innerHTML = `<tr><td colspan="5">${escapeHtml(data.error || 'Erro ao carregar.')}</td></tr>`; }
-            else {
-                body.innerHTML = (data.users || []).map(u => `<tr>
-                    <td>${escapeHtml(u.name)}${u.isAdmin ? ' 👑' : ''}</td>
-                    <td>${escapeHtml(u.phone)}</td>
-                    <td>${escapeHtml(u.country || '')}</td>
-                    <td>${escapeHtml(u.email || '')}</td>
-                    <td>${u.isAdmin ? '' : `<button class="btn-small" style="background:#e74c3c;color:#fff;padding:4px 8px;font-size:11px;" onclick="adminDeleteAccount('${u.phone}', '${escapeHtml(u.name).replace(/'/g, "\\'")}')">🗑️ Apagar</button>`}</td>
-                </tr>`).join('') || '<tr><td colspan="5">Nenhum usuário cadastrado.</td></tr>';
-            }
+            if (!res.ok) { body.innerHTML = `<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">${escapeHtml(data.error || 'Erro ao carregar.')}</p>`; return; }
+            body.innerHTML = (data.users || []).map(u => `
+                <div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;font-size:13px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                        <strong>${escapeHtml(u.name)}${u.isAdmin ? ' 👑' : ''}</strong>
+                        ${u.isAdmin ? '' : `<button class="btn-small" style="background:#e74c3c;color:#fff;padding:3px 8px;font-size:11px;flex:0 0 auto;" onclick="adminDeleteAccount('${u.phone}', '${escapeHtml(u.name).replace(/'/g, "\\'")}')">🗑️ Apagar</button>`}
+                    </div>
+                    <div style="opacity:0.8;margin-top:2px;">${escapeHtml(u.phone)} · ${escapeHtml(u.country || '—')}</div>
+                    ${u.email ? `<div style="opacity:0.8;word-break:break-all;">${escapeHtml(u.email)}</div>` : ''}
+                </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Nenhum usuário cadastrado.</p>';
         } catch (err) {
-            document.getElementById('adminUsersBody').innerHTML = '<tr><td colspan="5">Não foi possível ligar ao servidor.</td></tr>';
+            body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
         }
-        document.getElementById('modalAdmin').classList.add('active');
     }
     // Apagar em nome de outra pessoa: pensado para quem esqueceu a senha e
     // não tem 2FA/email para recuperar o acesso de outra forma — como ainda
