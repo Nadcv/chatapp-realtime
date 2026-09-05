@@ -1250,6 +1250,16 @@ Em "👤 O meu perfil → 🔐 Segurança" há agora uma secção "Face ID/Touch
 
 **Implementação**: usa a Web Authentication API nativa do navegador no cliente (sem nenhuma biblioteca externa) e a biblioteca `@simplewebauthn/server` no servidor para gerar/verificar os desafios criptográficos — a mesma verificação que haveria de qualquer forma de implementar à mão (assinaturas, contador anti-clonagem, etc.), só que já testada e mantida. Continua a existir a senha normal como alternativa em qualquer dispositivo — o Face ID/Touch ID é só um atalho opcional, nunca obrigatório.
 
+## 📍 Amigos por perto
+
+Em "📇 Grupos, chamadas e contactos → 📍 Amigos por perto" há um interruptor "Ativar neste dispositivo" — um radar de proximidade opt-in que mostra quais dos teus **contactos** (nunca estranhos) estão fisicamente perto de ti agora, dentro de um raio de 5 km.
+
+**Feito para nunca revelar mais do que devia**:
+- **Reciprocidade obrigatória**: só aparece alguém que também tenha "Amigos por perto" ativado NESTE momento — se desativares, deixas de aparecer para os outros tal como eles deixam de aparecer para ti.
+- **Contacto mútuo**: as duas contas têm de já se ter uma à outra nos contactos (normalmente basta terem trocado uma mensagem) — nunca aparece alguém que só te tenha adicionado a ti sem tu o teres feito de volta.
+- **Só a distância aproximada**: a lista mostra "📍 350 m" ou "📍 2.1 km", nunca coordenadas nem um mapa com a posição exata de outra pessoa — o cálculo da distância é feito inteiramente no servidor, que nunca envia as coordenadas de ninguém para o cliente de outra pessoa.
+- **Expira sozinho**: uma localização com mais de 15 minutos deixa de contar como "por perto", mesmo que a pessoa se tenha esquecido de desativar (ex.: fechou a aba sem desligar primeiro).
+
 
 
 

@@ -4596,6 +4596,11 @@ function pruneExpiredAlerts() {
 // "Iniciar conversa", ou quem já te mandou uma mensagem — tal como no
 // WhatsApp/Telegram, é preciso saber quem procurar; ninguém aparece sozinho.
 const onlinePhones = new Set();
+// telefone -> {lat, lng, updatedAt} — só enquanto a conta tem "Amigos por
+// perto" ativado neste momento (ver socket 'nearby_update'/'nearby_stop').
+const nearbySharing = {};
+const NEARBY_MAX_AGE_MS = 15 * 60 * 1000; // localização mais velha que isto já não conta como "por perto"
+const NEARBY_RADIUS_KM = 5;
 // telefone -> Set de socket.ids ativos dessa pessoa (pode ter mais de um: várias
 // abas/dispositivos). Usado para entregar chamadas diretamente à pessoa certa,
 // em vez de depender só de "salas" do Socket.IO — que exigiam que o outro lado
@@ -6747,6 +6752,44 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('location_stop_received', { phone: users[socket.id]?.phone });
   });
 
+  // ==================== AMIGOS POR PERTO ====================
+  // Radar opt-in de proximidade: só mostra CONTACTOS já existentes (nunca
+  // estranhos) que TAMBÉM tenham ativado isto e partilhado uma localização
+  // recente, e só a DISTÂNCIA aproximada (nunca as coordenadas de outra
+  // pessoa) — a app nunca revela onde exatamente um amigo está, só que está
+  // "a 350 m" ou "a 2.1 km", tal como pediria a privacidade de algo destes.
+  // Exige reciprocidade nos contactos (as duas contas têm de se ter uma à
+  // outra), para não ser possível "ver" alguém que nunca falou contigo.
+  socket.on('nearby_update', (data) => {
+    const myPhone = users[socket.id]?.phone;
+    const lat = typeof data?.lat === 'number' ? data.lat : null;
+    const lng = typeof data?.lng === 'number' ? data.lng : null;
+    if (!myPhone || lat == null || lng == null) return;
+    nearbySharing[myPhone] = { lat, lng, updatedAt: Date.now() };
+  });
+  socket.on('nearby_stop', () => {
+    const myPhone = users[socket.id]?.phone;
+    if (myPhone) delete nearbySharing[myPhone];
+  });
+  socket.on('nearby_request', () => {
+    const myPhone = users[socket.id]?.phone;
+    const me = accounts[myPhone];
+    const mine = myPhone && nearbySharing[myPhone];
+    if (!myPhone || !me || !mine || Date.now() - mine.updatedAt > NEARBY_MAX_AGE_MS) {
+      return socket.emit('nearby_result', { friends: [] });
+    }
+    const friends = (me.contacts || []).map((contactPhone) => {
+      const contactAccount = accounts[contactPhone];
+      if (!contactAccount || !(contactAccount.contacts || []).includes(myPhone)) return null;
+      const loc = nearbySharing[contactPhone];
+      if (!loc || Date.now() - loc.updatedAt > NEARBY_MAX_AGE_MS) return null;
+      const distanceKm = haversineKm(mine.lat, mine.lng, loc.lat, loc.lng);
+      if (distanceKm > NEARBY_RADIUS_KM) return null;
+      return { phone: contactPhone, name: contactAccount.name, distanceMeters: Math.round(distanceKm * 1000) };
+    }).filter(Boolean).sort((a, b) => a.distanceMeters - b.distanceMeters);
+    socket.emit('nearby_result', { friends });
+  });
+
   // ==================== ATIVIDADES (estilo Strava) ====================
   socket.on('activity_save', async (data) => {
     const myPhone = users[socket.id]?.phone;
@@ -6968,7 +7011,7 @@ io.on('connection', (socket) => {
       if (user.phone) {
         unregisterPhoneSocket(user.phone, socket.id);
         const stillConnected = Object.values(users).some(u => u.phone === user.phone);
-        if (!stillConnected) { onlinePhones.delete(user.phone); notifyContactsOfStatusChange(user.phone); }
+        if (!stillConnected) { onlinePhones.delete(user.phone); notifyContactsOfStatusChange(user.phone); delete nearbySharing[user.phone]; }
       }
     }
     Object.keys(roomCallParticipants).forEach((roomId) => {

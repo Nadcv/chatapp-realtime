@@ -2569,9 +2569,25 @@
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCallLogScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📋<span style="font-size:11px;">Histórico de chamadas</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openArchivedScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Conversas arquivadas</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openBlockedUsersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Contas bloqueadas</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');openNearbyFriendsModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📍<span style="font-size:11px;">Amigos por perto</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ AMIGOS POR PERTO ============ -->
+        <div class="modal-overlay" id="modalNearbyFriends">
+            <div class="modal">
+                <h3>📍 Amigos por perto</h3>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0;">
+                    <input type="checkbox" id="nearbyToggle" onchange="toggleNearbyFriends(this.checked)"> Ativar neste dispositivo
+                </label>
+                <p style="color:#8696a0;font-size:11px;margin-top:-4px;">Só vês (e és visto por) contactos que TAMBÉM tenham isto ativado — e só a distância aproximada, nunca a localização exata de ninguém.</p>
+                <div id="nearbyFriendsList" style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto;margin-top:10px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalNearbyFriends')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -11415,6 +11431,68 @@
         const endTime = new Date(LOCATION.shareExpiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         document.getElementById('locationSharingText').textContent = `📍 A partilhar a tua localização · termina às ${endTime}`;
         banner.style.display = 'flex';
+    }
+
+    // ==================== AMIGOS POR PERTO ====================
+    // Radar opt-in de proximidade: mostra só CONTACTOS já existentes que
+    // TAMBÉM tenham isto ativado, e só a distância aproximada — nunca a
+    // localização exata de outra pessoa (o servidor é que calcula a
+    // distância e nunca manda coordenadas de terceiros para o cliente, ver
+    // socket 'nearby_request' no server.js). Continua o próprio dono da
+    // localização quem decide ligar/desligar, tal como a partilha por tempo
+    // limitado acima — nunca fica ativo por defeito.
+    const NEARBY = { active: false, watchId: null, refreshInterval: null };
+    function openNearbyFriendsModal() {
+        document.getElementById('nearbyToggle').checked = NEARBY.active;
+        renderNearbyFriendsList([]);
+        if (NEARBY.active) socket.emit('nearby_request');
+        document.getElementById('modalNearbyFriends').classList.add('active');
+    }
+    function toggleNearbyFriends(enabled) {
+        if (enabled) startNearbySharing(); else stopNearbySharing();
+    }
+    function startNearbySharing() {
+        if (!navigator.geolocation) { alert('Este navegador não suporta geolocalização.'); document.getElementById('nearbyToggle').checked = false; return; }
+        NEARBY.watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                socket.emit('nearby_update', { lat: pos.coords.latitude, lng: pos.coords.longitude });
+                socket.emit('nearby_request');
+            },
+            (err) => {
+                alert('Não foi possível obter a localização: ' + err.message + ' (verifica se autorizaste o GPS)');
+                stopNearbySharing();
+            },
+            { enableHighAccuracy: true, maximumAge: 60000, timeout: 15000 }
+        );
+        NEARBY.active = true;
+        clearInterval(NEARBY.refreshInterval);
+        NEARBY.refreshInterval = setInterval(() => socket.emit('nearby_request'), 30000);
+    }
+    function stopNearbySharing() {
+        if (NEARBY.watchId != null) navigator.geolocation.clearWatch(NEARBY.watchId);
+        NEARBY.watchId = null;
+        NEARBY.active = false;
+        clearInterval(NEARBY.refreshInterval);
+        socket.emit('nearby_stop');
+        document.getElementById('nearbyToggle').checked = false;
+        renderNearbyFriendsList([]);
+    }
+    socket.on('nearby_result', (data) => renderNearbyFriendsList(data?.friends || []));
+    // Arredonda a distância (a 50 m abaixo de 1 km) — evita parecer uma
+    // posição precisa a mais, é só para dar uma ideia de "quão perto".
+    function formatNearbyDistance(meters) {
+        if (meters < 1000) return (Math.max(50, Math.round(meters / 50) * 50)) + ' m';
+        return (meters / 1000).toFixed(1) + ' km';
+    }
+    function renderNearbyFriendsList(friends) {
+        const el = document.getElementById('nearbyFriendsList');
+        if (!NEARBY.active) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Ativa para veres que amigos estão por perto agora.</p>'; return; }
+        if (!friends.length) { el.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Nenhum amigo por perto neste momento.</p>'; return; }
+        el.innerHTML = friends.map(f => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;font-size:13px;">
+                <span>${escapeHtml(f.name)}</span>
+                <span style="opacity:0.8;">📍 ${formatNearbyDistance(f.distanceMeters)}</span>
+            </div>`).join('');
     }
 
     // Desenha/atualiza o marcador e o trajeto (polyline) de uma pessoa no mapa
