@@ -324,39 +324,76 @@ function publicUser(u) {
   return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null };
 }
 
-// ==================== VALIDAÇÃO DE TELEMÓVEL (NUMVERIFY) ====================
+// ==================== VALIDAÇÃO DE TELEMÓVEL (cascata de provedores) ====================
 // Ao contrário do email (que dá para confirmar de graça com um código),
 // confirmar que um número de telemóvel é real e recebe SMS exige um serviço
 // pago (Twilio, Vonage, etc.) — não implementado aqui. Isto é o meio-termo
-// gratuito: o Numverify (apilayer.net) confirma se o número tem um formato e
-// prefixo de operadora reais atribuídos (país, operadora, se é móvel ou
-// fixo) — não prova que a PESSOA tem esse telemóvel na mão (não manda
-// código nenhum), mas já recusa números inventados/impossíveis. Precisa da
-// variável NUMVERIFY_API_KEY (plano gratuito: 100 pedidos/mês em
-// numverify.com) — sem ela, este passo é simplesmente saltado (tal como o
-// email sem servidor configurado).
-const NUMVERIFY_TIMEOUT_MS = 8000;
-// Configurável (testes apontam para um mock local) — o plano gratuito do
-// Numverify a sério só responde em HTTP (não HTTPS), daí o valor por omissão.
-const NUMVERIFY_API_BASE = process.env.NUMVERIFY_API_BASE || 'http://apilayer.net/api/validate';
+// gratuito: consulta um serviço de "lookup" de telemóvel (confirma se o
+// número tem um formato e prefixo de operadora reais atribuídos — país,
+// operadora, se é móvel ou fixo) — não prova que a PESSOA tem esse telemóvel
+// na mão (não manda código nenhum), mas já recusa números inventados/
+// impossíveis.
+//
+// Cada serviço gratuito tem uma quota mensal pequena, por isso há três
+// provedores em cascata (Numverify → Veriphone → AbstractAPI): se um
+// provedor responder de forma DEFINITIVA (número válido ou inválido),
+// paramos logo aí. Só passamos ao seguinte quando o provedor atual não está
+// configurado (sem chave), está sem quota, ou está indisponível (rede/
+// timeout/resposta inesperada) — nunca por causa do número em si. Se os
+// três estiverem esgotados/indisponíveis (ou nenhum configurado), o registo
+// NÃO é bloqueado: mais vale deixar passar um número falso ocasional do que
+// recusar gente real só porque as quotas gratuitas acabaram no mesmo mês.
+const PHONE_VALIDATION_TIMEOUT_MS = 8000;
+const PHONE_VALIDATION_PROVIDERS = [
+  {
+    name: 'Numverify',
+    apiKey: () => process.env.NUMVERIFY_API_KEY,
+    // Configurável (testes apontam para um mock local) — o plano gratuito do
+    // Numverify a sério só responde em HTTP (não HTTPS), daí o valor por omissão.
+    urlBase: () => process.env.NUMVERIFY_API_BASE || 'http://apilayer.net/api/validate',
+    buildUrl: (base, key, number) => `${base}?access_key=${key}&number=${encodeURIComponent(number)}&format=1`,
+    isQuotaError: (data) => data.success === false && data.error && data.error.code === 104, // usage_limit_reached
+    parseValid: (data) => (data.error ? null : { valid: data.valid === true, lineType: data.line_type || null }),
+  },
+  {
+    name: 'Veriphone',
+    apiKey: () => process.env.VERIPHONE_API_KEY,
+    urlBase: () => process.env.VERIPHONE_API_BASE || 'https://api.veriphone.io/v2/verify',
+    buildUrl: (base, key, number) => `${base}?key=${key}&phone=${encodeURIComponent(number)}`,
+    isQuotaError: (data) => data.status === 'error' && /quota|limit/i.test(data.error || ''),
+    parseValid: (data) => (data.status === 'error' ? null : { valid: data.phone_valid === true, lineType: data.phone_type || null }),
+  },
+  {
+    name: 'AbstractAPI',
+    apiKey: () => process.env.ABSTRACT_PHONE_API_KEY,
+    urlBase: () => process.env.ABSTRACT_PHONE_API_BASE || 'https://phonevalidation.abstractapi.com/v1/',
+    buildUrl: (base, key, number) => `${base}?api_key=${key}&phone=${encodeURIComponent(number)}`,
+    isQuotaError: (data) => data.error && /quota|limit/i.test(data.error.type || data.error.message || ''),
+    parseValid: (data) => (data.error ? null : { valid: data.valid === true, lineType: data.type || null }),
+  },
+];
 async function validatePhoneNumberReal(phoneNumber) {
-  const apiKey = process.env.NUMVERIFY_API_KEY;
-  if (!apiKey) return null; // não configurado — quem chama trata isto como "sem opinião", nunca bloqueia
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), NUMVERIFY_TIMEOUT_MS);
-  try {
-    const url = `${NUMVERIFY_API_BASE}?access_key=${apiKey}&number=${encodeURIComponent(phoneNumber)}&format=1`;
-    const r = await fetch(url, { signal: controller.signal });
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (data.error) { console.error('Erro Numverify:', data.error.info || data.error); return null; }
-    return { valid: data.valid === true, lineType: data.line_type || null };
-  } catch (err) {
-    console.error('Erro ao validar telemóvel (Numverify):', err.message);
-    return null; // rede em baixo/timeout/quota esgotada — nunca bloqueia quem se regista de boa fé
-  } finally {
-    clearTimeout(timeoutId);
+  for (const provider of PHONE_VALIDATION_PROVIDERS) {
+    const apiKey = provider.apiKey();
+    if (!apiKey) continue; // este provedor nem está configurado — passa ao seguinte
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PHONE_VALIDATION_TIMEOUT_MS);
+    try {
+      const url = provider.buildUrl(provider.urlBase(), apiKey, phoneNumber);
+      const r = await fetch(url, { signal: controller.signal });
+      if (!r.ok) { console.error(`Erro HTTP ${r.status} em ${provider.name}, a tentar o próximo provedor.`); continue; }
+      const data = await r.json();
+      if (provider.isQuotaError(data)) { console.error(`Quota esgotada em ${provider.name}, a tentar o próximo provedor.`); continue; }
+      const result = provider.parseValid(data);
+      if (result) return { ...result, provider: provider.name };
+      console.error(`Resposta inesperada de ${provider.name}, a tentar o próximo provedor.`);
+    } catch (err) {
+      console.error(`Erro ao validar telemóvel via ${provider.name}: ${err.message}. A tentar o próximo provedor.`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
+  return null; // nenhum provedor configurado, ou todos esgotados/indisponíveis — sem opinião, nunca bloqueia
 }
 
 // Cria mesmo a conta (contas[phone], índice de username, sessão) a partir de

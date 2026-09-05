@@ -80,7 +80,9 @@ const MOCK_SERVERS = [
                                      // (testa lógica antiga do Metro Lisboa, substituída pela
                                      // UnderLX no server.js atual — ver README)
   'mock_france_server.js',          // 3020 - França (Transilien, versão reduzida)
-  'mock_numverify_server.js'        // 3021 - validação de telemóvel no registo
+  'mock_numverify_server.js',       // 3021 - validação de telemóvel no registo (1º provedor)
+  'mock_veriphone_server.js',       // 3022 - validação de telemóvel no registo (2º provedor)
+  'mock_abstractapi_server.js'      // 3023 - validação de telemóvel no registo (3º provedor)
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -137,7 +139,11 @@ const BASE_ENV = {
   TICTACTRIP_API_BASE: 'http://localhost:3010',
   TICTACTRIP_API_TOKEN: 'mock-tictactrip-token',
   NUMVERIFY_API_BASE: 'http://localhost:3021',
-  NUMVERIFY_API_KEY: 'mock-numverify-key'
+  NUMVERIFY_API_KEY: 'mock-numverify-key',
+  VERIPHONE_API_BASE: 'http://localhost:3022',
+  VERIPHONE_API_KEY: 'mock-veriphone-key',
+  ABSTRACT_PHONE_API_BASE: 'http://localhost:3023',
+  ABSTRACT_PHONE_API_KEY: 'mock-abstract-key'
 };
 
 // Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por
