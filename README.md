@@ -1240,6 +1240,10 @@ Quando o telemóvel/browser perde a ligação (rede em baixo, avião, socket a t
 
 **Só se aplica a conversas e grupos** — o assistente Gemini precisa sempre de uma ligação ativa para responder (é uma chamada direta à API), por isso continua a mostrar o erro normal se tentares usá-lo offline, sem entrar nesta fila.
 
+## 📄 Exportar resumo de despesas em PDF
+
+Em "💰 Despesas" há agora um botão "📄 PDF" que gera um PDF com a lista completa de despesas dessa conversa (descrição, valor e quem pagou/com quem foi dividida), os saldos de cada pessoa (quem deve/tem a receber) e a secção "Como acertar contas" já simplificada — a mesma informação do modal, só que num ficheiro para guardar ou partilhar fora da app. Reaproveita o mesmo gerador de PDF (jsPDF, carregado sob demanda) já usado para exportar a conversa inteira e a lista de compras.
+
 
 
 
