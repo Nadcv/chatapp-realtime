@@ -1309,3 +1309,10 @@ Por omissão, as chamadas usam TURN público gratuito (OpenRelay) — funciona p
 
 Sem nenhuma destas configuradas, a app usa o fallback público automaticamente — nada quebra, só fica sujeito à fiabilidade desse serviço gratuito partilhado.
 
+## 🎬 Partilha de vídeo em chamada, agora também no Safari/iPhone
+
+A "partilha de vídeo" (assistir um ficheiro/URL de vídeo em conjunto durante uma chamada) usava `HTMLMediaElement.captureStream()` para transmitir o vídeo ao vivo — o Safari **nunca** implementou esse método, em nenhuma versão (não é só no iPhone), e por isso a app recusava com um alerta.
+
+- **Correção**: quando `captureStream()` não existe, os frames do vídeo são desenhados num `<canvas>` próprio (a um ritmo fixo) e é ESSE canvas que é capturado via `canvas.captureStream()` — método que o Safari suporta, por ser um elemento controlado pela própria página. Funciona tanto em chamadas 1-para-1 como de grupo.
+- **Importante não confundir com "partilhar o ecrã do telemóvel"**: capturar o ecrã de sistema do iPhone (outras apps, ecrã principal) exigiria `navigator.mediaDevices.getDisplayMedia()`, que a Apple **não implementa** no Safari iOS por política de segurança — isso continua a ser impossível de contornar por código, em qualquer site. Este fix é só para o vídeo que já toca dentro da própria app.
+
