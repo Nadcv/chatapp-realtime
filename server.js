@@ -324,6 +324,41 @@ function publicUser(u) {
   return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null };
 }
 
+// ==================== VALIDAÇÃO DE TELEMÓVEL (NUMVERIFY) ====================
+// Ao contrário do email (que dá para confirmar de graça com um código),
+// confirmar que um número de telemóvel é real e recebe SMS exige um serviço
+// pago (Twilio, Vonage, etc.) — não implementado aqui. Isto é o meio-termo
+// gratuito: o Numverify (apilayer.net) confirma se o número tem um formato e
+// prefixo de operadora reais atribuídos (país, operadora, se é móvel ou
+// fixo) — não prova que a PESSOA tem esse telemóvel na mão (não manda
+// código nenhum), mas já recusa números inventados/impossíveis. Precisa da
+// variável NUMVERIFY_API_KEY (plano gratuito: 100 pedidos/mês em
+// numverify.com) — sem ela, este passo é simplesmente saltado (tal como o
+// email sem servidor configurado).
+const NUMVERIFY_TIMEOUT_MS = 8000;
+// Configurável (testes apontam para um mock local) — o plano gratuito do
+// Numverify a sério só responde em HTTP (não HTTPS), daí o valor por omissão.
+const NUMVERIFY_API_BASE = process.env.NUMVERIFY_API_BASE || 'http://apilayer.net/api/validate';
+async function validatePhoneNumberReal(phoneNumber) {
+  const apiKey = process.env.NUMVERIFY_API_KEY;
+  if (!apiKey) return null; // não configurado — quem chama trata isto como "sem opinião", nunca bloqueia
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), NUMVERIFY_TIMEOUT_MS);
+  try {
+    const url = `${NUMVERIFY_API_BASE}?access_key=${apiKey}&number=${encodeURIComponent(phoneNumber)}&format=1`;
+    const r = await fetch(url, { signal: controller.signal });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (data.error) { console.error('Erro Numverify:', data.error.info || data.error); return null; }
+    return { valid: data.valid === true, lineType: data.line_type || null };
+  } catch (err) {
+    console.error('Erro ao validar telemóvel (Numverify):', err.message);
+    return null; // rede em baixo/timeout/quota esgotada — nunca bloqueia quem se regista de boa fé
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Cria mesmo a conta (contas[phone], índice de username, sessão) a partir de
 // dados já validados — usado tanto pelo registo direto (sem verificação de
 // email, quando o servidor não tem email configurado) como pela confirmação
@@ -354,6 +389,13 @@ app.post('/api/register', async (req, res) => {
   username = String(username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
   if (username.length < 3) return res.status(400).json({ error: 'O nome de utilizador deve ter pelo menos 3 caracteres (letras, números ou _).' });
   if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'Esse email não parece válido — confirma que está bem escrito.' });
+  // Só recusa quando o Numverify responde mesmo "inválido" — qualquer outro
+  // resultado (não configurado, erro de rede, quota esgotada) segue em
+  // frente sem bloquear (ver comentário em validatePhoneNumberReal).
+  const phoneCheck = await validatePhoneNumberReal(phone);
+  if (phoneCheck && phoneCheck.valid === false) {
+    return res.status(400).json({ error: 'Esse número de telemóvel não parece ser real — confirma o número (com indicativo, ex.: +351).' });
+  }
   if (accounts[phone] || isPendingRegistrationActive(phone)) return res.status(409).json({ error: 'Já existe uma conta com esse número de telefone.' });
   if (usernameIndex[username] || isPendingUsernameActive(username)) return res.status(409).json({ error: 'Esse nome de utilizador já está a ser usado. Escolhe outro.' });
   if (String(password).length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });

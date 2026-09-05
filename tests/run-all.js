@@ -79,7 +79,8 @@ const MOCK_SERVERS = [
   'mock_metro_server.js',           // 3004 - só usado diretamente por test_metro_auth_logic.js
                                      // (testa lógica antiga do Metro Lisboa, substituída pela
                                      // UnderLX no server.js atual — ver README)
-  'mock_france_server.js'           // 3020 - França (Transilien, versão reduzida)
+  'mock_france_server.js',          // 3020 - França (Transilien, versão reduzida)
+  'mock_numverify_server.js'        // 3021 - validação de telemóvel no registo
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -134,7 +135,9 @@ const BASE_ENV = {
   IGNAV_API_BASE: 'http://localhost:3011/api',
   IGNAV_API_KEY: 'mock-ignav-key',
   TICTACTRIP_API_BASE: 'http://localhost:3010',
-  TICTACTRIP_API_TOKEN: 'mock-tictactrip-token'
+  TICTACTRIP_API_TOKEN: 'mock-tictactrip-token',
+  NUMVERIFY_API_BASE: 'http://localhost:3021',
+  NUMVERIFY_API_KEY: 'mock-numverify-key'
 };
 
 // Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por
