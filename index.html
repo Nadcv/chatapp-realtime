@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
     <style>
         :root {
             --bg-primary: #111b21;
@@ -2554,6 +2555,7 @@
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openPinSetupModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔒<span style="font-size:11px;">Bloqueio por PIN</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openDevicesModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📱<span style="font-size:11px;">Dispositivos ligados</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openSosModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚨<span style="font-size:11px;">SOS</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openLibraryScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📚<span style="font-size:11px;">Biblioteca</span></button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures')">Fechar</button>
@@ -3428,6 +3430,30 @@
                 <iframe id="tvFrame" style="position:absolute;inset:0;width:100%;height:100%;border:none;" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
             </div>
             <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:6px 12px;margin:0;">Transmissões oficiais, gratuitas e licenciadas — nada de canais piratas. Se um canal aparecer "offline", é porque essa emissora não está a emitir em direto no YouTube nesse preciso momento (não é um erro da app).</p>
+        </div>
+
+        <!-- ============ BIBLIOTECA GRATUITA (Project Gutenberg + EPUB local) ============ -->
+        <div class="location-screen" id="libraryScreen">
+            <div class="location-header">
+                <strong>📚 Biblioteca</strong>
+                <button onclick="closeLibraryScreen()">✖️</button>
+            </div>
+            <div id="libraryListView" style="padding:12px;overflow-y:auto;flex:1;">
+                <button class="btn-small btn-accept" style="width:100%;" onclick="carregarListaGutenberg()">📖 Carregar livros gratuitos (Project Gutenberg)</button>
+                <div style="margin:14px 0;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">Ou lê o teu próprio EPUB:</label>
+                    <input type="file" id="libraryFileInput" accept=".epub" onchange="handleLibraryFileSelected(this)">
+                </div>
+                <div id="libraryLoading" style="display:none;text-align:center;padding:16px;color:var(--text-secondary);">A carregar...</div>
+                <div id="libraryBookList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:10px;"></div>
+                <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:10px 4px 0;">Livros de domínio público, gratuitos e legais, indexados a partir do Project Gutenberg (via Gutendex). Também podes ler qualquer EPUB teu, sem sair da app.</p>
+            </div>
+            <div id="libraryReader" style="display:none;flex:1;position:relative;">
+                <div style="position:absolute;top:6px;left:6px;z-index:5;">
+                    <button class="btn-small" onclick="closeLibraryReader()">◀️ Voltar à lista</button>
+                </div>
+                <div id="libraryReaderContent" style="position:absolute;inset:0;top:44px;"></div>
+            </div>
         </div>
 
         <!-- ============ ONDE ASSISTIR ============ -->
@@ -7665,6 +7691,87 @@
         TV.current = id;
         renderTvChannelTabs();
         tvEl.frame.src = ch.directUrl || `https://www.youtube.com/embed/live_stream?channel=${ch.channelId}&autoplay=1`;
+    }
+
+    // ==================== BIBLIOTECA GRATUITA (Project Gutenberg + EPUB local) ====================
+    // Lê ficheiros EPUB dentro da própria app — livros de domínio público
+    // (via /api/library/gutenberg, que passa pelo Gutendex no servidor) ou um
+    // EPUB próprio do utilizador. A leitura em si (desenhar as páginas) usa a
+    // biblioteca epub.js (carregada via CDN); a lista de livros gratuitos
+    // passa pelo servidor, tal como as outras integrações externas desta app.
+    let libraryCurrentBook = null;
+    let libraryBooksCache = [];
+    function openLibraryScreen() {
+        document.getElementById('libraryScreen').classList.add('active');
+    }
+    function closeLibraryScreen() {
+        document.getElementById('libraryScreen').classList.remove('active');
+        closeLibraryReader();
+    }
+    function closeLibraryReader() {
+        document.getElementById('libraryReader').style.display = 'none';
+        document.getElementById('libraryListView').style.display = 'block';
+        if (libraryCurrentBook) { libraryCurrentBook.destroy(); libraryCurrentBook = null; }
+    }
+    function openLibraryBook(bookData) {
+        document.getElementById('libraryListView').style.display = 'none';
+        document.getElementById('libraryReader').style.display = 'block';
+        const contentDiv = document.getElementById('libraryReaderContent');
+        contentDiv.innerHTML = '';
+        const showOpenError = () => {
+            contentDiv.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:30px;">Não foi possível abrir este livro (pode não ser um EPUB válido, o ficheiro estar inacessível, ou o leitor não ter carregado — verifica a tua ligação e tenta recarregar a página).</p>';
+        };
+        // epub.js vem de um CDN externo — se falhar ao carregar (rede em baixo,
+        // bloqueador de anúncios, CDN em baixo), ePub() nem existe: chamar isso
+        // diretamente lançava um erro não tratado, deixando o ecrã preso sem
+        // explicação nenhuma em vez de mostrar o aviso amigável.
+        if (typeof ePub === 'undefined') { showOpenError(); return; }
+        try {
+            if (libraryCurrentBook) libraryCurrentBook.destroy();
+            libraryCurrentBook = ePub(bookData);
+            const rendition = libraryCurrentBook.renderTo(contentDiv, { width: '100%', height: '100%', spread: 'none', flow: 'paginated' });
+            rendition.display().catch(showOpenError);
+        } catch (err) {
+            showOpenError();
+        }
+    }
+    async function carregarListaGutenberg() {
+        const loading = document.getElementById('libraryLoading');
+        const bookList = document.getElementById('libraryBookList');
+        loading.style.display = 'block';
+        bookList.innerHTML = '';
+        try {
+            const r = await fetch('/api/library/gutenberg');
+            const data = await r.json();
+            if (data.error) { bookList.innerHTML = `<p style="color:#e74c3c;grid-column:1/-1;text-align:center;">${escapeHtml(data.error)}</p>`; loading.style.display = 'none'; return; }
+            libraryBooksCache = data.books || [];
+            if (!libraryBooksCache.length) {
+                bookList.innerHTML = '<p style="color:var(--text-secondary);grid-column:1/-1;text-align:center;">Nenhum livro em português com EPUB encontrado.</p>';
+                loading.style.display = 'none';
+                return;
+            }
+            bookList.innerHTML = libraryBooksCache.map((b, i) => `
+                <div style="background:var(--bg-tertiary);padding:10px;border-radius:8px;cursor:pointer;text-align:center;" onclick="carregarLivroGutenberg(${i})">
+                    <div style="font-size:28px;">📖</div>
+                    <h4 style="margin:5px 0;font-size:13px;color:var(--text-primary);">${escapeHtml(b.title)}</h4>
+                    <p style="margin:0;font-size:11px;color:var(--text-secondary);">${escapeHtml(b.author)}</p>
+                </div>`).join('');
+        } catch (err) {
+            bookList.innerHTML = '<p style="color:#e74c3c;grid-column:1/-1;text-align:center;">Não foi possível ligar ao servidor.</p>';
+        }
+        loading.style.display = 'none';
+    }
+    function carregarLivroGutenberg(index) {
+        const book = libraryBooksCache[index];
+        if (book) openLibraryBook(book.epubUrl);
+    }
+    function handleLibraryFileSelected(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => openLibraryBook(ev.target.result);
+        reader.readAsArrayBuffer(file);
+        input.value = '';
     }
 
     // ==================== ONDE ASSISTIR (filmes e séries) ====================
