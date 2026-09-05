@@ -4450,6 +4450,71 @@ function checkGameWinner(board) {
   return board.every((c) => c) ? 'draw' : null;
 }
 
+// Xadrez (versão simplificada — ver comentário em 'move_chess'). Tabuleiro
+// 0-63, linha = índice/8, coluna = índice%8; dono 0 (X) começa nas linhas
+// 0-1, dono 1 (O) nas linhas 6-7 (mesma convenção de "linha 0 = topo" já
+// usada nas damas desta app, não a convenção real do xadrez).
+function isChessPathClear(board, fr, fc, tr, tc) {
+  const dr = Math.sign(tr - fr), dc = Math.sign(tc - fc);
+  let r = fr + dr, c = fc + dc;
+  while (r !== tr || c !== tc) {
+    if (board[r * 8 + c]) return false;
+    r += dr; c += dc;
+  }
+  return true;
+}
+function isValidChessMove(board, from, to, ownerNum) {
+  const piece = board[from];
+  if (!piece || piece.owner !== ownerNum) return false;
+  const target = board[to];
+  if (target && target.owner === ownerNum) return false;
+  const fr = Math.floor(from / 8), fc = from % 8;
+  const tr = Math.floor(to / 8), tc = to % 8;
+  const dr = tr - fr, dc = tc - fc;
+  const adr = Math.abs(dr), adc = Math.abs(dc);
+  if (adr === 0 && adc === 0) return false;
+  switch (piece.type) {
+    case 'p': {
+      const dir = ownerNum === 0 ? 1 : -1;
+      const startRow = ownerNum === 0 ? 1 : 6;
+      if (dc === 0 && !target) {
+        if (dr === dir) return true;
+        return dr === 2 * dir && fr === startRow && !board[from + 8 * dir];
+      }
+      return adc === 1 && dr === dir && !!target && target.owner !== ownerNum;
+    }
+    case 'n':
+      return (adr === 2 && adc === 1) || (adr === 1 && adc === 2);
+    case 'b':
+      return adr === adc && isChessPathClear(board, fr, fc, tr, tc);
+    case 'r':
+      return (dr === 0) !== (dc === 0) && isChessPathClear(board, fr, fc, tr, tc);
+    case 'q':
+      return (adr === adc || dr === 0 || dc === 0) && isChessPathClear(board, fr, fc, tr, tc);
+    case 'k':
+      return adr <= 1 && adc <= 1;
+    default:
+      return false;
+  }
+}
+
+// Forca — pequena lista de palavras comuns em português (sem acentos, para
+// simplificar a comparação letra a letra); a palavra escolhida nunca chega
+// ao cliente em claro antes do fim do jogo (ver sanitizeHangmanGame).
+const HANGMAN_WORDS = [
+  'BANANA', 'CACHORRO', 'ELEFANTE', 'GUITARRA', 'FUTEBOL', 'COMPUTADOR', 'JANELA', 'MONTANHA',
+  'BORBOLETA', 'CHOCOLATE', 'BICICLETA', 'ESTRELA', 'FLORESTA', 'JARDIM', 'LARANJA', 'MORANGO',
+  'OCEANO', 'PASSARO', 'RELOGIO', 'SEMANA', 'TELEFONE', 'UNIVERSO', 'VULCAO', 'TESOURO',
+  'CADEIRA', 'DRAGAO', 'ESCOLA', 'FAROL', 'GIRASSOL', 'HOSPITAL', 'IGREJA', 'LIVRO'
+];
+function computeHangmanMask(word, guessedLetters) {
+  return word.split('').map((l) => (guessedLetters.includes(l) ? l : '_')).join('');
+}
+function sanitizeHangmanGame(game) {
+  const { word, ...publicFields } = game;
+  return { ...publicFields, maskedWord: computeHangmanMask(word, game.guessedLetters), wordLength: word.length, ...(game.winner ? { revealedWord: word } : {}) };
+}
+
 // UNO — jogável tanto em conversas 1-para-1 (2 jogadores fixos) como em
 // grupos (quem começa escolhe entre 1 e 5 contactos, total 2 a 6 jogadores).
 // Ao contrário do galo/damas, aqui não dá para confiar no cliente para o
@@ -5108,6 +5173,7 @@ io.on('connection', (socket) => {
     // cartas de toda a gente só de abrir a conversa/grupo.
     const history = (messagesByRoom[roomId] || []).map((m) => {
       if (m.game?.type === 'uno') return { ...m, game: sanitizeUnoGame(m.game, user.phone) };
+      if (m.game?.type === 'hangman') return { ...m, game: sanitizeHangmanGame(m.game) };
       if (m.poll) return { ...m, poll: sanitizePollForViewer(m.poll, user.phone) };
       return m;
     });
@@ -5399,6 +5465,100 @@ io.on('connection', (socket) => {
       saveMessagesLocal();
     }
     io.to(data.chatId).emit('game_updated', { chatId: data.chatId, messageId: data.messageId, game: msg.game });
+  });
+
+  // Xadrez — versão simplificada: movimentos das peças validados normalmente
+  // (incluindo bloqueio de peças a meio do caminho para torre/bispo/dama),
+  // mas SEM deteção de xeque/xeque-mate, sem roque e sem "en passant" — o
+  // jogo termina assim que um rei é mesmo capturado. Simplifica bastante a
+  // implementação (nada de calcular se um movimento deixaria o próprio rei
+  // em xeque) ao preço de não ser exatamente as regras oficiais de xadrez.
+  socket.on('move_chess', async (data) => {
+    if (!data?.chatId || !data?.messageId || typeof data?.from !== 'number' || typeof data?.to !== 'number') return;
+    if (data.from < 0 || data.from > 63 || data.to < 0 || data.to > 63) return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find((m) => m.id === data.messageId);
+    if (!msg?.game || msg.game.type !== 'chess' || msg.game.winner) return;
+    const myMark = msg.game.players[0] === myPhone ? 'X' : (msg.game.players[1] === myPhone ? 'O' : null);
+    if (!myMark || myMark !== msg.game.turn) return;
+    const myOwner = myMark === 'X' ? 0 : 1;
+    const board = msg.game.board;
+    if (!isValidChessMove(board, data.from, data.to, myOwner)) return;
+    const captured = board[data.to];
+    board[data.to] = board[data.from];
+    board[data.from] = null;
+    const toRow = Math.floor(data.to / 8);
+    if (board[data.to].type === 'p' && (toRow === 0 || toRow === 7)) board[data.to].type = 'q'; // promoção automática para dama
+    msg.game.winner = (captured && captured.type === 'k') ? myMark : null;
+    msg.game.turn = myMark === 'X' ? 'O' : 'X';
+    msg.game.lastMove = { from: data.from, to: data.to };
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { game: msg.game }).catch((e) => console.error('Erro Mongo (xadrez):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(data.chatId).emit('game_updated', { chatId: data.chatId, messageId: data.messageId, game: msg.game });
+  });
+
+  // Forca — cooperativa: os dois lados da conversa tentam adivinhar juntos a
+  // mesma palavra secreta (escolhida pelo servidor, nunca por uma das
+  // pessoas — sem isto, quem escolhesse a palavra estragava a surpresa para
+  // si próprio também). A palavra real NUNCA é enviada ao cliente antes do
+  // fim do jogo (ver sanitizeHangmanGame) — só a versão mascarada.
+  socket.on('start_hangman', async (data) => {
+    const myPhone = users[socket.id]?.phone;
+    if (!myPhone || !data?.chatId || !Array.isArray(data.players)) return;
+    const isGroup = !!groups[data.chatId];
+    let players = [...new Set(data.players.filter((p) => typeof p === 'string' && p))];
+    if (!players.includes(myPhone)) players.unshift(myPhone);
+    if (!isGroup && players.length !== 2) return;
+    if (players.length < 1) return;
+
+    const word = HANGMAN_WORDS[Math.floor(Math.random() * HANGMAN_WORDS.length)];
+    const game = { type: 'hangman', word, players, guessedLetters: [], wrongGuesses: 0, maxWrong: 6, winner: null };
+
+    const msgId = 'hangman_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const msg = {
+      id: msgId, chatId: data.chatId, sender: users[socket.id]?.name || 'Alguém', senderPhone: myPhone,
+      toPhone: isGroup ? undefined : players.find((p) => p !== myPhone), text: '', time, game
+    };
+    if (!messagesByRoom[data.chatId]) messagesByRoom[data.chatId] = [];
+    messagesByRoom[data.chatId].push(msg);
+    if (messagesByRoom[data.chatId].length > MAX_HISTORY_PER_ROOM) {
+      messagesByRoom[data.chatId] = messagesByRoom[data.chatId].slice(-MAX_HISTORY_PER_ROOM);
+    }
+    if (isDbConnected) {
+      await MessageModel.create({ ...msg }).catch((e) => console.error('Erro Mongo (criar forca):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(data.chatId).emit('receive_message', { ...msg, game: sanitizeHangmanGame(game) });
+  });
+
+  socket.on('hangman_guess', async (data) => {
+    const letter = String(data?.letter || '').toUpperCase().slice(0, 1);
+    if (!data?.chatId || !data?.messageId || !letter || !/[A-ZÀ-Ú]/.test(letter)) return;
+    const msgs = messagesByRoom[data.chatId];
+    const myPhone = users[socket.id]?.phone;
+    if (!msgs || !myPhone) return;
+    const msg = msgs.find((m) => m.id === data.messageId);
+    if (!msg?.game || msg.game.type !== 'hangman' || msg.game.winner || !msg.game.players.includes(myPhone)) return;
+    if (msg.game.guessedLetters.includes(letter)) return;
+    msg.game.guessedLetters.push(letter);
+    if (!msg.game.word.includes(letter)) msg.game.wrongGuesses++;
+    const wordLetters = new Set(msg.game.word.split(''));
+    const allGuessed = [...wordLetters].every((l) => msg.game.guessedLetters.includes(l));
+    if (allGuessed) msg.game.winner = 'won';
+    else if (msg.game.wrongGuesses >= msg.game.maxWrong) msg.game.winner = 'lost';
+    if (isDbConnected) {
+      await MessageModel.updateOne({ id: data.messageId }, { game: msg.game }).catch((e) => console.error('Erro Mongo (forca):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(data.chatId).emit('game_updated', { chatId: data.chatId, messageId: data.messageId, game: sanitizeHangmanGame(msg.game) });
   });
 
   // Começar um jogo de UNO — dentro de uma conversa 1-para-1 os jogadores são
