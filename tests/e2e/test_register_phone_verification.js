@@ -1,10 +1,14 @@
-// Valida o telemóvel no registo através do Numverify (apilayer.net) — ver
-// validatePhoneNumberReal() no server.js. Este teste usa um mock local
-// (tests/mocks/mock_numverify_server.js, porta 3021) em vez do serviço real:
-// números com "000000000" simulam "inválido" e com "111111111" simulam um
-// erro da própria API (quota esgotada, etc.) — nos dois casos confirma-se o
-// comportamento esperado: recusa só quando a API diz mesmo "inválido",
-// nunca bloqueia por causa de um erro da API.
+// Valida o telemóvel no registo através de uma cascata de provedores
+// (Numverify → Veriphone → AbstractAPI) — ver validatePhoneNumberReal() e
+// PHONE_VALIDATION_PROVIDERS no server.js. Este teste usa mocks locais em
+// vez dos serviços reais (tests/mocks/mock_numverify_server.js porta 3021,
+// mock_veriphone_server.js porta 3022, mock_abstractapi_server.js porta
+// 3023): números com "000000000" simulam "inválido" logo no 1º provedor;
+// com "111111111" simulam TODOS os provedores sem quota (cascata esgotada);
+// com "222222222" simulam só o 1º provedor sem quota, com o 2º a decidir
+// "inválido" (prova que a cascata avança e usa a 1ª resposta definitiva que
+// encontra). Em nenhum caso um erro/quota de uma API bloqueia o registo —
+// só uma resposta explícita de "inválido" o faz.
 const { chromium } = require('playwright');
 
 async function fillRegisterForm(page, { name, username, phone, email }) {
@@ -32,7 +36,7 @@ async function fillRegisterForm(page, { name, username, phone, email }) {
   const invalidStillOnRegisterScreen = await pageInvalid.evaluate(() => document.getElementById('mainApp').style.display !== 'flex');
   console.log('Número de telemóvel claramente inválido (Numverify diz "inválido") é recusado:', invalidRejected && invalidStillOnRegisterScreen);
 
-  // --- API do Numverify a falhar (quota esgotada, etc.): NÃO bloqueia o registo. ---
+  // --- Toda a cascata sem quota (Numverify + Veriphone + AbstractAPI): NÃO bloqueia o registo. ---
   const ctxApiError = await browser.newContext();
   const pageApiError = await ctxApiError.newPage();
   await pageApiError.goto('http://localhost:3000');
@@ -42,7 +46,20 @@ async function fillRegisterForm(page, { name, username, phone, email }) {
   await pageApiError.click('button:has-text("Criar conta")');
   await pageApiError.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
   const apiErrorDidNotBlock = await pageApiError.evaluate(() => document.getElementById('mainApp').style.display === 'flex');
-  console.log('Uma falha da própria API do Numverify (quota esgotada, etc.) NUNCA bloqueia o registo:', apiErrorDidNotBlock);
+  console.log('Cascata inteira sem quota (Numverify + Veriphone + AbstractAPI) NUNCA bloqueia o registo:', apiErrorDidNotBlock);
+
+  // --- Numverify sem quota, mas o 2º provedor (Veriphone) recusa o número: cascata usa essa decisão. ---
+  const ctxCascade = await browser.newContext();
+  const pageCascade = await ctxCascade.newPage();
+  await pageCascade.goto('http://localhost:3000');
+  await pageCascade.click('.login-switch');
+  const tsCascade = Date.now();
+  await fillRegisterForm(pageCascade, { name: 'Phone Cascade Test', username: 'phonecascade_' + tsCascade, phone: '+351222222222', email: 'phonecascade' + tsCascade + '@test.com' });
+  await pageCascade.click('button:has-text("Criar conta")');
+  await pageCascade.waitForTimeout(600);
+  const cascadeRejected = await pageCascade.evaluate(() => document.getElementById('registerError').textContent.includes('não parece ser real'));
+  const cascadeStillOnRegisterScreen = await pageCascade.evaluate(() => document.getElementById('mainApp').style.display !== 'flex');
+  console.log('Numverify sem quota + Veriphone (2º provedor) recusa o número: a cascata usa essa decisão e recusa o registo:', cascadeRejected && cascadeStillOnRegisterScreen);
 
   // --- Número normal (mock devolve valid:true): regista normalmente. ---
   const ctxValid = await browser.newContext();
