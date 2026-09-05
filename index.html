@@ -2389,6 +2389,10 @@
             <div class="modal">
                 <h3>👑 Gerir grupo</h3>
                 <p style="color:#8696a0;font-size:13px;">Silenciar impede a pessoa de escrever; remover tira-a do grupo (pode ser desconvidado depois).</p>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:8px 0;">
+                    <input type="checkbox" id="groupDailySummaryToggle" onchange="toggleGroupDailySummary(this.checked)">
+                    🗒️ Resumo diário automático (IA, às 22h de Lisboa)
+                </label>
                 <div style="max-height:340px;overflow:auto;" id="manageGroupList"></div>
                 <div id="groupInviteBox" style="display:none;"></div>
                 <div class="modal-actions">
@@ -3993,7 +3997,7 @@
                 memberCount: APP.onlineContacts.length, createdBy: g.createdBy, createdByPhone: g.createdByPhone,
                 admins: g.admins || [], moderators: g.moderators || [], mutedPhones: g.mutedPhones || [], bannedPhones: g.bannedPhones || [],
                 private: !!g.private, memberPhones: g.memberPhones || [], memberNames: g.memberNames || [], inviteToken: g.inviteToken || null,
-                announcementsOnly: !!g.announcementsOnly, communityId: g.communityId || null
+                announcementsOnly: !!g.announcementsOnly, communityId: g.communityId || null, dailySummaryEnabled: !!g.dailySummaryEnabled
             }));
         const aiChats = DEFAULT_CONTACTS;
         APP.chats = [...aiChats, ...groupChats, ...contactChats];
@@ -10485,6 +10489,7 @@
         const myPhone = APP.user.phone;
         const isAdmin = chat.admins?.includes(myPhone);
         if (!isAdmin) return alert('Só administradores do grupo podem geri-lo.');
+        document.getElementById('groupDailySummaryToggle').checked = !!chat.dailySummaryEnabled;
         const list = document.getElementById('manageGroupList');
         // Grupos privados só têm mesmo os membros reais como candidatos a gerir — podem
         // incluir gente que entrou por convite e não é contacto de quem administra, por
@@ -10591,6 +10596,11 @@
         if (!confirm(`Apagar o grupo "${chat.name}" para sempre? Isto também apaga todas as mensagens. Não é possível desfazer.`)) return;
         socket.emit('group_delete', { groupId: chat.id });
         closeModal('modalManageGroup');
+    }
+    function toggleGroupDailySummary(enabled) {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type !== 'group') return;
+        socket.emit('group_set_daily_summary', { groupId: chat.id, enabled });
     }
 
     socket.on('group_deleted', (data) => {

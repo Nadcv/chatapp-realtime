@@ -1224,4 +1224,12 @@ O seletor de emojis (😊 junto ao campo de mensagem, e o mesmo dentro do chat d
 
 Continua sem precisar de nenhuma biblioteca externa nem CDN — são só carateres unicode normais, tal como antes, só que muito mais completos e organizados.
 
+## 📊 Resumo diário automático da conversa (IA)
+
+Em "Gerir grupo" há agora um interruptor "🗒️ Resumo diário automático (IA, às 22h de Lisboa)", só visível/alterável por administradores do grupo. Quando ligado, o servidor gera uma vez por dia (às 22h, hora de Lisboa) um resumo em português das mensagens de texto novas desde o último resumo, usando o Gemini, e publica-o como uma mensagem normal assinada "📊 Resumo diário (IA)" — visível para todo o grupo.
+
+**Regras para não incomodar ninguém à toa**: só é gerado um resumo se houver pelo menos 5 mensagens de texto novas (mensagens apagadas ou ficheiros/anexos não contam) desde o resumo anterior — dias parados não geram resumo nenhum. Se a chamada ao Gemini falhar por qualquer razão (sem chave de API configurada, serviço em baixo, etc.), essa vez é simplesmente saltada sem marcar nada como feito, e tenta-se de novo no dia seguinte.
+
+**Limitação conhecida**: o disparo real só acontece às 22h no relógio do servidor, o que não é praticável testar de forma automatizada e determinística (o mesmo problema já aceite noutras funcionalidades desta app que dependem da hora do dia) — os testes automatizados cobrem o interruptor em si (só admins o podem ligar/desligar, e o estado fica sincronizado para todos os membros do grupo), não o disparo agendado.
+
 
