@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
+    "@simplewebauthn/server": "^14.0.1",
     "adm-zip": "^0.6.0",
     "dompurify": "^3.4.13",
     "express": "^4.19.2",

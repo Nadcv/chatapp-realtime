@@ -1345,6 +1345,7 @@
             <input type="password" id="loginPassword" placeholder="Senha" data-i18n-placeholder="passwordPlaceholder">
             <div class="login-error" id="loginError"></div>
             <button class="btn btn-primary" onclick="doLogin()" data-i18n="loginSubmitBtn">🚀 Entrar</button>
+            <button class="btn" id="webauthnLoginBtn" onclick="doWebauthnLogin()" style="background:var(--bg-tertiary);display:none;">🔓 Entrar com Face ID/Touch ID</button>
             <button class="btn" onclick="openQrScanModal()" style="background:var(--bg-tertiary);" data-i18n="loginQrBtn">🔗 Associar por QR (já tenho conta noutro aparelho)</button>
             <div class="login-switch" onclick="showAuthForm('register')" data-i18n="loginNoAccount">Não tem conta? Criar conta</div>
             <div class="login-switch" onclick="showAuthForm('forgotPassword')" data-i18n="loginForgotPassword">Esqueceste a senha?</div>
@@ -2848,6 +2849,12 @@
                         <input type="checkbox" id="twoFactorCheck" onchange="saveTwoFactorSetting()"> Verificação em duas etapas
                     </label>
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;" id="twoFactorHint">Ao entrar num dispositivo novo, além da senha pedimos um código enviado para o teu email. Os dispositivos onde já tens sessão iniciada continuam a funcionar normalmente, sem código nenhum.</p>
+                    <div id="webauthnSection" style="display:none;margin-top:12px;">
+                        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">🔐 Face ID / Touch ID</label>
+                        <div id="webauthnCredentialsList" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px;"></div>
+                        <button class="btn-small" onclick="setupWebauthn()">➕ Ativar neste dispositivo</button>
+                        <p style="color:#8696a0;font-size:11px;margin-top:6px;">Entra sem escrever a senha, usando a impressão digital/Face ID/PIN deste dispositivo. Cada dispositivo tem de ser ativado separadamente.</p>
+                    </div>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
@@ -4321,6 +4328,136 @@
         }
     }
 
+    // ==================== FACE ID / TOUCH ID (WEBAUTHN/PASSKEYS) ====================
+    // Sem biblioteca externa nenhuma — usa a Web Authentication API nativa do
+    // navegador (navigator.credentials.create/get) diretamente. O servidor
+    // (via @simplewebauthn/server) manda/recebe tudo em base64url (o mesmo
+    // formato usado pela biblioteca de referência @simplewebauthn/browser),
+    // por isso só é preciso converter para/de ArrayBuffer aqui.
+    function webauthnBase64urlToBuffer(base64url) {
+        const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
+        const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(base64);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        return bytes.buffer;
+    }
+    function webauthnBufferToBase64url(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let str = '';
+        for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function webauthnCreationOptionsFromServer(options) {
+        return {
+            ...options,
+            challenge: webauthnBase64urlToBuffer(options.challenge),
+            user: { ...options.user, id: webauthnBase64urlToBuffer(options.user.id) },
+            excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: webauthnBase64urlToBuffer(c.id) })),
+        };
+    }
+    function webauthnRequestOptionsFromServer(options) {
+        return {
+            ...options,
+            challenge: webauthnBase64urlToBuffer(options.challenge),
+            allowCredentials: (options.allowCredentials || []).map(c => ({ ...c, id: webauthnBase64urlToBuffer(c.id) })),
+        };
+    }
+    function webauthnRegistrationCredentialToJSON(cred) {
+        return {
+            id: cred.id,
+            rawId: webauthnBufferToBase64url(cred.rawId),
+            type: cred.type,
+            response: {
+                clientDataJSON: webauthnBufferToBase64url(cred.response.clientDataJSON),
+                attestationObject: webauthnBufferToBase64url(cred.response.attestationObject),
+                transports: (cred.response.getTransports && cred.response.getTransports()) || [],
+            },
+            clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+        };
+    }
+    function webauthnAssertionCredentialToJSON(cred) {
+        return {
+            id: cred.id,
+            rawId: webauthnBufferToBase64url(cred.rawId),
+            type: cred.type,
+            response: {
+                clientDataJSON: webauthnBufferToBase64url(cred.response.clientDataJSON),
+                authenticatorData: webauthnBufferToBase64url(cred.response.authenticatorData),
+                signature: webauthnBufferToBase64url(cred.response.signature),
+                userHandle: cred.response.userHandle ? webauthnBufferToBase64url(cred.response.userHandle) : undefined,
+            },
+            clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+        };
+    }
+    // Ativa um Face ID/Touch ID/PIN NESTE dispositivo para a conta com sessão
+    // iniciada — cada dispositivo tem de o fazer separadamente (a "passkey"
+    // fica guardada no próprio aparelho, nunca no servidor).
+    async function setupWebauthn() {
+        if (!window.PublicKeyCredential) { alert('⚠️ Este dispositivo/navegador não suporta Face ID/Touch ID (WebAuthn).'); return; }
+        try {
+            const optsRes = await fetch('/api/webauthn/register-options', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': APP.token }, body: JSON.stringify({ origin: location.origin }) });
+            const optsData = await optsRes.json();
+            if (!optsRes.ok) { alert('⚠️ ' + (optsData.error || 'Não foi possível preparar o registo.')); return; }
+            const credential = await navigator.credentials.create({ publicKey: webauthnCreationOptionsFromServer(optsData.options) });
+            const verifyRes = await fetch('/api/webauthn/register-verify', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': APP.token },
+                body: JSON.stringify({ origin: location.origin, response: webauthnRegistrationCredentialToJSON(credential), deviceName: getDeviceName() })
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) { alert('⚠️ ' + (verifyData.error || 'Não foi possível ativar.')); return; }
+            loadWebauthnCredentials();
+        } catch (e) {
+            if (e.name === 'NotAllowedError') return; // cancelado pela própria pessoa — sem alarido
+            alert('⚠️ Não foi possível ativar o Face ID/Touch ID: ' + e.message);
+        }
+    }
+    async function loadWebauthnCredentials() {
+        try {
+            const res = await fetch('/api/webauthn/credentials?token=' + encodeURIComponent(APP.token));
+            const data = await res.json();
+            renderWebauthnCredentials(data.credentials || []);
+        } catch (e) { /* sem ligação — a secção fica só sem a lista, sem bloquear o resto do perfil */ }
+    }
+    function renderWebauthnCredentials(credentials) {
+        document.getElementById('webauthnCredentialsList').innerHTML = credentials.length ? credentials.map(c => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.06);border-radius:6px;padding:5px 8px;font-size:12px;">
+                <span>📱 ${escapeHtml(c.deviceName || 'Dispositivo')}</span>
+                <button class="btn-small" onclick="removeWebauthnCredential('${c.id}')" style="padding:2px 8px;">Remover</button>
+            </div>`).join('') : '<div style="font-size:12px;opacity:0.7;">Ainda não ativaste em nenhum dispositivo.</div>';
+    }
+    async function removeWebauthnCredential(id) {
+        try {
+            const res = await fetch('/api/webauthn/credentials/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': APP.token }, body: JSON.stringify({ id }) });
+            const data = await res.json();
+            if (res.ok) renderWebauthnCredentials(data.credentials || []);
+        } catch (e) { alert('⚠️ Não foi possível remover agora.'); }
+    }
+    // Botão do ecrã de login: "usernameless" — nem sequer se pede o telefone
+    // primeiro, é o próprio autenticador que escolhe qual passkey usar (ver
+    // grande comentário nas rotas /api/webauthn/* no servidor).
+    if (window.PublicKeyCredential) document.getElementById('webauthnLoginBtn').style.display = 'block';
+    async function doWebauthnLogin() {
+        const errEl = document.getElementById('loginError');
+        errEl.textContent = '';
+        try {
+            const optsRes = await fetch('/api/webauthn/login-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origin: location.origin }) });
+            const optsData = await optsRes.json();
+            if (!optsRes.ok) { errEl.textContent = optsData.error || 'Não foi possível preparar o login.'; return; }
+            const credential = await navigator.credentials.get({ publicKey: webauthnRequestOptionsFromServer(optsData.options) });
+            const verifyRes = await fetch('/api/webauthn/login-verify', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ challengeId: optsData.challengeId, origin: location.origin, response: webauthnAssertionCredentialToJSON(credential), deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() })
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) { errEl.textContent = verifyData.error || 'Não foi possível entrar.'; return; }
+            enterApp(verifyData.user, verifyData.token);
+        } catch (e) {
+            if (e.name === 'NotAllowedError') return; // cancelado pela própria pessoa — sem alarido
+            errEl.textContent = 'Não foi possível entrar com Face ID/Touch ID: ' + e.message;
+        }
+    }
+
     // ==================== ENCRIPTAÇÃO PONTA-A-PONTA (conversas 1-para-1) ====================
     // Usa a Web Crypto API nativa do navegador (nenhuma biblioteca externa): cada
     // dispositivo gera o seu próprio par de chaves ECDH (P-256); a chave PRIVADA
@@ -5231,6 +5368,7 @@
         document.getElementById('hideOnlineStatusCheck').checked = !!APP.user.hideOnlineStatus;
         document.getElementById('hideReadReceiptsCheck').checked = !!APP.user.hideReadReceipts;
         loadDndSettingsIntoProfile();
+        if (window.PublicKeyCredential) { document.getElementById('webauthnSection').style.display = 'block'; loadWebauthnCredentials(); }
         document.getElementById('modalProfile').classList.add('active');
     }
     function saveProfileEmail(email) {

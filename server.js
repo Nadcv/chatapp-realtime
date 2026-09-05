@@ -9,6 +9,8 @@ const net = require('net');
 const dns = require('dns');
 const QRCode = require('qrcode'); // gera o QR code de associação de dispositivo inteiramente no nosso servidor (nunca manda o código de pareamento para um terceiro)
 const mongoose = require('mongoose'); // Importado para gerir a base de dados em nuvem
+const { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } = require('@simplewebauthn/server'); // Face ID/Touch ID (WebAuthn/passkeys) — ver seção mais abaixo
+const { isoBase64URL, isoUint8Array } = require('@simplewebauthn/server/helpers');
 let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (e) { console.warn('⚠️ Pacote "nodemailer" não instalado — envio de email desativado.'); }
 let JSDOM = null, Readability = null, createDOMPurify = null;
@@ -75,7 +77,9 @@ const accountSchema = new mongoose.Schema({
   lastActiveDateStr: String, // 'YYYY-MM-DD' (UTC) do último dia em que enviou uma mensagem — para a sequência de dias
   streakDays: { type: Number, default: 0 },
   // ==================== SOS/EMERGÊNCIA ====================
-  trustedContacts: { type: [String], default: [] } // telefones de contactos de confiança (máx. 10) — ver 'sos_alert'
+  trustedContacts: { type: [String], default: [] }, // telefones de contactos de confiança (máx. 10) — ver 'sos_alert'
+  // ==================== FACE ID / TOUCH ID (WEBAUTHN/PASSKEYS) ====================
+  webauthnCredentials: { type: [Object], default: [] } // [{id (base64url), publicKey (base64url), counter, transports, deviceName, createdAt}] — ver /api/webauthn/*
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -431,6 +435,177 @@ app.post('/api/devices/remove', async (req, res) => {
     saveUsers();
   }
   res.json({ success: true, devices: user.devices });
+});
+
+// ==================== FACE ID / TOUCH ID (WEBAUTHN/PASSKEYS) ====================
+// Regista uma "passkey" (impressão digital/Face ID/PIN do próprio aparelho,
+// nunca a senha da conta) para entrar sem escrever a senha. O registo precisa
+// de já estar autenticado (feito em "Segurança" no perfil); o LOGIN em si é
+// que é "usernameless" — o próprio navegador/autenticador escolhe qual das
+// passkeys guardadas usar, e o servidor descobre de quem é através do
+// "userHandle" (o telefone, codificado em base64url, guardado como userID no
+// registo — ver generateRegistrationOptions abaixo), sem precisar de pedir o
+// número de telefone primeiro no ecrã de login.
+const pendingWebauthnRegChallenges = {}; // phone -> {challenge, expiresAt} (ceremonia de registo, autenticada)
+const pendingWebauthnAuthChallenges = {}; // challengeId -> {challenge, expiresAt} (ceremonia de login, anónima)
+const WEBAUTHN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+function rpIdFromOrigin(origin) {
+  try { return new URL(origin).hostname || null; } catch (e) { return null; }
+}
+function publicWebauthnCredential(c) { return { id: c.id, deviceName: c.deviceName, createdAt: c.createdAt }; }
+
+app.post('/api/webauthn/register-options', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const rpID = rpIdFromOrigin(req.body?.origin);
+  if (!rpID) return res.status(400).json({ error: 'Pedido inválido.' });
+  try {
+    const options = await generateRegistrationOptions({
+      rpName: 'ChatApp',
+      rpID,
+      userName: user.username || user.phone,
+      userDisplayName: user.name,
+      userID: isoUint8Array.fromUTF8String(user.phone),
+      attestationType: 'none',
+      excludeCredentials: (user.webauthnCredentials || []).map((c) => ({ id: c.id, transports: c.transports })),
+    });
+    pendingWebauthnRegChallenges[phone] = { challenge: options.challenge, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS };
+    res.json({ options });
+  } catch (e) {
+    console.error('Erro WebAuthn (opções de registo):', e.message);
+    res.status(500).json({ error: 'Não foi possível preparar o registo do Face ID/Touch ID.' });
+  }
+});
+
+app.post('/api/webauthn/register-verify', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const pending = pendingWebauthnRegChallenges[phone];
+  if (!pending || Date.now() > pending.expiresAt) return res.status(400).json({ error: 'O pedido expirou. Tenta novamente.' });
+  const origin = req.body?.origin;
+  const rpID = rpIdFromOrigin(origin);
+  if (!rpID) return res.status(400).json({ error: 'Pedido inválido.' });
+  try {
+    const verification = await verifyRegistrationResponse({
+      response: req.body.response,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+    });
+    delete pendingWebauthnRegChallenges[phone];
+    if (!verification.verified || !verification.registrationInfo) {
+      return res.status(400).json({ error: 'Não foi possível confirmar o Face ID/Touch ID.' });
+    }
+    const { credential } = verification.registrationInfo;
+    if (!user.webauthnCredentials) user.webauthnCredentials = [];
+    const newCredential = {
+      id: credential.id,
+      publicKey: isoBase64URL.fromBuffer(credential.publicKey),
+      counter: credential.counter,
+      transports: credential.transports || [],
+      deviceName: (req.body?.deviceName || 'Este dispositivo').trim().slice(0, 60),
+      createdAt: new Date().toISOString(),
+    };
+    user.webauthnCredentials.push(newCredential);
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone }, { webauthnCredentials: user.webauthnCredentials }).catch((e) => console.error('Erro Mongo (WebAuthn):', e.message));
+    } else {
+      saveUsers();
+    }
+    log(`🔐 Face ID/Touch ID ativado: ${user.name} (${newCredential.deviceName})`, 'AUTH');
+    res.json({ success: true, credential: publicWebauthnCredential(newCredential) });
+  } catch (e) {
+    delete pendingWebauthnRegChallenges[phone];
+    console.error('Erro WebAuthn (verificar registo):', e.message);
+    res.status(400).json({ error: 'Não foi possível ativar o Face ID/Touch ID neste dispositivo.' });
+  }
+});
+
+app.get('/api/webauthn/credentials', (req, res) => {
+  const token = req.headers['x-auth-token'] || req.query.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  res.json({ credentials: (user.webauthnCredentials || []).map(publicWebauthnCredential) });
+});
+
+app.post('/api/webauthn/credentials/remove', async (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  const user = accounts[phone];
+  if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
+  const credId = req.body?.id;
+  user.webauthnCredentials = (user.webauthnCredentials || []).filter((c) => c.id !== credId);
+  if (isDbConnected) {
+    await AccountModel.updateOne({ phone }, { webauthnCredentials: user.webauthnCredentials }).catch((e) => console.error('Erro Mongo (remover WebAuthn):', e.message));
+  } else {
+    saveUsers();
+  }
+  res.json({ success: true, credentials: user.webauthnCredentials.map(publicWebauthnCredential) });
+});
+
+// Sem autenticação de propósito — é o próprio ecrã de login que chama isto,
+// antes de sabermos quem é a pessoa (ver comentário grande acima).
+app.post('/api/webauthn/login-options', async (req, res) => {
+  const rpID = rpIdFromOrigin(req.body?.origin);
+  if (!rpID) return res.status(400).json({ error: 'Pedido inválido.' });
+  try {
+    const options = await generateAuthenticationOptions({ rpID, userVerification: 'required' });
+    const challengeId = crypto.randomBytes(16).toString('hex');
+    pendingWebauthnAuthChallenges[challengeId] = { challenge: options.challenge, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS };
+    res.json({ options, challengeId });
+  } catch (e) {
+    console.error('Erro WebAuthn (opções de login):', e.message);
+    res.status(500).json({ error: 'Não foi possível preparar o login com Face ID/Touch ID.' });
+  }
+});
+
+app.post('/api/webauthn/login-verify', async (req, res) => {
+  const { challengeId, response, deviceId, deviceName } = req.body || {};
+  const pending = challengeId && pendingWebauthnAuthChallenges[challengeId];
+  if (!pending || Date.now() > pending.expiresAt) return res.status(400).json({ error: 'O pedido expirou. Tenta novamente.' });
+  delete pendingWebauthnAuthChallenges[challengeId];
+  const origin = req.body?.origin;
+  const rpID = rpIdFromOrigin(origin);
+  const userHandle = response?.response?.userHandle;
+  if (!rpID || !userHandle) return res.status(400).json({ error: 'Pedido inválido.' });
+  let phone;
+  try { phone = isoBase64URL.toUTF8String(userHandle); } catch (e) { return res.status(400).json({ error: 'Pedido inválido.' }); }
+  const user = accounts[phone];
+  if (!user) return res.status(400).json({ error: 'Conta não encontrada.' });
+  const stored = (user.webauthnCredentials || []).find((c) => c.id === response.id);
+  if (!stored) return res.status(400).json({ error: 'Este Face ID/Touch ID não está associado a nenhuma conta aqui.' });
+  try {
+    const verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      credential: { id: stored.id, publicKey: isoBase64URL.toBuffer(stored.publicKey), counter: stored.counter, transports: stored.transports },
+    });
+    if (!verification.verified) return res.status(400).json({ error: 'Não foi possível confirmar a identidade.' });
+    stored.counter = verification.authenticationInfo.newCounter;
+    if (isDbConnected) {
+      await AccountModel.updateOne({ phone }, { webauthnCredentials: user.webauthnCredentials }).catch((e) => console.error('Erro Mongo (contador WebAuthn):', e.message));
+    } else {
+      saveUsers();
+    }
+    const cleanDeviceId = (deviceId || '').trim();
+    if (!cleanDeviceId) return res.status(400).json({ error: 'Pedido inválido (falta identificador do dispositivo).' });
+    if (!user.devices) user.devices = [];
+    const existingDevice = user.devices.find((d) => d.id === cleanDeviceId);
+    if (!existingDevice && user.devices.length >= 2) {
+      return res.status(403).json({ error: 'Esta conta já está a ser usada em 2 dispositivos (o máximo permitido). Remove um em "Dispositivos ligados" para poderes entrar aqui.' });
+    }
+    await completeLogin(user, existingDevice, cleanDeviceId, (deviceName || 'Dispositivo desconhecido').trim().slice(0, 60), res);
+  } catch (e) {
+    console.error('Erro WebAuthn (verificar login):', e.message);
+    res.status(400).json({ error: 'Não foi possível confirmar o Face ID/Touch ID.' });
+  }
 });
 
 // ==================== OS MEUS DADOS (exportar / apagar conta) ====================
