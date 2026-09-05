@@ -1443,6 +1443,7 @@
         </div>
         <div class="main-content">
             <div class="sidebar" id="sidebar">
+                <div id="offlineBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:#4b5563;color:#fff;">📴 Sem ligação — as mensagens ficam à espera e são enviadas assim que a ligação voltar</div>
                 <div id="birthdayBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:linear-gradient(135deg, #f093fb, #f5576c);color:#fff;"></div>
                 <div id="locationSharingBanner" style="display:none;padding:8px 12px;font-size:12px;text-align:center;background:linear-gradient(135deg, #ff9966, #ff5e62);color:#fff;align-items:center;justify-content:center;gap:8px;">
                     <span id="locationSharingText"></span>
@@ -3880,6 +3881,7 @@
         currentChatId: null,
         messages: {},
         activeTopic: {}, // chatId -> nome do tópico selecionado num grupo (null = "Tudo")
+        offlineQueue: [], // mensagens enviadas sem ligação, à espera do socket reconectar (ver queueOfflineMessage)
         callStream: null,
         callActive: false, // evita loop de "end_call" indo e voltando entre os dois lados
         isMuted: false,
@@ -4045,14 +4047,83 @@
     // mas o socket novo não tem login nem salas — sem isto, chamadas e
     // mensagens em segundo plano deixavam de chegar depois de reconectar.
     socket.on('connect', () => {
+        setOfflineBannerVisible(false);
         if (APP.user) {
             socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
             APP.joinedRooms.clear();
             APP.chats.forEach(chat => {
                 if (chat.type !== 'ai') { socket.emit('join_room', { chatId: chat.id, toPhone: chat.phone }); APP.joinedRooms.add(chat.id); }
             });
+            flushOfflineQueue();
         }
     });
+
+    // ==================== MODO OFFLINE COM FILA DE MENSAGENS ====================
+    // Sem ligação (rede em baixo, avião, socket a tentar reconectar), as
+    // mensagens que a pessoa manda ficam guardadas aqui (memória + localStorage,
+    // por conta) em vez de se perderem — aparecem já na conversa com um relógio
+    // 🕓 em vez do "✓" normal, e são enviadas a sério assim que a ligação volta.
+    socket.on('disconnect', () => setOfflineBannerVisible(true));
+    window.addEventListener('offline', () => setOfflineBannerVisible(true));
+    window.addEventListener('online', () => { if (socket.connected) setOfflineBannerVisible(false); });
+
+    function setOfflineBannerVisible(visible) {
+        const banner = document.getElementById('offlineBanner');
+        if (banner) banner.style.display = visible ? 'block' : 'none';
+    }
+
+    function offlineQueueStorageKey() {
+        return APP.user ? ('chatapp_offline_queue_' + APP.user.phone) : null;
+    }
+
+    function saveOfflineQueueToStorage() {
+        const key = offlineQueueStorageKey();
+        if (!key) return;
+        try { localStorage.setItem(key, JSON.stringify(APP.offlineQueue)); } catch (e) {}
+    }
+
+    function loadOfflineQueueFromStorage() {
+        APP.offlineQueue = [];
+        const key = offlineQueueStorageKey();
+        if (!key) return;
+        try {
+            const raw = localStorage.getItem(key);
+            APP.offlineQueue = raw ? JSON.parse(raw) : [];
+        } catch (e) { APP.offlineQueue = []; }
+    }
+
+    // Reconstrói na conversa as mensagens ainda por enviar de uma sala — chamado
+    // depois do histórico do servidor chegar, já que este substitui por completo
+    // APP.messages[chatId] (ver room_history) e apagaria a mensagem pendente.
+    function appendPendingOfflineMessages(chatId) {
+        const pending = APP.offlineQueue.filter(item => item.chatId === chatId);
+        if (!pending.length) return;
+        if (!APP.messages[chatId]) APP.messages[chatId] = [];
+        pending.forEach(item => {
+            if (!APP.messages[chatId].some(m => m.id === item.msgId)) {
+                APP.messages[chatId].push({ id: item.msgId, sender: 'Você', text: item.previewText, time: item.time, type: 'sent', replyTo: item.replyTo || null, read: false, topic: item.topic || null, pending: true });
+            }
+        });
+    }
+
+    function queueOfflineMessage(item) {
+        APP.offlineQueue.push(item);
+        saveOfflineQueueToStorage();
+    }
+
+    function flushOfflineQueue() {
+        if (!APP.offlineQueue.length) return;
+        const queue = APP.offlineQueue;
+        APP.offlineQueue = [];
+        saveOfflineQueueToStorage();
+        queue.forEach(item => {
+            socket.emit('send_message', item.outgoing);
+            const msg = APP.messages[item.chatId]?.find(m => m.id === item.msgId);
+            if (msg) msg.pending = false;
+        });
+        renderMessages();
+        renderChatList();
+    }
 
     socket.on('contacts_update', (list) => {
         APP.onlineContacts = list || [];
@@ -4415,6 +4486,8 @@
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
         checkDndActive(); // sincroniza logo o estado do "não incomodar" com o servidor
+        loadOfflineQueueFromStorage(); // mensagens por enviar de antes de fechar/recarregar a app (ver "Modo offline")
+        setOfflineBannerVisible(!socket.connected);
         initApp();
         // Importante: espera a chave de encriptação ficar pronta ANTES de pedir o
         // histórico das conversas — caso contrário, mensagens podiam chegar
@@ -11472,7 +11545,7 @@
             // "estático" (texto, foto/vídeo/áudio/documento normal) pode ser encaminhado.
             const canForward = !msg.deleted && !msg.poll && !msg.game && !msg.expense && !msg.shoppingList && !msg.viewOnce;
             const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length ? `<div class="reaction-badges">${Object.entries(msg.reactions).map(([emoji, who]) => `<span class="reaction-badge">${emoji} ${who.length}</span>`).join('')}</div>` : '';
-            const tick = isSent ? `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>` : '';
+            const tick = isSent ? (msg.pending ? `<span class="msg-status" style="opacity:0.7;" title="Sem ligação — à espera para enviar">🕓</span>` : `<span class="msg-status" style="color:${msg.read ? '#53bdeb' : 'inherit'};">${msg.read ? '✓✓' : '✓'}</span>`) : '';
             const canEdit = isSent && !msg.deleted && !msg.fileData && !msg.encrypted;
             const editedLabel = msg.edited ? '<span style="opacity:0.6;font-size:10px;"> (editada)</span>' : '';
             const linkPreviewUrl = (!msg.deleted && !msg.poll && !msg.game && !msg.expense && !msg.shoppingList && !msg.fileData) ? extractFirstUrl(msg.text) : null;
@@ -12436,9 +12509,11 @@
         const msgId = 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const replyTo = APP.replyingTo ? { id: APP.replyingTo.id, sender: APP.replyingTo.sender, text: APP.replyingTo.text } : null;
         const chat = APP.chats.find(c => c.id === APP.currentChatId);
-        const topic = (chat?.type === 'group') ? (APP.activeTopic[APP.currentChatId] || null) : null;
-        if (!APP.messages[APP.currentChatId]) APP.messages[APP.currentChatId] = [];
-        APP.messages[APP.currentChatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', replyTo, read: false, topic });
+        const chatId = APP.currentChatId;
+        const topic = (chat?.type === 'group') ? (APP.activeTopic[chatId] || null) : null;
+        const isOffline = chat && chat.type !== 'ai' && !socket.connected;
+        if (!APP.messages[chatId]) APP.messages[chatId] = [];
+        APP.messages[chatId].push({ id: msgId, sender: 'Você', text, time, type: 'sent', replyTo, read: false, topic, pending: isOffline });
         input.value = '';
         cancelReply();
         hideMentionAutocomplete();
@@ -12448,11 +12523,11 @@
         if (!chat) return;
 
         if (chat.type === 'ai') {
-            askGeminiAssistant(APP.currentChatId);
+            askGeminiAssistant(chatId);
         } else {
-            let outgoing = { id: msgId, chatId: APP.currentChatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo, topic };
+            let outgoing = { id: msgId, chatId, sender: APP.user.name, senderPhone: APP.user.phone, toPhone: chat.type === 'user' ? chat.phone : undefined, text, time, replyTo, topic };
             if (chat.type === 'group') {
-                const mentions = extractMentionedPhones(text, APP.currentChatId);
+                const mentions = extractMentionedPhones(text, chatId);
                 if (mentions.length) outgoing.mentions = mentions;
             }
             if (chat.type === 'user' && chat.publicKey && E2EE.publicJwk) {
@@ -12460,7 +12535,13 @@
                 const enc = await encryptFor(chat.phone, chat.publicKey, text);
                 if (enc) outgoing = { ...outgoing, text: '🔒 Mensagem encriptada', encrypted: true, iv: enc.iv, data: enc.data };
             }
-            socket.emit('send_message', outgoing);
+            // Sem ligação, a mensagem fica na fila (ver "Modo offline com fila de
+            // mensagens") em vez de se perder ou de socket.emit falhar em silêncio.
+            if (isOffline) {
+                queueOfflineMessage({ msgId, chatId, outgoing, previewText: text, time, replyTo, topic });
+            } else {
+                socket.emit('send_message', outgoing);
+            }
         }
     }
 
@@ -12510,6 +12591,7 @@
         // fotos, enquetes e jogos — a cada reconexão. Substituir em vez de
         // juntar é o correto, já que isto É a verdade completa do servidor.
         APP.messages[data.chatId] = historyEntries;
+        appendPendingOfflineMessages(data.chatId);
         if (APP.currentChatId === data.chatId) renderMessages();
         renderChatList();
     });
