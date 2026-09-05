@@ -91,7 +91,11 @@ async function loginSecondDevice(context, phone) {
 
   await a.page.waitForTimeout(1000);
   const b2StillRinging = await bPage2.evaluate(() => document.getElementById('modalIncomingCall').classList.contains('active')).catch(() => false);
-  console.log('BUG CHECK: B device 2 is STILL showing the incoming-call screen even though the call was already answered on device 1:', b2StillRinging);
+  // Nota: esta verificação está escrita "ao contrário" de propósito (true =
+  // aprovado, o runner conta qualquer linha ": false" como falha) — o
+  // resultado desejado é B DEIXAR de tocar no device 2, por isso testamos
+  // a negação em vez do próprio bug.
+  console.log('FIX CHECK: B device 2 já não mostra o ecrã de chamada a receber, depois de respondida no device 1:', !b2StillRinging);
 
   const b2RingtoneStopped = await bPage2.evaluate(() => ringtoneTimer === null).catch(() => null);
   console.log('FIX CHECK: B device 2\'s ringtone interval actually stopped (call_taken_elsewhere handled):', b2RingtoneStopped);

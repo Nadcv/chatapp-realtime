@@ -1353,6 +1353,10 @@
 
         <!-- Formulário de CRIAR CONTA -->
         <div id="registerFormBox" style="width:100%;display:none;flex-direction:column;gap:14px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
+                <input type="checkbox" id="regAdminCheck" onchange="toggleRegAdminSecretField(this.checked)"> 🔑 Registar como administrador
+            </label>
+            <input type="password" id="regAdminSecret" placeholder="Senha de administrador" style="display:none;">
             <input type="text" id="regName" placeholder="Seu nome" data-i18n-placeholder="regNamePlaceholder">
             <input type="text" id="regUsername" placeholder="Nome de utilizador (ex: joao_silva) — usado para te encontrarem" data-i18n-placeholder="regUsernamePlaceholder">
             <div class="login-row">
@@ -4323,6 +4327,13 @@
         showAuthForm('login');
     }
 
+    // Mostra/esconde o campo da senha de administrador — separada da senha da
+    // própria conta, exigida pelo servidor (ADMIN_SIGNUP_SECRET) para marcar
+    // a conta nova como administradora (ver /api/register).
+    function toggleRegAdminSecretField(checked) {
+        document.getElementById('regAdminSecret').style.display = checked ? 'block' : 'none';
+        if (!checked) document.getElementById('regAdminSecret').value = '';
+    }
     async function doRegister() {
         const name = document.getElementById('regName').value.trim();
         const username = document.getElementById('regUsername').value.trim();
@@ -4331,11 +4342,14 @@
         const email = document.getElementById('regEmail').value.trim();
         const birthday = document.getElementById('regBirthday').value || null;
         const password = document.getElementById('regPassword').value;
+        const wantsAdmin = document.getElementById('regAdminCheck').checked;
+        const adminSecret = wantsAdmin ? document.getElementById('regAdminSecret').value : undefined;
         const errEl = document.getElementById('registerError');
         errEl.textContent = '';
         if (!name || !username || !phone || !country || !password) { errEl.textContent = 'Preencha nome, nome de utilizador, telemóvel, país e senha.'; return; }
+        if (wantsAdmin && !adminSecret) { errEl.textContent = 'Preencha a senha de administrador, ou desmarque "Registar como administrador".'; return; }
         try {
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, username, phone, country, email, birthday, password, adminSecret, deviceId: getOrCreateDeviceId(), deviceName: getDeviceName() }) });
             const data = await res.json();
             if (!res.ok) { errEl.textContent = data.error || 'Erro ao criar conta.'; return; }
             enterApp(data.user, data.token);
