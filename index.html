@@ -3950,7 +3950,9 @@
             audioCtx: null,
             gainNode: null,
             camVideoTrack: null,
-            camAudioTrack: null
+            camAudioTrack: null,
+            stopCapture: null,
+            stream: null
         },
         musicShare: {
             active: false
@@ -15063,9 +15065,13 @@
         // troca já as faixas dele pelo conteúdo partilhado em vez da câmara/
         // microfone normais — sem isto, quem entrava depois via sempre a
         // câmara de quem partilha, nunca o vídeo/música partilhados.
-        if (APP.videoShare.active && APP.videoShare.videoEl) {
-            const capturedStream = APP.videoShare.videoEl.captureStream ? APP.videoShare.videoEl.captureStream() : null;
-            const videoTrack = capturedStream?.getVideoTracks()[0];
+        if (APP.videoShare.active && APP.videoShare.stream) {
+            // Reaproveita a MESMA stream já capturada quando a partilha começou
+            // (ver playSharedVideo/getSharedVideoStream) em vez de tentar
+            // capturar de novo — no Safari a captura é feita via canvas, e criar
+            // um segundo loop de desenho por cada pessoa que entra a meio seria
+            // desperdício (e a stream original já serve perfeitamente a todos).
+            const videoTrack = APP.videoShare.stream.getVideoTracks()[0];
             if (videoTrack) { const s = pc.getSenders().find(s => s.track && s.track.kind === 'video'); if (s) s.replaceTrack(videoTrack); }
         }
         if (APP.musicShare.active && APP._musicMix?.dest) {
@@ -15941,12 +15947,40 @@
         return APP._videoShareAudio;
     }
 
+    // O Safari (incluindo iOS) não implementa HTMLMediaElement.captureStream()
+    // em NENHUMA versão — mas implementa canvas.captureStream(), esse sim. A
+    // diferença é importante: um <canvas> é um elemento que a própria página
+    // desenha e controla, não é "o ecrã do telemóvel" (isso sim é impossível
+    // de capturar no Safari iOS — a Apple não implementa getDisplayMedia() lá,
+    // por política de segurança, e não há forma de contornar isso via código).
+    // Aqui só precisamos de transmitir um vídeo que JÁ está a tocar dentro da
+    // nossa própria página, por isso dá para desenhar cada frame do <video>
+    // num <canvas> escondido, a um ritmo fixo, e capturar esse canvas em vez
+    // do vídeo diretamente — funciona em qualquer navegador que tenha um dos
+    // dois, incluindo o Safari/iPhone.
+    function getSharedVideoStream(videoEl) {
+        if (videoEl.captureStream) return { stream: videoEl.captureStream(), stop: () => {} };
+        if (videoEl.mozCaptureStream) return { stream: videoEl.mozCaptureStream(), stop: () => {} };
+        const canvas = document.createElement('canvas');
+        if (!canvas.captureStream) return null; // navegador sem nenhum dos dois — caso raríssimo
+        canvas.width = videoEl.videoWidth || 640;
+        canvas.height = videoEl.videoHeight || 360;
+        const ctx2d = canvas.getContext('2d');
+        let rafId = null;
+        const draw = () => {
+            if (videoEl.videoWidth && (canvas.width !== videoEl.videoWidth || canvas.height !== videoEl.videoHeight)) {
+                canvas.width = videoEl.videoWidth;
+                canvas.height = videoEl.videoHeight;
+            }
+            try { ctx2d.drawImage(videoEl, 0, 0, canvas.width, canvas.height); } catch (e) { /* frame ainda não pronto, ignora */ }
+            rafId = requestAnimationFrame(draw);
+        };
+        draw();
+        return { stream: canvas.captureStream(30), stop: () => { if (rafId) cancelAnimationFrame(rafId); } };
+    }
+
     function playSharedVideo(src) {
         if (!isInAnyCall()) return alert('Inicie uma chamada primeiro!');
-        const testEl = document.createElement('video');
-        if (!testEl.captureStream && !testEl.mozCaptureStream) {
-            return alert('O Safari/iPhone ainda não suporta transmitir vídeo em tempo real desta forma. Esta função funciona no Chrome/Android e no computador — no iPhone, o vídeo compartilhado toca só localmente por enquanto.');
-        }
         if (APP.sharedStream) { APP.sharedStream.getTracks().forEach(t => t.stop()); APP.sharedStream = null; document.getElementById('callPip').style.display = 'none'; }
 
         const preview = document.getElementById('sharedVideoPreview');
@@ -15977,7 +16011,11 @@
                 APP.videoShare.audioCtx = audioCtx;
                 APP.videoShare.gainNode = gainNode;
 
-                const capturedStream = preview.captureStream ? preview.captureStream() : preview.mozCaptureStream();
+                const captured = getSharedVideoStream(preview);
+                if (!captured) return alert('Este navegador não suporta transmitir vídeo em tempo real desta forma.');
+                const capturedStream = captured.stream;
+                APP.videoShare.stopCapture = captured.stop;
+                APP.videoShare.stream = capturedStream;
                 const videoTrack = capturedStream.getVideoTracks()[0];
                 const audioTrack = dest.stream.getAudioTracks()[0];
 
@@ -16036,6 +16074,11 @@
         const vs = APP.videoShare;
         if (!vs.active) return;
         if (vs.videoEl) { vs.videoEl.pause(); vs.videoEl.src = ''; vs.videoEl.onended = null; }
+        // No Safari (sem captureStream do vídeo, ver getSharedVideoStream), isto
+        // para o loop de requestAnimationFrame que desenhava os frames no canvas
+        // escondido — sem isto, ficava a desenhar para sempre em segundo plano.
+        if (vs.stopCapture) { vs.stopCapture(); vs.stopCapture = null; }
+        vs.stream = null;
         // Nunca fechar o AudioContext aqui — é o mesmo, guardado em
         // APP._videoShareAudio, reutilizado em todas as partilhas seguintes
         // (ver getVideoShareAudioGraph). Só desliga o "gain" desta partilha.
