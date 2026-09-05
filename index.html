@@ -2007,6 +2007,14 @@
                 <p id="callTimer" style="display:none;font-variant-numeric:tabular-nums;font-size:13px;color:#8696a0;margin-top:2px;">00:00</p>
                 <p id="callQuality" style="display:none;font-size:12px;color:#8696a0;margin-top:2px;">📶 A avaliar sinal...</p>
             </div>
+            <!-- ============ FILTROS DE VÍDEO AO VIVO ============ -->
+            <!-- Ao contrário do "tirar self" (que só filtra fotos paradas), isto
+                 processa cada frame do vídeo da própria chamada num <canvas>
+                 escondido (mesma lista de filtros CSS do "tirar self", ver
+                 SELFIE_FILTERS) e substitui a faixa enviada (getActiveSenders,
+                 já usado por "Compartilhar vídeo/tela") — por isso o filtro
+                 também aparece para quem está do outro lado, não só localmente. -->
+            <div class="selfie-chip-row" id="callLiveFilterRow" style="display:none;background:rgba(0,0,0,0.3);"></div>
             <!-- ============ SALA DE ÁUDIO AO VIVO (tipo Clubhouse/Spaces) ============ -->
             <!-- Reaproveita a chamada em grupo já existente (áudio-only) — a
                  única diferença é que quem entra depois do primeiro começa
@@ -2029,6 +2037,7 @@
                 <button class="call-btn call-btn-action" onclick="toggleCallChat()" title="Mensagens">💬</button>
                 <button class="call-btn call-btn-action" onclick="toggleLiveCaptions()" id="captionBtn" title="Legendas ao vivo traduzidas">💬🌐</button>
                 <button class="call-btn call-btn-action" onclick="openSelfieCam()" title="Tirar self">🤳</button>
+                <button class="call-btn call-btn-action" id="callFilterBtn" onclick="toggleLiveFilterRow()" title="Filtro de vídeo ao vivo" style="display:none;">🎨</button>
                 <button class="call-btn call-btn-end" onclick="endCall()">❌</button>
                 <button class="call-btn call-btn-action" onclick="toggleCamera()">📸</button>
             </div>
@@ -14105,6 +14114,7 @@
             APP.callStream = stream;
             pipVideo.srcObject = stream;
             document.getElementById('callPip').style.display = type === 'video' ? 'block' : 'none';
+            document.getElementById('callFilterBtn').style.display = type === 'video' ? 'flex' : 'none';
             const pc = await createPeerConnection();
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
@@ -14289,6 +14299,7 @@
             APP.callStream = stream;
             document.getElementById('pipVideo').srcObject = stream;
             document.getElementById('callPip').style.display = data.callType === 'video' ? 'block' : 'none';
+            document.getElementById('callFilterBtn').style.display = data.callType === 'video' ? 'flex' : 'none';
             const pc = await createPeerConnection();
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -14380,6 +14391,7 @@
         document.getElementById('audioRoomControls').style.display = APP.audioRoomMode ? 'block' : 'none';
         document.getElementById('audioRoomRaisedHandsList').innerHTML = '';
         document.getElementById('callMuteBtn').style.display = 'flex'; // repõe para chamadas normais / até saber se é anfitrião
+        document.getElementById('callFilterBtn').style.display = type === 'video' ? 'flex' : 'none';
         const grid = document.getElementById('groupCallGrid');
         grid.style.display = 'flex';
         grid.innerHTML = '';
@@ -14482,6 +14494,12 @@
         if (APP.musicShare.active && APP._musicMix?.dest) {
             const mixedTrack = APP._musicMix.dest.stream.getAudioTracks()[0];
             if (mixedTrack) { const s = pc.getSenders().find(s => s.track && s.track.kind === 'audio'); if (s) s.replaceTrack(mixedTrack); }
+        }
+        // Se entrar alguém a meio de um filtro de vídeo já ativo, já lhe chega
+        // filtrado desde o primeiro frame (mesma ideia da partilha de vídeo acima).
+        if (LIVE_FILTER.id !== 'none' && LIVE_FILTER.filteredTrack) {
+            const s = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (s) s.replaceTrack(LIVE_FILTER.filteredTrack);
         }
         return pc;
     }
@@ -15005,6 +15023,9 @@
         GROUP_CALL.approvedSpeakers = {};
         document.getElementById('audioRoomControls').style.display = 'none';
         document.getElementById('audioRoomRaisedHandsList').innerHTML = '';
+        stopLiveVideoFilterProcessing();
+        document.getElementById('callFilterBtn').style.display = 'none';
+        document.getElementById('callLiveFilterRow').style.display = 'none';
     }
 
     // ==================== CHAT AO LADO DA CHAMADA + EMOJIS ====================
@@ -15154,6 +15175,66 @@
         return senders;
     }
     function isInAnyCall() { return !!peerConnection || GROUP_CALL.active; }
+
+    // ==================== FILTROS DE VÍDEO AO VIVO ====================
+    // Reaproveita a mesma lista de filtros CSS do "tirar self" (SELFIE_FILTERS)
+    // — a diferença é que aqui cada frame do vídeo da CHAMADA é desenhado num
+    // <canvas> escondido com esse filtro aplicado (ctx.filter aceita a mesma
+    // sintaxe CSS), e a faixa capturada desse canvas substitui a faixa
+    // enviada (getActiveSenders, o mesmo mecanismo já usado por "Compartilhar
+    // vídeo/tela") — por isso o filtro aparece também a quem está do outro
+    // lado, não é só um efeito visual local.
+    const LIVE_FILTER = { id: 'none', canvas: null, ctx: null, rafId: null, filteredTrack: null };
+    function toggleLiveFilterRow() {
+        const row = document.getElementById('callLiveFilterRow');
+        if (row.style.display === 'flex') { row.style.display = 'none'; return; }
+        row.innerHTML = SELFIE_FILTERS.map(f => `<span class="selfie-chip ${LIVE_FILTER.id === f.id ? 'active' : ''}" onclick="setLiveVideoFilter('${f.id}')">${f.name}</span>`).join('');
+        row.style.display = 'flex';
+    }
+    function startLiveVideoFilterProcessing() {
+        if (LIVE_FILTER.canvas) return; // já em curso
+        const sourceVideo = document.getElementById('pipVideo'); // já mostra APP.callStream (a câmara local)
+        const canvas = document.createElement('canvas');
+        canvas.width = 480;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        LIVE_FILTER.canvas = canvas;
+        LIVE_FILTER.ctx = ctx;
+        LIVE_FILTER.filteredTrack = canvas.captureStream(24).getVideoTracks()[0];
+        const draw = () => {
+            if (!LIVE_FILTER.canvas) return; // parado entretanto (stopLiveVideoFilterProcessing)
+            if (sourceVideo.videoWidth) {
+                ctx.filter = SELFIE_FILTERS.find(f => f.id === LIVE_FILTER.id)?.css || 'none';
+                ctx.drawImage(sourceVideo, 0, 0, canvas.width, canvas.height);
+            }
+            LIVE_FILTER.rafId = requestAnimationFrame(draw);
+        };
+        draw();
+    }
+    function stopLiveVideoFilterProcessing() {
+        if (LIVE_FILTER.rafId) cancelAnimationFrame(LIVE_FILTER.rafId);
+        LIVE_FILTER.rafId = null;
+        LIVE_FILTER.canvas = null;
+        LIVE_FILTER.ctx = null;
+        LIVE_FILTER.filteredTrack = null;
+        LIVE_FILTER.id = 'none';
+        document.getElementById('pipVideo').style.filter = 'none';
+    }
+    function setLiveVideoFilter(filterId) {
+        LIVE_FILTER.id = filterId;
+        document.getElementById('pipVideo').style.filter = SELFIE_FILTERS.find(f => f.id === filterId)?.css || 'none'; // pré-visualização local instantânea
+        toggleLiveFilterRow(); // fecha a tira de filtros depois de escolher
+        if (filterId === 'none') {
+            if (APP.callStream) {
+                const rawTrack = APP.callStream.getVideoTracks()[0];
+                if (rawTrack) getActiveSenders('video').forEach(sender => sender.replaceTrack(rawTrack));
+            }
+            stopLiveVideoFilterProcessing();
+            return;
+        }
+        startLiveVideoFilterProcessing();
+        if (LIVE_FILTER.filteredTrack) getActiveSenders('video').forEach(sender => sender.replaceTrack(LIVE_FILTER.filteredTrack));
+    }
 
     function toggleMusicShare() {
         if (!document.getElementById('callScreen').classList.contains('active')) {
