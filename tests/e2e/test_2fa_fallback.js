@@ -18,10 +18,18 @@ const { chromium } = require('playwright');
   await page.fill('#regUsername', 'fallback2fa_' + ts);
   await page.fill('#regPhone', phone);
   await page.selectOption('#regCountry', 'Portugal');
-  // No email filled in on purpose.
+  // O registo agora exige email (ver "email real no cadastro") — regista com
+  // um, depois apaga-o pelo perfil, para chegar ao mesmo estado de teste
+  // pretendido ("sem email guardado"). Este lote de testes não tem
+  // EMAIL_USER/EMAIL_PASS configurados, por isso o registo em si não pede
+  // confirmação nenhuma (segue direto, como sempre foi).
+  await page.fill('#regEmail', 'fallback2fatemp' + ts + '@test.com');
   await page.fill('#regPassword', 'senha1234forte');
   await page.click('button:has-text("Criar conta")');
   await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
+  await page.evaluate(() => {
+    return new Promise((resolve) => { socket.once('email_updated', resolve); socket.emit('set_email', { email: '' }); });
+  });
 
   // --- Cannot enable 2FA without an email on file ---
   const noEmailResult = await page.evaluate(async () => {

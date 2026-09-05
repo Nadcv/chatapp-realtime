@@ -26,6 +26,27 @@ function extractCode(emailBody) {
   return repeated ? repeated[0] : (matches[matches.length - 1] || null);
 }
 
+// O registo agora exige confirmar um código de email (ver "Regista os
+// utilizadores no cadastro" — só entra em ação quando o servidor tem email
+// configurado, que É o caso neste lote de testes via SMTP falso) — regista e
+// já resolve esse passo, para o resto do teste continuar como antes.
+async function registerAndConfirmEmail(page, { name, username, phone, email, password }) {
+  await page.fill('#regName', name);
+  await page.fill('#regUsername', username);
+  await page.fill('#regPhone', phone);
+  await page.selectOption('#regCountry', 'Portugal');
+  await page.fill('#regEmail', email);
+  await page.fill('#regPassword', password);
+  await page.click('button:has-text("Criar conta")');
+  await page.waitForSelector('#registerVerifyBox', { state: 'visible', timeout: 5000 });
+  await page.waitForTimeout(500);
+  const emailBody = await getLastEmail(email);
+  const code = extractCode(emailBody);
+  await page.fill('#registerVerifyCodeInput', code);
+  await page.click('#registerVerifyBox button:has-text("Confirmar")');
+  await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const page = await browser.newPage();
@@ -36,14 +57,7 @@ function extractCode(emailBody) {
   const ts = Date.now();
   const phone = '+3516' + ts.toString().slice(-8);
   const email = '2fa' + ts + '@test.com';
-  await page.fill('#regName', '2FA Test');
-  await page.fill('#regUsername', 'twofa_' + ts);
-  await page.fill('#regPhone', phone);
-  await page.selectOption('#regCountry', 'Portugal');
-  await page.fill('#regEmail', email);
-  await page.fill('#regPassword', 'senha1234forte');
-  await page.click('button:has-text("Criar conta")');
-  await page.waitForSelector('#mainApp', { state: 'visible', timeout: 8000 });
+  await registerAndConfirmEmail(page, { name: '2FA Test', username: 'twofa_' + ts, phone, email, password: 'senha1234forte' });
 
   // --- Toggle should require an email already being present (it is, from registration) ---
   await page.evaluate(() => openProfileModal());

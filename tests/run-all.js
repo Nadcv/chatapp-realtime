@@ -147,7 +147,7 @@ const EMAIL_ENV_OVERRIDES = {
   SMTP_HOST: '127.0.0.1',
   SMTP_PORT: FAKE_SMTP_ARGS[0]
 };
-const EMAIL_BATCH_FILES = new Set(['test_2fa.js', 'test_password_reset.js']);
+const EMAIL_BATCH_FILES = new Set(['test_2fa.js', 'test_password_reset.js', 'test_register_email_verification.js']);
 
 // Testes que exigem o dataset "em trânsito" da CP (ver nota acima) — correm
 // num 2º lote, com o server.js reiniciado só para trocar o CP_GTFS_URL.
