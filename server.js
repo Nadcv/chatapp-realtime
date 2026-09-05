@@ -93,7 +93,11 @@ const groupSchema = new mongoose.Schema({
   memberPhones: [String], // só usado quando 'private' — quem já entrou (por convite ou por tê-lo criado)
   inviteToken: String, // token do link/QR de convite atual deste grupo (só existe em grupos privados)
   announcementsOnly: Boolean, // canal de anúncios de uma comunidade — só admins deste grupo podem publicar
-  communityId: String // se este grupo está ligado a uma comunidade (ver communitySchema abaixo)
+  communityId: String, // se este grupo está ligado a uma comunidade (ver communitySchema abaixo)
+  // ==================== RESUMO DIÁRIO AUTOMÁTICO (IA) ====================
+  dailySummaryEnabled: Boolean, // ligado por um admin do grupo — ver 'group_set_daily_summary'
+  lastSummaryDate: String, // 'YYYY-MM-DD' (Europe/Lisbon) do último resumo já postado, para nunca postar 2 no mesmo dia
+  lastSummaryMessageId: String // id da última mensagem já incluída num resumo — o próximo resumo só olha para o que veio depois
 });
 const GroupModel = mongoose.model('Group', groupSchema);
 
@@ -3584,6 +3588,30 @@ app.post('/api/gemini-chat', async (req, res) => {
   }
 });
 
+// Versão "de bastidores" do mesmo resumo já feito por summarizeChat() no
+// cliente (que chama /api/gemini-chat) — usada pelo resumo diário automático
+// (ver mais abaixo), que corre dentro do próprio servidor sem passar por
+// nenhum pedido HTTP a si mesmo. Devolve null em qualquer falha (sem chave
+// configurada, Gemini em baixo, etc.) — quem chama isto trata isso como "sem
+// resumo desta vez", nunca como erro fatal.
+async function generateGeminiSummary(transcript) {
+  if (!GEMINI_API_KEY) return null;
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const body = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: 'Resume a conversa a seguir em português, de forma breve (5-8 linhas no máximo), destacando decisões, pedidos ou combinações importantes. Não inventes nada que não esteja na conversa.\n\n' + transcript }] }],
+      systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat.' }] }
+    });
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return data.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join('\n') || null;
+  } catch (e) {
+    console.error('Erro ao gerar resumo diário automático:', e.message);
+    return null;
+  }
+}
+
 // ==================== TRADUTOR ====================
 app.get('/api/translate', async (req, res) => {
   const { text, target } = req.query;
@@ -4928,6 +4956,22 @@ io.on('connection', (socket) => {
 
     if (isDbConnected) {
       await GroupModel.updateOne({ id: groupId }, { mutedPhones: group.mutedPhones }).catch(e => console.error('Erro Mongo (silenciar no grupo):', e.message));
+    } else {
+      saveGroupsLocal();
+    }
+    broadcastGroupsUpdate();
+  });
+
+  // Só admins ligam/desligam o resumo diário automático (ver setInterval mais
+  // abaixo, que corre uma vez por dia às 22h de Lisboa nos grupos com isto ligado).
+  socket.on('group_set_daily_summary', async (data) => {
+    const { groupId, enabled } = data || {};
+    const group = groups[groupId];
+    const myPhone = users[socket.id]?.phone;
+    if (!group || !myPhone || !isGroupAdmin(group, myPhone)) return;
+    group.dailySummaryEnabled = !!enabled;
+    if (isDbConnected) {
+      await GroupModel.updateOne({ id: groupId }, { dailySummaryEnabled: group.dailySummaryEnabled }).catch(e => console.error('Erro Mongo (resumo diário):', e.message));
     } else {
       saveGroupsLocal();
     }
@@ -6905,6 +6949,47 @@ connectDatabase().then(async () => {
       await persistGroupEventsRoom(roomId);
     }
   }, 15 * 60 * 1000);
+
+  // Resumo diário automático (IA): só nos grupos onde um admin o ligou
+  // explicitamente (ver 'group_set_daily_summary') — nunca em todos os
+  // grupos por padrão, para não obrigar ninguém a receber um resumo que não
+  // pediu. Corre uma vez por dia às 22h (hora de Lisboa); esta função é
+  // chamada a cada 20 min, cobrindo essa janela horária mesmo sem precisão
+  // ao minuto. Só resume o que veio depois do último resumo já postado
+  // (lastSummaryMessageId) — nunca a conversa toda outra vez.
+  setInterval(async () => {
+    const lisbonNow = nowInLisbon();
+    if (lisbonNow.getHours() !== 22) return;
+    const todayStr = `${lisbonNow.getFullYear()}-${String(lisbonNow.getMonth() + 1).padStart(2, '0')}-${String(lisbonNow.getDate()).padStart(2, '0')}`;
+    for (const group of Object.values(groups)) {
+      if (!group.dailySummaryEnabled || group.lastSummaryDate === todayStr) continue;
+      const allMsgs = messagesByRoom[group.id] || [];
+      const sinceIdx = group.lastSummaryMessageId ? allMsgs.findIndex((m) => m.id === group.lastSummaryMessageId) : -1;
+      const newMsgs = (sinceIdx >= 0 ? allMsgs.slice(sinceIdx + 1) : allMsgs).filter((m) => !m.deleted && !m.fileData && m.text);
+      if (newMsgs.length < 5) continue; // pouca atividade — não vale a pena um resumo hoje, tenta de novo mais tarde/amanhã
+      const transcript = newMsgs.slice(-60).map((m) => `${m.sender}: ${m.text}`).join('\n');
+      const summary = await generateGeminiSummary(transcript);
+      if (!summary) continue; // Gemini indisponível agora — tenta de novo no próximo ciclo, sem marcar o dia como feito
+      const msgData = {
+        id: 'm' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        chatId: group.id, sender: '📊 Resumo diário (IA)', senderPhone: null,
+        text: summary, time: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
+      };
+      if (!messagesByRoom[group.id]) messagesByRoom[group.id] = [];
+      messagesByRoom[group.id].push(msgData);
+      if (messagesByRoom[group.id].length > MAX_HISTORY_PER_ROOM) messagesByRoom[group.id] = messagesByRoom[group.id].slice(-MAX_HISTORY_PER_ROOM);
+      group.lastSummaryDate = todayStr;
+      group.lastSummaryMessageId = allMsgs.length ? allMsgs[allMsgs.length - 1].id : null;
+      if (isDbConnected) {
+        await MessageModel.create({ ...msgData }).catch((e) => console.error('Erro ao guardar resumo diário:', e.message));
+        await GroupModel.updateOne({ id: group.id }, { lastSummaryDate: group.lastSummaryDate, lastSummaryMessageId: group.lastSummaryMessageId }).catch((e) => console.error('Erro Mongo (resumo diário):', e.message));
+      } else {
+        saveMessagesLocal();
+        saveGroupsLocal();
+      }
+      io.to(group.id).emit('receive_message', msgData);
+    }
+  }, 20 * 60 * 1000);
 
   // Lembretes pessoais: dispara os que já chegaram à hora marcada — avisa por
   // notificação push (funciona mesmo com a app fechada/em segundo plano) e,
