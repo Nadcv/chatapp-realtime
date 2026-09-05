@@ -1244,6 +1244,12 @@ Quando o telemóvel/browser perde a ligação (rede em baixo, avião, socket a t
 
 Em "💰 Despesas" há agora um botão "📄 PDF" que gera um PDF com a lista completa de despesas dessa conversa (descrição, valor e quem pagou/com quem foi dividida), os saldos de cada pessoa (quem deve/tem a receber) e a secção "Como acertar contas" já simplificada — a mesma informação do modal, só que num ficheiro para guardar ou partilhar fora da app. Reaproveita o mesmo gerador de PDF (jsPDF, carregado sob demanda) já usado para exportar a conversa inteira e a lista de compras.
 
+## 🔐 Entrar com Face ID/Touch ID (WebAuthn)
+
+Em "👤 O meu perfil → 🔐 Segurança" há agora uma secção "Face ID/Touch ID" (só aparece em navegadores com suporte a WebAuthn) com um botão "➕ Ativar neste dispositivo" — usa a impressão digital, Face ID ou o PIN/padrão de desbloqueio do próprio aparelho para criar uma "passkey", sem precisar de nenhuma app ou serviço externo. No ecrã de login aparece então um botão "🔓 Entrar com Face ID/Touch ID": ao tocar, o próprio aparelho pede a biometria e entra-se **sem escrever telefone nem senha** — é "usernameless", o navegador/autenticador é que escolhe sozinho qual passkey usar de entre as guardadas para este site, e o servidor descobre de quem é a conta a partir da própria credencial (nunca precisa de perguntar o telefone primeiro). Cada dispositivo tem de ser ativado separadamente (a passkey fica guardada só nesse aparelho, nunca no servidor) e pode ser removida a qualquer momento na mesma secção do perfil.
+
+**Implementação**: usa a Web Authentication API nativa do navegador no cliente (sem nenhuma biblioteca externa) e a biblioteca `@simplewebauthn/server` no servidor para gerar/verificar os desafios criptográficos — a mesma verificação que haveria de qualquer forma de implementar à mão (assinaturas, contador anti-clonagem, etc.), só que já testada e mantida. Continua a existir a senha normal como alternativa em qualquer dispositivo — o Face ID/Touch ID é só um atalho opcional, nunca obrigatório.
+
 
 
 
