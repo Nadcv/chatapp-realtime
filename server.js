@@ -3241,6 +3241,18 @@ const GUTENDEX_API_BASE = process.env.GUTENDEX_API_BASE || 'https://gutendex.com
 // real — sem isto, TODA a Biblioteca falhava sempre com "Não foi possível
 // carregar os livros agora", mesmo com a rede e o resto da app a funcionar.
 const GUTENDEX_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' };
+// Lista curada de clássicos em português, com IDs REAIS e verificados do
+// Project Gutenberg (confirmados manualmente, um por um, antes de usar aqui)
+// — o Gutendex é um serviço gratuito de terceiros, sem garantia nenhuma de
+// estar sempre disponível (já devolveu HTTP 503 em produção). Em vez de
+// deixar a Biblioteca completamente vazia quando isso acontece, mostra
+// sempre pelo menos esta pequena lista fixa, com um aviso claro.
+const LIBRARY_FALLBACK_BOOKS = [
+  { id: 3333, title: 'Os Lusíadas', author: 'Luís de Camões', epubUrl: 'https://www.gutenberg.org/cache/epub/3333/pg3333.epub' },
+  { id: 55752, title: 'Dom Casmurro', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/55752/pg55752.epub' },
+  { id: 54829, title: 'Memórias Póstumas de Brás Cubas', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/54829/pg54829.epub' },
+  { id: 42942, title: 'O Primo Basílio', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/42942/pg42942.epub' }
+];
 // A pesquisa por título/autor não se limita ao português (às vezes procura-se
 // um clássico só disponível noutra língua) — só a lista "por omissão" (sem
 // pesquisa) é que fica limitada a pt, para a primeira coisa que se vê ao
@@ -3264,10 +3276,10 @@ app.get('/api/library/gutenberg', async (req, res) => {
     res.json({ books });
   } catch (err) {
     console.error('Erro ao carregar biblioteca (Gutendex):', err.message);
-    // Inclui o motivo exato (não só "tenta mais tarde") — sem acesso aos
-    // logs do servidor, esta era a única forma de perceber se é a rede, o
-    // Gutendex a recusar o pedido, ou outra coisa qualquer.
-    res.status(502).json({ error: 'Não foi possível carregar os livros agora (' + err.message + ').' });
+    // Mostra sempre a lista de reserva (nunca deixa a Biblioteca vazia) — o
+    // motivo exato (não só "tenta mais tarde") vai também na resposta, para
+    // diagnosticar sem precisar de acesso aos logs do servidor.
+    res.json({ books: LIBRARY_FALLBACK_BOOKS, fallback: true, error: 'Não foi possível contactar o Gutendex agora (' + err.message + ').' });
   }
 });
 // O ficheiro EPUB em si não é pedido pelo browser diretamente ao Project
