@@ -3461,7 +3461,11 @@
                 <div style="position:absolute;top:6px;left:6px;z-index:5;">
                     <button class="btn-small" onclick="closeLibraryReader()">◀️ Voltar à lista</button>
                 </div>
-                <div id="libraryReaderContent" style="position:absolute;inset:0;top:44px;"></div>
+                <div id="libraryReaderContent" style="position:absolute;left:0;right:0;top:44px;bottom:44px;"></div>
+                <div style="position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;gap:8px;padding:6px 10px;background:var(--bg-secondary);box-sizing:border-box;">
+                    <button class="btn-small" style="flex:1;" onclick="libraryPrevPage()">◀ Anterior</button>
+                    <button class="btn-small" style="flex:1;" onclick="libraryNextPage()">Seguinte ▶</button>
+                </div>
             </div>
         </div>
 
@@ -7709,6 +7713,7 @@
     // biblioteca epub.js (carregada via CDN); a lista de livros gratuitos
     // passa pelo servidor, tal como as outras integrações externas desta app.
     let libraryCurrentBook = null;
+    let libraryCurrentRendition = null;
     let libraryBooksCache = [];
     function openLibraryScreen() {
         document.getElementById('libraryScreen').classList.add('active');
@@ -7721,7 +7726,18 @@
         document.getElementById('libraryReader').style.display = 'none';
         document.getElementById('libraryListView').style.display = 'block';
         if (libraryCurrentBook) { libraryCurrentBook.destroy(); libraryCurrentBook = null; }
+        libraryCurrentRendition = null;
     }
+    function libraryPrevPage() { libraryCurrentRendition?.prev(); }
+    function libraryNextPage() { libraryCurrentRendition?.next(); }
+    // Setas do teclado também viram a página (útil no computador) — só ativo
+    // enquanto o leitor da Biblioteca está mesmo visível, para não roubar as
+    // setas a outras partes da app (ex.: navegar entre fotos).
+    document.addEventListener('keydown', (e) => {
+        if (document.getElementById('libraryReader').style.display !== 'block') return;
+        if (e.key === 'ArrowRight') libraryNextPage();
+        else if (e.key === 'ArrowLeft') libraryPrevPage();
+    });
     async function openLibraryBook(bookData) {
         document.getElementById('libraryListView').style.display = 'none';
         document.getElementById('libraryReader').style.display = 'block';
@@ -7766,6 +7782,7 @@
             if (libraryCurrentBook) libraryCurrentBook.destroy();
             libraryCurrentBook = ePub(bookData);
             const rendition = libraryCurrentBook.renderTo(contentDiv, { width: '100%', height: '100%', spread: 'none', flow: 'paginated' });
+            libraryCurrentRendition = rendition;
             let rendered = false;
             // "display()" pode resolver a promessa sem o livro chegar a
             // aparecer de verdade no ecrã (ex.: o ficheiro veio corrompido, ou
