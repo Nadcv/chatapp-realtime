@@ -3234,6 +3234,13 @@ app.get('/api/watch/providers', async (req, res) => {
 // pedido passa pelo servidor (nunca diretamente do browser), e a URL base é
 // configurável (GUTENDEX_API_BASE) para os testes apontarem a um mock local.
 const GUTENDEX_API_BASE = process.env.GUTENDEX_API_BASE || 'https://gutendex.com';
+// Tal como várias outras integrações externas nesta app (Turismo, notícias,
+// geocoding — ver os outros usos de "User-Agent" neste ficheiro), o
+// gutendex.com (e o próprio gutenberg.org, no proxy do ficheiro abaixo)
+// rejeita ou falha silenciosamente pedidos sem um User-Agent de browser
+// real — sem isto, TODA a Biblioteca falhava sempre com "Não foi possível
+// carregar os livros agora", mesmo com a rede e o resto da app a funcionar.
+const GUTENDEX_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' };
 // A pesquisa por título/autor não se limita ao português (às vezes procura-se
 // um clássico só disponível noutra língua) — só a lista "por omissão" (sem
 // pesquisa) é que fica limitada a pt, para a primeira coisa que se vê ao
@@ -3245,7 +3252,7 @@ app.get('/api/library/gutenberg', async (req, res) => {
     ? `search=${encodeURIComponent(search)}&mime_type=application/epub%2Bzip`
     : `languages=pt&mime_type=application/epub%2Bzip`;
   try {
-    const data = await cachedFetch(cacheKey, `${GUTENDEX_API_BASE}/books?${qs}`, 60 * 60 * 1000);
+    const data = await cachedFetch(cacheKey, `${GUTENDEX_API_BASE}/books?${qs}`, 60 * 60 * 1000, { headers: GUTENDEX_HEADERS });
     const books = (data.results || [])
       .filter((b) => b.formats && b.formats['application/epub+zip'])
       .map((b) => ({
@@ -3282,7 +3289,7 @@ app.get('/api/library/gutenberg/file', async (req, res) => {
   const fileUrl = String(req.query.url || '');
   if (!isAllowedGutenbergFileUrl(fileUrl)) return res.status(400).json({ error: 'Só é possível descarregar ficheiros do Project Gutenberg.' });
   try {
-    const r = await fetch(fileUrl);
+    const r = await fetch(fileUrl, { headers: GUTENDEX_HEADERS });
     if (!r.ok) return res.status(502).json({ error: 'Não foi possível descarregar o livro.' });
     res.setHeader('Content-Type', 'application/epub+zip');
     res.send(Buffer.from(await r.arrayBuffer()));
