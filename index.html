@@ -7734,7 +7734,9 @@
         // ao contrário de um EPUB local já em ArrayBuffer), confirma primeiro
         // que o ficheiro chega mesmo — assim, se o servidor recusar ou falhar,
         // a mensagem mostra a razão exata devolvida por ele, em vez de deixar
-        // o epub.js falhar por conta própria de forma pouco clara.
+        // o epub.js falhar por conta própria de forma pouco clara. Reaproveita
+        // logo os bytes já descarregados (em vez de deixar o epub.js pedir o
+        // mesmo ficheiro outra vez) — evita duplicar o pedido ao Gutenberg.
         if (typeof bookData === 'string' && bookData.startsWith('/api/')) {
             try {
                 const r = await fetch(bookData);
@@ -7744,6 +7746,7 @@
                     showOpenError(detail);
                     return;
                 }
+                bookData = await r.arrayBuffer();
             } catch (err) {
                 showOpenError('Falha de rede ao contactar o servidor (' + err.message + ').');
                 return;

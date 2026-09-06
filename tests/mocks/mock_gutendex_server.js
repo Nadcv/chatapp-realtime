@@ -50,6 +50,16 @@ function buildMinimalEpub(title) {
 http.createServer((req, res) => {
   const parsed = url.parse(req.url, true);
 
+  // Simula o Project Gutenberg a devolver uma página de aviso/limite de
+  // pedidos em HTML com estado 200 (em vez de um EPUB real) — testa que o
+  // proxy do servidor deteta isto pela assinatura ZIP e não confia
+  // cegamente no Content-Type/estado HTTP.
+  if (parsed.pathname === '/books/ratelimited.epub') {
+    res.setHeader('Content-Type', 'application/epub+zip'); // mesmo Content-Type — o corpo é que não é mesmo um ZIP
+    res.end('<html><body>Too many requests, please try again later.</body></html>');
+    return;
+  }
+
   const epubMatch = parsed.pathname.match(/^\/books\/(\d+)\.epub$/);
   if (epubMatch) {
     const book = BOOKS.find((b) => String(b.id) === epubMatch[1]);

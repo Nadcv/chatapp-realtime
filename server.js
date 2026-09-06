@@ -3291,8 +3291,19 @@ app.get('/api/library/gutenberg/file', async (req, res) => {
   try {
     const r = await fetch(fileUrl, { headers: GUTENDEX_HEADERS });
     if (!r.ok) return res.status(502).json({ error: 'Não foi possível descarregar o livro.' });
+    const buf = Buffer.from(await r.arrayBuffer());
+    // O Project Gutenberg às vezes devolve uma página de aviso/limite de
+    // pedidos em HTML com estado 200 (em vez de um erro HTTP a sério) quando
+    // acha que o pedido é automático — sem esta verificação, esse HTML era
+    // enviado ao leitor como se fosse um EPUB válido, e o epub.js ficava
+    // preso a tentar interpretá-lo como um ZIP, sem nunca mostrar nada nem
+    // dar um erro claro (só um ecrã em branco depois de "A abrir o livro...").
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+      console.error('Gutenberg devolveu algo que não é um ZIP/EPUB para', fileUrl, '— início da resposta:', buf.slice(0, 200).toString('utf8'));
+      return res.status(502).json({ error: 'O Project Gutenberg devolveu um ficheiro inesperado (pode estar temporariamente a limitar pedidos, ou este livro não ter EPUB disponível de verdade). Tenta outro livro ou tenta mais tarde.' });
+    }
     res.setHeader('Content-Type', 'application/epub+zip');
-    res.send(Buffer.from(await r.arrayBuffer()));
+    res.send(buf);
   } catch (err) {
     console.error('Erro ao descarregar EPUB do Gutenberg:', err.message);
     res.status(502).json({ error: 'Não foi possível descarregar o livro agora.' });
