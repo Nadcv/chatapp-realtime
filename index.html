@@ -7717,19 +7717,43 @@
         document.getElementById('libraryListView').style.display = 'block';
         if (libraryCurrentBook) { libraryCurrentBook.destroy(); libraryCurrentBook = null; }
     }
-    function openLibraryBook(bookData) {
+    async function openLibraryBook(bookData) {
         document.getElementById('libraryListView').style.display = 'none';
         document.getElementById('libraryReader').style.display = 'block';
         const contentDiv = document.getElementById('libraryReaderContent');
         contentDiv.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:30px;">A abrir o livro...</p>';
-        const showOpenError = () => {
-            contentDiv.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:30px;">Não foi possível abrir este livro (pode não ser um EPUB válido, o ficheiro estar inacessível, ou o leitor não ter carregado — verifica a tua ligação e tenta recarregar a página).</p>';
+        // A mensagem inclui sempre o MOTIVO exato (não só "não foi possível") —
+        // sem isto, um problema no proxy do servidor (ver /api/library/gutenberg/file)
+        // e um bloqueador de anúncios a impedir o CDN do leitor pareciam
+        // exatamente o mesmo erro genérico, tornando impossível perceber qual
+        // dos dois estava mesmo a acontecer sem aceder aos logs do servidor.
+        const showOpenError = (reason) => {
+            contentDiv.innerHTML = `<p style="color:#e74c3c;text-align:center;padding:30px;">Não foi possível abrir este livro.<br><span style="font-size:12px;opacity:0.85;">${escapeHtml(reason)}</span></p>`;
         };
+        // Se "bookData" for um URL do nosso próprio proxy (livro do Gutenberg,
+        // ao contrário de um EPUB local já em ArrayBuffer), confirma primeiro
+        // que o ficheiro chega mesmo — assim, se o servidor recusar ou falhar,
+        // a mensagem mostra a razão exata devolvida por ele, em vez de deixar
+        // o epub.js falhar por conta própria de forma pouco clara.
+        if (typeof bookData === 'string' && bookData.startsWith('/api/')) {
+            try {
+                const r = await fetch(bookData);
+                if (!r.ok) {
+                    let detail = 'HTTP ' + r.status;
+                    try { const errData = await r.clone().json(); if (errData.error) detail = errData.error; } catch (e) { /* corpo não era JSON, mantém o HTTP status */ }
+                    showOpenError(detail);
+                    return;
+                }
+            } catch (err) {
+                showOpenError('Falha de rede ao contactar o servidor (' + err.message + ').');
+                return;
+            }
+        }
         // epub.js vem de um CDN externo — se falhar ao carregar (rede em baixo,
         // bloqueador de anúncios, CDN em baixo), ePub() nem existe: chamar isso
         // diretamente lançava um erro não tratado, deixando o ecrã preso sem
         // explicação nenhuma em vez de mostrar o aviso amigável.
-        if (typeof ePub === 'undefined') { showOpenError(); return; }
+        if (typeof ePub === 'undefined') { showOpenError('O leitor de livros não carregou (pode ser um bloqueador de anúncios, ou o CDN estar em baixo) — tenta recarregar a página.'); return; }
         try {
             if (libraryCurrentBook) libraryCurrentBook.destroy();
             libraryCurrentBook = ePub(bookData);
@@ -7745,10 +7769,10 @@
                 const loadingMsg = contentDiv.querySelector('p');
                 if (loadingMsg) loadingMsg.remove();
             });
-            rendition.display().catch(showOpenError);
-            setTimeout(() => { if (!rendered && !contentDiv.querySelector('iframe')) showOpenError(); }, 10000);
+            rendition.display().catch((err) => showOpenError('O ficheiro não é um EPUB válido (' + (err?.message || 'erro desconhecido do leitor') + ').'));
+            setTimeout(() => { if (!rendered && !contentDiv.querySelector('iframe')) showOpenError('O leitor não conseguiu mostrar o livro a tempo (pode ser um ficheiro corrompido ou demasiado lento a carregar).'); }, 10000);
         } catch (err) {
-            showOpenError();
+            showOpenError('Erro inesperado do leitor (' + err.message + ').');
         }
     }
     async function fetchLibraryBooks(searchQuery) {
