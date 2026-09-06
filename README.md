@@ -1320,7 +1320,8 @@ A "partilha de vídeo" (assistir um ficheiro/URL de vídeo em conjunto durante u
 
 Nova secção em "⋯ Mais funcionalidades" — lê livros de domínio público gratuitamente ou um EPUB próprio, sem sair da app.
 
-- **"Carregar livros gratuitos"** lista livros em português com EPUB disponível, indexados a partir do Project Gutenberg pelo **Gutendex** (gutendex.com) — uma API gratuita e sem chave. Tal como as outras integrações externas desta app, o pedido passa pelo servidor (`/api/library/gutenberg`), nunca diretamente do browser; o resultado fica em cache 1 hora.
-- **"Lê o teu próprio EPUB"** abre qualquer ficheiro `.epub` do teu telemóvel/computador, sem enviar nada para o servidor (fica só no browser).
-- A leitura em si usa a biblioteca **epub.js** (carregada via CDN, tal como o Leaflet e o Three.js já usados na app). Se o livro não abrir (ficheiro inválido, CDN em baixo, etc.), mostra um aviso claro em vez de travar o ecrã.
+- **Pesquisa por título/autor** (campo no topo) ou **"Ver lista de livros gratuitos em português"** — ambos listam livros com EPUB disponível, indexados a partir do Project Gutenberg pelo **Gutendex** (gutendex.com), uma API gratuita e sem chave. Tal como as outras integrações externas desta app, o pedido passa pelo servidor (`/api/library/gutenberg`), nunca diretamente do browser; o resultado fica em cache 1 hora.
+- **O ficheiro EPUB em si também passa pelo servidor** (`/api/library/gutenberg/file`), não só a lista — sem isto, o leitor dependia de o gutenberg.org enviar cabeçalhos CORS corretos para este domínio, o que nem sempre acontecia e deixava o ecrã do leitor em branco, sem erro nenhum visível. Este proxy só aceita URLs do próprio Project Gutenberg (nunca se torna um "SSRF" — um jeito de fazer o servidor pedir o que quisermos a qualquer endereço).
+- **"Lê o teu próprio EPUB"** abre qualquer ficheiro `.epub` do teu telemóvel/computador diretamente no browser, sem nada passar pelo servidor.
+- A leitura em si usa a biblioteca **epub.js** (carregada via CDN, tal como o Leaflet e o Three.js já usados na app). Se o livro não abrir (ficheiro inválido, CDN em baixo, o leitor demorar demasiado a aparecer, etc.), mostra um aviso claro em vez de deixar o ecrã preso em branco.
 

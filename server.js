@@ -3234,9 +3234,18 @@ app.get('/api/watch/providers', async (req, res) => {
 // pedido passa pelo servidor (nunca diretamente do browser), e a URL base é
 // configurável (GUTENDEX_API_BASE) para os testes apontarem a um mock local.
 const GUTENDEX_API_BASE = process.env.GUTENDEX_API_BASE || 'https://gutendex.com';
+// A pesquisa por título/autor não se limita ao português (às vezes procura-se
+// um clássico só disponível noutra língua) — só a lista "por omissão" (sem
+// pesquisa) é que fica limitada a pt, para a primeira coisa que se vê ao
+// abrir a Biblioteca já fazer sentido para quem usa a app em português.
 app.get('/api/library/gutenberg', async (req, res) => {
+  const search = String(req.query.search || '').trim();
+  const cacheKey = search ? 'gutendex_search_' + search.toLowerCase() : 'gutendex_pt_epub';
+  const qs = search
+    ? `search=${encodeURIComponent(search)}&mime_type=application/epub%2Bzip`
+    : `languages=pt&mime_type=application/epub%2Bzip`;
   try {
-    const data = await cachedFetch('gutendex_pt_epub', `${GUTENDEX_API_BASE}/books?languages=pt&mime_type=application/epub%2Bzip`, 60 * 60 * 1000);
+    const data = await cachedFetch(cacheKey, `${GUTENDEX_API_BASE}/books?${qs}`, 60 * 60 * 1000);
     const books = (data.results || [])
       .filter((b) => b.formats && b.formats['application/epub+zip'])
       .map((b) => ({
@@ -3249,6 +3258,37 @@ app.get('/api/library/gutenberg', async (req, res) => {
   } catch (err) {
     console.error('Erro ao carregar biblioteca (Gutendex):', err.message);
     res.status(502).json({ error: 'Não foi possível carregar os livros agora. Tenta novamente mais tarde.' });
+  }
+});
+// O ficheiro EPUB em si não é pedido pelo browser diretamente ao Project
+// Gutenberg (ao contrário da versão original deste código) — passa por aqui
+// também, tal como a lista acima. Sem isto, o leitor (epub.js) dependia de o
+// gutenberg.org enviar cabeçalhos CORS corretos para o domínio desta app, o
+// que nem sempre acontece — ficava com o ecrã do leitor em branco, sem erro
+// nenhum visível, mesmo com a app e a rede a funcionar bem.
+// O parâmetro "url" só pode apontar para o Project Gutenberg (ou para
+// GUTENDEX_API_BASE, para os testes apontarem a um mock local) — nunca para
+// outro sítio qualquer, para este proxy não se tornar um SSRF (um jeito de
+// fazer o servidor pedir o que quisermos a qualquer endereço).
+function isAllowedGutenbergFileUrl(urlStr) {
+  let parsed;
+  try { parsed = new URL(urlStr); } catch (e) { return false; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  const allowedHosts = ['www.gutenberg.org', 'gutenberg.org'];
+  try { allowedHosts.push(new URL(GUTENDEX_API_BASE).hostname); } catch (e) {}
+  return allowedHosts.includes(parsed.hostname);
+}
+app.get('/api/library/gutenberg/file', async (req, res) => {
+  const fileUrl = String(req.query.url || '');
+  if (!isAllowedGutenbergFileUrl(fileUrl)) return res.status(400).json({ error: 'Só é possível descarregar ficheiros do Project Gutenberg.' });
+  try {
+    const r = await fetch(fileUrl);
+    if (!r.ok) return res.status(502).json({ error: 'Não foi possível descarregar o livro.' });
+    res.setHeader('Content-Type', 'application/epub+zip');
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (err) {
+    console.error('Erro ao descarregar EPUB do Gutenberg:', err.message);
+    res.status(502).json({ error: 'Não foi possível descarregar o livro agora.' });
   }
 });
 
