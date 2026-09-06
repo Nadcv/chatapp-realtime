@@ -68,8 +68,18 @@ http.createServer((req, res) => {
     return;
   }
 
-  res.setHeader('Content-Type', 'application/json');
+  // Simula o Gutendex indisponível (já aconteceu em produção: HTTP 503) —
+  // testa que o servidor cai para a lista de reserva em vez de deixar a
+  // Biblioteca vazia.
   const search = (parsed.query.search || '').toLowerCase();
+  if (search === 'trigger503') {
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('Service Unavailable');
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/json');
   const results = search
     ? BOOKS.filter((b) => b.title.toLowerCase().includes(search) || b.authors[0].name.toLowerCase().includes(search))
     : BOOKS;

@@ -57,6 +57,19 @@ const { chromium } = require('playwright');
   const searchTitles = await page.evaluate(() => [...document.querySelectorAll('#libraryBookList h4')].map(h => h.textContent));
   console.log('Pesquisar "Eça de Queirós" mostra só "O Primo Basílio":', searchTitles.length === 1 && searchTitles.includes('O Primo Basílio'));
 
+  // --- Gutendex indisponível (já aconteceu em produção: HTTP 503) — a
+  // Biblioteca deve continuar a mostrar livros (a lista de reserva), nunca
+  // ficar vazia, com um aviso claro de que não é o resultado pedido.
+  await page.fill('#librarySearchInput', 'trigger503');
+  await page.click('button[onclick="doLibrarySearch()"]');
+  await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
+  const fallbackState = await page.evaluate(() => ({
+    titles: [...document.querySelectorAll('#libraryBookList h4')].map(h => h.textContent),
+    warningVisible: document.getElementById('libraryBookList').textContent.includes('pré-carregados')
+  }));
+  console.log('Gutendex indisponível (HTTP 503) mostra a lista de reserva em vez de ficar vazia:', fallbackState.titles.includes('Os Lusíadas'));
+  console.log('Mostra um aviso claro de que são livros pré-carregados, não o resultado da pesquisa:', fallbackState.warningVisible);
+
   // --- Proxy do ficheiro EPUB: devolve mesmo os bytes (prova que o CORS do
   // gutenberg.org deixou de ser um problema), e recusa URLs fora da
   // allowlist (nunca vira um proxy aberto/SSRF). Testado diretamente via
@@ -86,6 +99,11 @@ const { chromium } = require('playwright');
     return { status: r.status, error: data?.error };
   });
   console.log('O proxy recusa um "EPUB" que na verdade é uma página HTML (200 mas não é ZIP):', rateLimitedResult.status === 502 && !!rateLimitedResult.error);
+
+  // Repõe a lista normal (a pesquisa "trigger503" acima deixou a lista de
+  // reserva, cujo primeiro elemento é o aviso, não um livro clicável).
+  await page.click('button:has-text("Ver lista de livros gratuitos")');
+  await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
 
   // Clica no primeiro livro — o mock não serve um EPUB real, por isso deve
   // mostrar o aviso amigável em vez de crashar ou ficar preso a "carregar".

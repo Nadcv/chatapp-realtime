@@ -7809,14 +7809,22 @@
             const url = '/api/library/gutenberg' + (searchQuery ? '?search=' + encodeURIComponent(searchQuery) : '');
             const r = await fetch(url);
             const data = await r.json();
-            if (data.error) { bookList.innerHTML = `<p style="color:#e74c3c;grid-column:1/-1;text-align:center;">${escapeHtml(data.error)}</p>`; loading.style.display = 'none'; return; }
             libraryBooksCache = data.books || [];
             if (!libraryBooksCache.length) {
-                bookList.innerHTML = '<p style="color:var(--text-secondary);grid-column:1/-1;text-align:center;">Nenhum livro encontrado.</p>';
+                bookList.innerHTML = data.error
+                    ? `<p style="color:#e74c3c;grid-column:1/-1;text-align:center;">${escapeHtml(data.error)}</p>`
+                    : '<p style="color:var(--text-secondary);grid-column:1/-1;text-align:center;">Nenhum livro encontrado.</p>';
                 loading.style.display = 'none';
                 return;
             }
-            bookList.innerHTML = libraryBooksCache.map((b, i) => `
+            // Se o servidor não conseguiu mesmo contactar o Gutendex, "books"
+            // vem preenchido com a lista de reserva (ver server.js) — mostra
+            // sempre os livros, mas com um aviso a explicar que não são o
+            // resultado da tua pesquisa/lista pedida.
+            const warningHtml = data.fallback
+                ? `<p style="color:orange;grid-column:1/-1;text-align:center;font-size:12px;margin:0 0 8px;">⚠️ ${escapeHtml(data.error || 'Não foi possível contactar o Gutendex agora.')} A mostrar livros pré-carregados:</p>`
+                : '';
+            bookList.innerHTML = warningHtml + libraryBooksCache.map((b, i) => `
                 <div style="background:var(--bg-tertiary);padding:10px;border-radius:8px;cursor:pointer;text-align:center;" onclick="carregarLivroGutenberg(${i})">
                     <div style="font-size:28px;">📖</div>
                     <h4 style="margin:5px 0;font-size:13px;color:var(--text-primary);">${escapeHtml(b.title)}</h4>
