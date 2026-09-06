@@ -3248,10 +3248,15 @@ const GUTENDEX_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 
 // deixar a Biblioteca completamente vazia quando isso acontece, mostra
 // sempre pelo menos esta pequena lista fixa, com um aviso claro.
 const LIBRARY_FALLBACK_BOOKS = [
-  { id: 3333, title: 'Os Lusíadas', author: 'Luís de Camões', epubUrl: 'https://www.gutenberg.org/cache/epub/3333/pg3333.epub' },
-  { id: 55752, title: 'Dom Casmurro', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/55752/pg55752.epub' },
-  { id: 54829, title: 'Memórias Póstumas de Brás Cubas', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/54829/pg54829.epub' },
-  { id: 42942, title: 'O Primo Basílio', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/42942/pg42942.epub' }
+  { id: 3333, title: 'Os Lusíadas', author: 'Luís de Camões', epubUrl: 'https://www.gutenberg.org/cache/epub/3333/pg3333-images.epub' },
+  { id: 55752, title: 'Dom Casmurro', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/55752/pg55752-images.epub' },
+  { id: 54829, title: 'Memórias Póstumas de Brás Cubas', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/54829/pg54829-images.epub' },
+  { id: 42942, title: 'O Primo Basílio', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/42942/pg42942-images.epub' },
+  { id: 40409, title: 'Os Maias', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/40409/pg40409-images.epub' },
+  { id: 18220, title: 'A Cidade e as Serras', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/18220/pg18220-images.epub' },
+  { id: 24401, title: 'Viagens na Minha Terra', author: 'Almeida Garrett', epubUrl: 'https://www.gutenberg.org/cache/epub/24401/pg24401-images.epub' },
+  { id: 16425, title: 'Amor de Perdição', author: 'Camilo Castelo Branco', epubUrl: 'https://www.gutenberg.org/cache/epub/16425/pg16425-images.epub' },
+  { id: 67740, title: 'Iracema', author: 'José de Alencar', epubUrl: 'https://www.gutenberg.org/cache/epub/67740/pg67740-images.epub' }
 ];
 // A pesquisa por título/autor não se limita ao português (às vezes procura-se
 // um clássico só disponível noutra língua) — só a lista "por omissão" (sem
