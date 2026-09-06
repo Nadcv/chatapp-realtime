@@ -97,6 +97,36 @@ const { chromium } = require('playwright');
   const friendlyError = await page.evaluate(() => document.getElementById('libraryReaderContent').textContent.includes('Não foi possível abrir'));
   console.log('Um "EPUB" inválido/inacessível mostra um aviso amigável (não crasha a app):', friendlyError);
 
+  // Os botões "Anterior"/"Seguinte" não podem crashar antes de haver livro
+  // nenhum aberto (rendition ainda null) — testado com a página encaminhamento
+  // de erro acima, onde nunca chega a existir uma rendition de verdade.
+  const navButtonsSafeWithoutBook = await page.evaluate(() => {
+    try { libraryPrevPage(); libraryNextPage(); return true; } catch (e) { return false; }
+  });
+  console.log('Os botões de navegação não crasham quando ainda não há nenhum livro aberto:', navButtonsSafeWithoutBook);
+
+  // epub.js não carrega neste sandbox (CDN bloqueado), por isso simula uma
+  // "rendition" mínima para confirmar que os botões e as setas do teclado
+  // estão mesmo ligados a .prev()/.next() — a única coisa que não dá para
+  // testar aqui é o epub.js real a desenhar as páginas.
+  // Nota: o leitor já está visível nesta altura do teste (desde o clique no
+  // livro acima, que mostra o aviso de erro amigável) — não mexer no
+  // display dele aqui, só a substituição da rendition é que é preciso.
+  const navWiring = await page.evaluate(() => {
+    const calls = [];
+    libraryCurrentRendition = { prev: () => calls.push('prev'), next: () => calls.push('next') };
+    libraryPrevPage();
+    libraryNextPage();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    libraryCurrentRendition = null;
+    return calls;
+  });
+  console.log('O botão "Anterior" chama rendition.prev():', navWiring[0] === 'prev');
+  console.log('O botão "Seguinte" chama rendition.next():', navWiring[1] === 'next');
+  console.log('A seta ← do teclado também chama .prev() (só com o leitor visível):', navWiring[2] === 'prev');
+  console.log('A seta → do teclado também chama .next() (só com o leitor visível):', navWiring[3] === 'next');
+
   await page.click('button:has-text("Voltar à lista")');
   const backToList = await page.evaluate(() => document.getElementById('libraryListView').style.display !== 'none' && document.getElementById('libraryReader').style.display === 'none');
   console.log('"Voltar à lista" funciona corretamente:', backToList);
