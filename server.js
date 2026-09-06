@@ -3248,15 +3248,15 @@ const GUTENDEX_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 
 // deixar a Biblioteca completamente vazia quando isso acontece, mostra
 // sempre pelo menos esta pequena lista fixa, com um aviso claro.
 const LIBRARY_FALLBACK_BOOKS = [
-  { id: 3333, title: 'Os Lusíadas', author: 'Luís de Camões', epubUrl: 'https://www.gutenberg.org/cache/epub/3333/pg3333-images.epub' },
-  { id: 55752, title: 'Dom Casmurro', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/55752/pg55752-images.epub' },
-  { id: 54829, title: 'Memórias Póstumas de Brás Cubas', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/54829/pg54829-images.epub' },
-  { id: 42942, title: 'O Primo Basílio', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/42942/pg42942-images.epub' },
-  { id: 40409, title: 'Os Maias', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/40409/pg40409-images.epub' },
-  { id: 18220, title: 'A Cidade e as Serras', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/18220/pg18220-images.epub' },
-  { id: 24401, title: 'Viagens na Minha Terra', author: 'Almeida Garrett', epubUrl: 'https://www.gutenberg.org/cache/epub/24401/pg24401-images.epub' },
-  { id: 16425, title: 'Amor de Perdição', author: 'Camilo Castelo Branco', epubUrl: 'https://www.gutenberg.org/cache/epub/16425/pg16425-images.epub' },
-  { id: 67740, title: 'Iracema', author: 'José de Alencar', epubUrl: 'https://www.gutenberg.org/cache/epub/67740/pg67740-images.epub' }
+  { id: 3333, title: 'Os Lusíadas', author: 'Luís de Camões', epubUrl: 'https://www.gutenberg.org/cache/epub/3333/pg3333-images.epub', source: 'gutenberg' },
+  { id: 55752, title: 'Dom Casmurro', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/55752/pg55752-images.epub', source: 'gutenberg' },
+  { id: 54829, title: 'Memórias Póstumas de Brás Cubas', author: 'Machado de Assis', epubUrl: 'https://www.gutenberg.org/cache/epub/54829/pg54829-images.epub', source: 'gutenberg' },
+  { id: 42942, title: 'O Primo Basílio', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/42942/pg42942-images.epub', source: 'gutenberg' },
+  { id: 40409, title: 'Os Maias', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/40409/pg40409-images.epub', source: 'gutenberg' },
+  { id: 18220, title: 'A Cidade e as Serras', author: 'Eça de Queirós', epubUrl: 'https://www.gutenberg.org/cache/epub/18220/pg18220-images.epub', source: 'gutenberg' },
+  { id: 24401, title: 'Viagens na Minha Terra', author: 'Almeida Garrett', epubUrl: 'https://www.gutenberg.org/cache/epub/24401/pg24401-images.epub', source: 'gutenberg' },
+  { id: 16425, title: 'Amor de Perdição', author: 'Camilo Castelo Branco', epubUrl: 'https://www.gutenberg.org/cache/epub/16425/pg16425-images.epub', source: 'gutenberg' },
+  { id: 67740, title: 'Iracema', author: 'José de Alencar', epubUrl: 'https://www.gutenberg.org/cache/epub/67740/pg67740-images.epub', source: 'gutenberg' }
 ];
 // A pesquisa por título/autor não se limita ao português (às vezes procura-se
 // um clássico só disponível noutra língua) — só a lista "por omissão" (sem
@@ -3276,7 +3276,8 @@ app.get('/api/library/gutenberg', async (req, res) => {
         id: b.id,
         title: b.title || 'Sem título',
         author: b.authors?.[0]?.name || 'Autor desconhecido',
-        epubUrl: b.formats['application/epub+zip']
+        epubUrl: b.formats['application/epub+zip'],
+        source: 'gutenberg'
       }));
     res.json({ books });
   } catch (err) {
@@ -3327,6 +3328,60 @@ app.get('/api/library/gutenberg/file', async (req, res) => {
   } catch (err) {
     console.error('Erro ao descarregar EPUB do Gutenberg:', err.message);
     res.status(502).json({ error: 'Não foi possível descarregar o livro agora.' });
+  }
+});
+
+// Segunda fonte de livros, independente do Gutendex/Gutenberg (que já
+// bloqueou pedidos em produção mais de uma vez) — o Internet Archive tem o
+// seu próprio catálogo de domínio público com EPUBs, através de uma API
+// pública sem chave. Ao contrário do proxy do Gutenberg acima, este nunca
+// recebe uma URL vinda do cliente — só um "identifier" (validado por regex),
+// a partir do qual o próprio servidor constrói todas as URLs, por isso não
+// precisa de nenhuma allowlist de anti-SSRF (não há URL nenhuma para validar).
+const ARCHIVE_API_BASE = process.env.ARCHIVE_API_BASE || 'https://archive.org';
+const ARCHIVE_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' };
+app.get('/api/library/archive', async (req, res) => {
+  const search = String(req.query.search || '').trim();
+  const cacheKey = search ? 'archive_search_' + search.toLowerCase() : 'archive_pt_epub';
+  const q = search
+    ? `(${search}) AND mediatype:texts AND format:EPUB`
+    : `mediatype:texts AND language:por AND format:EPUB`;
+  const qs = `q=${encodeURIComponent(q)}&fl[]=identifier&fl[]=title&fl[]=creator&rows=20&output=json`;
+  try {
+    const data = await cachedFetch(cacheKey, `${ARCHIVE_API_BASE}/advancedsearch.php?${qs}`, 60 * 60 * 1000, { headers: ARCHIVE_HEADERS });
+    const books = (data.response?.docs || []).map((d) => ({
+      id: d.identifier,
+      title: d.title || 'Sem título',
+      author: Array.isArray(d.creator) ? d.creator[0] : (d.creator || 'Autor desconhecido'),
+      source: 'archive'
+    }));
+    res.json({ books });
+  } catch (err) {
+    console.error('Erro ao carregar biblioteca (Internet Archive):', err.message);
+    res.status(502).json({ error: 'Não foi possível carregar os livros do Internet Archive agora (' + err.message + ').' });
+  }
+});
+app.get('/api/library/archive/file', async (req, res) => {
+  const identifier = String(req.query.identifier || '').trim();
+  if (!/^[a-zA-Z0-9_.-]+$/.test(identifier)) return res.status(400).json({ error: 'Identificador inválido.' });
+  try {
+    const metaRes = await fetch(`${ARCHIVE_API_BASE}/metadata/${encodeURIComponent(identifier)}`, { headers: ARCHIVE_HEADERS });
+    if (!metaRes.ok) return res.status(502).json({ error: 'Não foi possível obter os dados deste livro (HTTP ' + metaRes.status + ').' });
+    const meta = await metaRes.json();
+    const epubFile = (meta.files || []).find((f) => f.format === 'EPUB' || (f.name || '').toLowerCase().endsWith('.epub'));
+    if (!epubFile) return res.status(404).json({ error: 'Este livro não tem um EPUB disponível.' });
+    const r = await fetch(`${ARCHIVE_API_BASE}/download/${encodeURIComponent(identifier)}/${encodeURIComponent(epubFile.name)}`, { headers: ARCHIVE_HEADERS });
+    if (!r.ok) return res.status(502).json({ error: 'Não foi possível descarregar o livro.' });
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+      console.error('Internet Archive devolveu algo que não é um ZIP/EPUB para', identifier);
+      return res.status(502).json({ error: 'O Internet Archive devolveu um ficheiro inesperado. Tenta outro livro ou tenta mais tarde.' });
+    }
+    res.setHeader('Content-Type', 'application/epub+zip');
+    res.send(buf);
+  } catch (err) {
+    console.error('Erro ao descarregar EPUB do Internet Archive:', err.message);
+    res.status(502).json({ error: 'Não foi possível descarregar o livro agora (' + err.message + ').' });
   }
 });
 
