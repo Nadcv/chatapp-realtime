@@ -77,6 +77,16 @@ const { chromium } = require('playwright');
   });
   console.log('O proxy do ficheiro RECUSA um URL fora do Project Gutenberg (não é um SSRF aberto):', ssrfBlocked === 400);
 
+  // O Gutenberg às vezes devolve uma página de aviso/limite de pedidos em
+  // HTML com estado 200 em vez do EPUB real — o proxy tem de detetar isto
+  // pela assinatura ZIP, não confiar cegamente no HTTP 200/Content-Type.
+  const rateLimitedResult = await page.evaluate(async () => {
+    const r = await fetch('/api/library/gutenberg/file?url=' + encodeURIComponent('http://localhost:3024/books/ratelimited.epub'));
+    const data = await r.json().catch(() => null);
+    return { status: r.status, error: data?.error };
+  });
+  console.log('O proxy recusa um "EPUB" que na verdade é uma página HTML (200 mas não é ZIP):', rateLimitedResult.status === 502 && !!rateLimitedResult.error);
+
   // Clica no primeiro livro — o mock não serve um EPUB real, por isso deve
   // mostrar o aviso amigável em vez de crashar ou ficar preso a "carregar".
   await page.click('#libraryBookList > div:first-child');
