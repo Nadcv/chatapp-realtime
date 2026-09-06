@@ -2,13 +2,21 @@
 // público via Project Gutenberg (indexados pelo Gutendex, através de
 // /api/library/gutenberg no servidor — nunca diretamente do browser, tal
 // como as outras integrações externas desta app) e permite ler qualquer
-// EPUB próprio. Este teste usa um mock local do Gutendex (porta 3024) em
-// vez do serviço real. O mock não serve bytes de EPUB reais (só devolve a
-// mesma lista JSON em qualquer caminho), por isso não testamos ler um livro
-// até ao fim — testamos o que É verificável sem isso: a lista carrega
-// corretamente do servidor, clicar num livro transita para o leitor e trata
-// um EPUB inválido/inacessível de forma amigável (sem crashar), e "Voltar à
-// lista" funciona.
+// EPUB próprio. O FICHEIRO em si também passa pelo servidor
+// (/api/library/gutenberg/file), com uma allowlist anti-SSRF (só aceita URLs
+// do Project Gutenberg ou de GUTENDEX_API_BASE) — sem isto, o leitor
+// dependia de o gutenberg.org enviar CORS correto para este domínio, o que
+// deixava o ecrã do leitor em branco, sem erro nenhum, quando isso falhava.
+//
+// Este teste usa um mock local do Gutendex (porta 3024, com um EPUB válido
+// de verdade construído com adm-zip — ver tests/mocks/mock_gutendex_server.js)
+// e verifica: a lista carrega da API real com a pesquisa por título/autor, o
+// proxy do ficheiro devolve mesmo os bytes do EPUB (prova de que o CORS do
+// gutenberg.org deixou de ser um problema) mas RECUSA URLs fora da
+// allowlist (SSRF), e a interface trata um EPUB inacessível de forma
+// amigável em vez de crashar (a biblioteca epub.js em si não carrega neste
+// sandbox — o CDN jsdelivr está bloqueado pelo proxy de saída — por isso não
+// dá para testar a página do livro a aparecer de verdade aqui).
 const { chromium } = require('playwright');
 
 (async () => {
@@ -32,7 +40,7 @@ const { chromium } = require('playwright');
   const screenOpen = await page.evaluate(() => document.getElementById('libraryScreen').classList.contains('active'));
   console.log('O ecrã da Biblioteca abre:', screenOpen);
 
-  await page.click('button:has-text("Carregar livros gratuitos")');
+  await page.click('button:has-text("Ver lista de livros gratuitos")');
   await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
 
   const bookTitles = await page.evaluate(() => [...document.querySelectorAll('#libraryBookList h4')].map(h => h.textContent));
@@ -41,6 +49,33 @@ const { chromium } = require('playwright');
 
   const bookAuthors = await page.evaluate(() => [...document.querySelectorAll('#libraryBookList p')].map(p => p.textContent));
   console.log('Mostra o autor correto ("Luís de Camões"):', bookAuthors.includes('Luís de Camões'));
+
+  // --- Pesquisa por título/autor (novo campo) ---
+  await page.fill('#librarySearchInput', 'Eça de Queirós');
+  await page.click('button[onclick="doLibrarySearch()"]');
+  await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
+  const searchTitles = await page.evaluate(() => [...document.querySelectorAll('#libraryBookList h4')].map(h => h.textContent));
+  console.log('Pesquisar "Eça de Queirós" mostra só "O Primo Basílio":', searchTitles.length === 1 && searchTitles.includes('O Primo Basílio'));
+
+  // --- Proxy do ficheiro EPUB: devolve mesmo os bytes (prova que o CORS do
+  // gutenberg.org deixou de ser um problema), e recusa URLs fora da
+  // allowlist (nunca vira um proxy aberto/SSRF). Testado diretamente via
+  // fetch, sem depender de o epub.js estar carregado.
+  const fileProxyResult = await page.evaluate(async () => {
+    const r = await fetch('/api/library/gutenberg/file?url=' + encodeURIComponent('http://localhost:3024/books/1001.epub'));
+    const buf = await r.arrayBuffer();
+    const bytes = new Uint8Array(buf.slice(0, 2));
+    const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b; // assinatura "PK" de um ficheiro ZIP/EPUB
+    return { ok: r.ok, isZip, contentType: r.headers.get('content-type') };
+  });
+  console.log('O proxy do ficheiro devolve mesmo os bytes de um EPUB válido (assinatura ZIP "PK"):', fileProxyResult.ok && fileProxyResult.isZip);
+  console.log('O proxy do ficheiro devolve o Content-Type correto:', (fileProxyResult.contentType || '').includes('epub'));
+
+  const ssrfBlocked = await page.evaluate(async () => {
+    const r = await fetch('/api/library/gutenberg/file?url=' + encodeURIComponent('http://127.0.0.1:3000/api/admin/users'));
+    return r.status;
+  });
+  console.log('O proxy do ficheiro RECUSA um URL fora do Project Gutenberg (não é um SSRF aberto):', ssrfBlocked === 400);
 
   // Clica no primeiro livro — o mock não serve um EPUB real, por isso deve
   // mostrar o aviso amigável em vez de crashar ou ficar preso a "carregar".
