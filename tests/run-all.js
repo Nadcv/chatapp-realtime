@@ -83,7 +83,8 @@ const MOCK_SERVERS = [
   'mock_numverify_server.js',       // 3021 - validação de telemóvel no registo (1º provedor)
   'mock_veriphone_server.js',       // 3022 - validação de telemóvel no registo (2º provedor)
   'mock_abstractapi_server.js',     // 3023 - validação de telemóvel no registo (3º provedor)
-  'mock_gutendex_server.js'         // 3024 - Biblioteca (Project Gutenberg)
+  'mock_gutendex_server.js',        // 3024 - Biblioteca (Project Gutenberg)
+  'mock_archive_server.js'          // 3025 - Biblioteca (Internet Archive, 2ª fonte)
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -145,7 +146,8 @@ const BASE_ENV = {
   VERIPHONE_API_KEY: 'mock-veriphone-key',
   ABSTRACT_PHONE_API_BASE: 'http://localhost:3023',
   ABSTRACT_PHONE_API_KEY: 'mock-abstract-key',
-  GUTENDEX_API_BASE: 'http://localhost:3024'
+  GUTENDEX_API_BASE: 'http://localhost:3024',
+  ARCHIVE_API_BASE: 'http://localhost:3025'
 };
 
 // Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por

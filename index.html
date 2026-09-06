@@ -3445,6 +3445,10 @@
             </div>
             <div id="libraryListView" style="padding:12px;overflow-y:auto;flex:1;">
                 <div style="display:flex;gap:8px;margin-bottom:10px;">
+                    <select id="librarySourceSelect" style="padding:8px 6px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);" onchange="carregarListaGutenberg()">
+                        <option value="gutenberg">Project Gutenberg</option>
+                        <option value="archive">Internet Archive</option>
+                    </select>
                     <input type="text" id="librarySearchInput" placeholder="Pesquisar título ou autor..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);" onkeypress="if(event.key==='Enter')doLibrarySearch()">
                     <button class="btn-small btn-accept" onclick="doLibrarySearch()">🔍</button>
                 </div>
@@ -3455,7 +3459,7 @@
                 </div>
                 <div id="libraryLoading" style="display:none;text-align:center;padding:16px;color:var(--text-secondary);">A carregar...</div>
                 <div id="libraryBookList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:10px;"></div>
-                <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:10px 4px 0;">Livros de domínio público, gratuitos e legais, indexados a partir do Project Gutenberg (via Gutendex). Também podes ler qualquer EPUB teu, sem sair da app.</p>
+                <p style="font-size:11px;color:var(--text-secondary);text-align:center;padding:10px 4px 0;">Livros de domínio público, gratuitos e legais, indexados a partir do Project Gutenberg (via Gutendex) e do Internet Archive. Também podes ler qualquer EPUB teu, sem sair da app.</p>
             </div>
             <div id="libraryReader" style="display:none;flex:1;position:relative;">
                 <div style="position:absolute;top:6px;left:6px;z-index:5;">
@@ -7803,10 +7807,12 @@
     async function fetchLibraryBooks(searchQuery) {
         const loading = document.getElementById('libraryLoading');
         const bookList = document.getElementById('libraryBookList');
+        const source = document.getElementById('librarySourceSelect').value;
         loading.style.display = 'block';
         bookList.innerHTML = '';
         try {
-            const url = '/api/library/gutenberg' + (searchQuery ? '?search=' + encodeURIComponent(searchQuery) : '');
+            const endpoint = source === 'archive' ? '/api/library/archive' : '/api/library/gutenberg';
+            const url = endpoint + (searchQuery ? '?search=' + encodeURIComponent(searchQuery) : '');
             const r = await fetch(url);
             const data = await r.json();
             libraryBooksCache = data.books || [];
@@ -7820,12 +7826,13 @@
             // Se o servidor não conseguiu mesmo contactar o Gutendex, "books"
             // vem preenchido com a lista de reserva (ver server.js) — mostra
             // sempre os livros, mas com um aviso a explicar que não são o
-            // resultado da tua pesquisa/lista pedida.
+            // resultado da tua pesquisa/lista pedida. (O Internet Archive não
+            // tem lista de reserva própria — se falhar, mostra o erro real.)
             const warningHtml = data.fallback
                 ? `<p style="color:orange;grid-column:1/-1;text-align:center;font-size:12px;margin:0 0 8px;">⚠️ ${escapeHtml(data.error || 'Não foi possível contactar o Gutendex agora.')} A mostrar livros pré-carregados:</p>`
                 : '';
             bookList.innerHTML = warningHtml + libraryBooksCache.map((b, i) => `
-                <div style="background:var(--bg-tertiary);padding:10px;border-radius:8px;cursor:pointer;text-align:center;" onclick="carregarLivroGutenberg(${i})">
+                <div style="background:var(--bg-tertiary);padding:10px;border-radius:8px;cursor:pointer;text-align:center;" onclick="abrirLivroDaLista(${i})">
                     <div style="font-size:28px;">📖</div>
                     <h4 style="margin:5px 0;font-size:13px;color:var(--text-primary);">${escapeHtml(b.title)}</h4>
                     <p style="margin:0;font-size:11px;color:var(--text-secondary);">${escapeHtml(b.author)}</p>
@@ -7840,12 +7847,17 @@
         const q = document.getElementById('librarySearchInput').value.trim();
         if (q) fetchLibraryBooks(q);
     }
-    function carregarLivroGutenberg(index) {
+    function abrirLivroDaLista(index) {
         const book = libraryBooksCache[index];
-        // O ficheiro passa pelo nosso servidor (/api/library/gutenberg/file),
-        // nunca é pedido diretamente ao gutenberg.org — evita depender de o
-        // gutenberg.org enviar CORS correto para este domínio (ver server.js).
-        if (book) openLibraryBook('/api/library/gutenberg/file?url=' + encodeURIComponent(book.epubUrl));
+        if (!book) return;
+        // Cada fonte tem o seu próprio proxy de ficheiro no servidor — nunca
+        // pedido diretamente ao gutenberg.org/archive.org pelo browser, tal
+        // como o resto desta app (ver server.js).
+        if (book.source === 'archive') {
+            openLibraryBook('/api/library/archive/file?identifier=' + encodeURIComponent(book.id));
+        } else {
+            openLibraryBook('/api/library/gutenberg/file?url=' + encodeURIComponent(book.epubUrl));
+        }
     }
     function handleLibraryFileSelected(input) {
         const file = input.files[0];

@@ -17,6 +17,12 @@
 // amigável em vez de crashar (a biblioteca epub.js em si não carrega neste
 // sandbox — o CDN jsdelivr está bloqueado pelo proxy de saída — por isso não
 // dá para testar a página do livro a aparecer de verdade aqui).
+//
+// Também testa a segunda fonte, o Internet Archive (mock na porta 3025 —
+// ver tests/mocks/mock_archive_server.js), independente do Gutendex: a
+// troca de fonte no seletor, a lista/pesquisa próprias, e o proxy do
+// ficheiro (que valida um "identifier" por regex, não uma URL, por isso o
+// teste dele é sobre identificadores inválidos, não SSRF).
 const { chromium } = require('playwright');
 
 (async () => {
@@ -159,6 +165,55 @@ const { chromium } = require('playwright');
   await page.waitForFunction(() => document.getElementById('libraryReaderContent').textContent.includes('Não foi possível abrir'), { timeout: 8000 }).catch(() => {});
   const uploadFriendlyError = await page.evaluate(() => document.getElementById('libraryReaderContent').textContent.includes('Não foi possível abrir'));
   console.log('Fazer upload de um ficheiro inválido também mostra o aviso amigável:', uploadFriendlyError);
+
+  // --- Segunda fonte de livros: Internet Archive (independente do
+  // Gutendex/Gutenberg, que já bloqueou pedidos em produção) — testa a
+  // troca de fonte no seletor, a lista e a pesquisa via /api/library/archive,
+  // e o proxy do ficheiro (/api/library/archive/file), que valida o
+  // "identifier" por regex em vez de uma allowlist de URL (nunca recebe uma
+  // URL do cliente, ao contrário do proxy do Gutenberg).
+  await page.click('button:has-text("Voltar à lista")').catch(() => {});
+  await page.selectOption('#librarySourceSelect', 'archive');
+  await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
+  const archiveTitles = await page.evaluate(() => [...document.querySelectorAll('#libraryBookList h4')].map(h => h.textContent));
+  console.log('Trocar para "Internet Archive" mostra os livros dessa fonte ("Os Maias"):', archiveTitles.includes('Os Maias'));
+  console.log('Trocar para "Internet Archive" mostra os livros dessa fonte ("Iracema"):', archiveTitles.includes('Iracema'));
+
+  await page.fill('#librarySearchInput', 'Iracema');
+  await page.click('button[onclick="doLibrarySearch()"]');
+  await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
+  const archiveSearchTitles = await page.evaluate(() => [...document.querySelectorAll('#libraryBookList h4')].map(h => h.textContent));
+  console.log('Pesquisar no Internet Archive filtra corretamente ("Iracema"):', archiveSearchTitles.length === 1 && archiveSearchTitles.includes('Iracema'));
+
+  const archiveFileResult = await page.evaluate(async () => {
+    const r = await fetch('/api/library/archive/file?identifier=os-maias-archive');
+    const buf = await r.arrayBuffer();
+    const bytes = new Uint8Array(buf.slice(0, 2));
+    const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+    return { ok: r.ok, isZip, contentType: r.headers.get('content-type') };
+  });
+  console.log('O proxy do ficheiro do Internet Archive devolve mesmo os bytes de um EPUB válido:', archiveFileResult.ok && archiveFileResult.isZip);
+  console.log('O proxy do ficheiro do Internet Archive devolve o Content-Type correto:', (archiveFileResult.contentType || '').includes('epub'));
+
+  const archiveInvalidIdentifier = await page.evaluate(async () => {
+    const r = await fetch('/api/library/archive/file?identifier=' + encodeURIComponent('../../etc/passwd'));
+    return r.status;
+  });
+  console.log('O proxy do Internet Archive recusa um identificador inválido (não é um caminho de ficheiro):', archiveInvalidIdentifier === 400);
+
+  const archiveNoEpub = await page.evaluate(async () => {
+    const r = await fetch('/api/library/archive/file?identifier=sem-epub-archive');
+    const data = await r.json().catch(() => null);
+    return { status: r.status, error: data?.error };
+  });
+  console.log('O proxy do Internet Archive avisa quando o livro não tem EPUB disponível:', archiveNoEpub.status === 404 && !!archiveNoEpub.error);
+
+  // Clicar num livro do Internet Archive também tem de abrir o leitor
+  // (mesmo caminho de erro amigável do epub.js bloqueado neste sandbox).
+  await page.click('#libraryBookList > div:first-child');
+  const archiveListHidden = await page.waitForFunction(() => document.getElementById('libraryListView').style.display === 'none', { timeout: 3000 }).then(() => true).catch(() => false);
+  console.log('Clicar num livro do Internet Archive esconde a lista e mostra o leitor:', archiveListHidden);
+  await page.click('button:has-text("Voltar à lista")');
 
   await browser.close();
 })().catch(e => { console.error('TEST FAILED:', e); process.exit(1); });
