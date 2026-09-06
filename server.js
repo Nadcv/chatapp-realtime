@@ -3264,7 +3264,10 @@ app.get('/api/library/gutenberg', async (req, res) => {
     res.json({ books });
   } catch (err) {
     console.error('Erro ao carregar biblioteca (Gutendex):', err.message);
-    res.status(502).json({ error: 'Não foi possível carregar os livros agora. Tenta novamente mais tarde.' });
+    // Inclui o motivo exato (não só "tenta mais tarde") — sem acesso aos
+    // logs do servidor, esta era a única forma de perceber se é a rede, o
+    // Gutendex a recusar o pedido, ou outra coisa qualquer.
+    res.status(502).json({ error: 'Não foi possível carregar os livros agora (' + err.message + ').' });
   }
 });
 // O ficheiro EPUB em si não é pedido pelo browser diretamente ao Project
