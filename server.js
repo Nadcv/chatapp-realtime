@@ -26,6 +26,26 @@ const app = express();
 app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
 
+// ==================== LOGS RECENTES (para o admin ver erros em produção) ====================
+// Até aqui, diagnosticar um problema em produção dependia inteiramente de o
+// utilizador enviar um screenshot da mensagem de erro — sem acesso nenhum aos
+// logs reais do servidor. Isto envolve toda a app num único ponto: em vez de
+// mudar cada `console.error(...)` (são já muitas dezenas, em todas as
+// integrações externas), envolve-se a própria função `console.error` uma
+// única vez, aqui, o mais perto possível do arranque — para não perder nada
+// que aconteça durante a inicialização. Guarda só em memória (últimas 200
+// entradas) — não é um substituto de um serviço de logging a sério, mas
+// resolve já o problema real de "não vejo o erro nenhum, só o utilizador vê".
+const RECENT_ERROR_LOGS = [];
+const MAX_RECENT_ERROR_LOGS = 200;
+const originalConsoleError = console.error.bind(console);
+console.error = (...args) => {
+  originalConsoleError(...args);
+  const message = args.map((a) => (a instanceof Error ? (a.stack || a.message) : (typeof a === 'string' ? a : JSON.stringify(a)))).join(' ');
+  RECENT_ERROR_LOGS.push({ time: new Date().toISOString(), message });
+  if (RECENT_ERROR_LOGS.length > MAX_RECENT_ERROR_LOGS) RECENT_ERROR_LOGS.shift();
+};
+
 // ==================== BASE DE DADOS (MongoDB Atlas / Persistência Total) ====================
 // Configuração para guardar permanentemente contas, grupos e mensagens na nuvem,
 // evitando perdas de informação quando a aplicação reinicia ou faz deploy.
@@ -1096,6 +1116,16 @@ app.get('/api/admin/users', (req, res) => {
   // "esconder o meu estado online" ativado — é uma vista de gestão, não uma
   // conversa entre pessoas.
   res.json({ users: Object.values(accounts).map((u) => ({ ...publicUser(u), online: onlinePhones.has(u.phone) })) });
+});
+
+// Últimos erros reais do servidor (ver RECENT_ERROR_LOGS acima) — só para o
+// administrador, para diagnosticar problemas em produção sem depender de o
+// utilizador enviar um screenshot da mensagem de erro.
+app.get('/api/admin/logs', (req, res) => {
+  const token = req.query.token || req.headers['x-admin-token'];
+  const phone = sessions[token];
+  if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
+  res.json({ logs: RECENT_ERROR_LOGS.slice().reverse() });
 });
 
 app.post('/api/publish-key', async (req, res) => {

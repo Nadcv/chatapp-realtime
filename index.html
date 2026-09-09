@@ -2455,7 +2455,19 @@
                 <p id="adminUsersOnlineCount" style="color:#8696a0;font-size:12px;margin-top:-8px;font-weight:600;"></p>
                 <div id="adminUsersBody" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;"></div>
                 <div class="modal-actions">
+                    <button class="btn-small" onclick="openAdminLogsModal()">🪵 Ver logs de erro</button>
                     <button class="btn-small" onclick="closeModal('modalAdmin')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalAdminLogs">
+            <div class="modal">
+                <h3>🪵 Últimos erros do servidor</h3>
+                <p style="color:#8696a0;font-size:13px;">Só em memória (perde-se num reinício) — os últimos 200 erros reais, para diagnosticar sem depender de screenshots.</p>
+                <div id="adminLogsBody" style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto;font-family:monospace;font-size:11px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="openAdminLogsModal()">🔄 Atualizar</button>
+                    <button class="btn-small" onclick="closeModal('modalAdminLogs')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -9060,6 +9072,28 @@
                     <div style="opacity:0.8;margin-top:2px;">${escapeHtml(u.phone)} · ${escapeHtml(u.country || '—')} · ${u.online ? 'online agora' : 'offline'}</div>
                     ${u.email ? `<div style="opacity:0.8;word-break:break-all;">${escapeHtml(u.email)}</div>` : ''}
                 </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Nenhum usuário cadastrado.</p>';
+        } catch (err) {
+            body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
+        }
+    }
+    // Antes disto, diagnosticar um erro em produção dependia inteiramente de
+    // um screenshot da pessoa que reportou o problema — o servidor não
+    // guardava os próprios erros nenhures visíveis. Isto mostra os últimos
+    // (ver RECENT_ERROR_LOGS no server.js) diretamente aqui.
+    async function openAdminLogsModal() {
+        if (!APP.user?.isAdmin) return;
+        const body = document.getElementById('adminLogsBody');
+        body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">A carregar...</p>';
+        document.getElementById('modalAdminLogs').classList.add('active');
+        try {
+            const res = await fetch('/api/admin/logs?token=' + encodeURIComponent(APP.token));
+            const data = await res.json();
+            if (!res.ok) { body.innerHTML = `<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">${escapeHtml(data.error || 'Erro ao carregar.')}</p>`; return; }
+            body.innerHTML = (data.logs || []).map(l => `
+                <div style="background:rgba(255,255,255,0.06);border-radius:6px;padding:6px 8px;">
+                    <div style="opacity:0.7;" data-iso-time="${escapeHtml(l.time)}">${escapeHtml(new Date(l.time).toLocaleString('pt-PT'))}</div>
+                    <div style="white-space:pre-wrap;word-break:break-word;color:#ff8a8a;">${escapeHtml(l.message)}</div>
+                </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Sem erros registados.</p>';
         } catch (err) {
             body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
         }

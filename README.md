@@ -1267,6 +1267,14 @@ Antes, o **primeiro** utilizador a registar-se no servidor era sempre o único a
 
 O painel do administrador (⚙️ no topo, "Utilizadores cadastrados") já existia e lista todas as contas registadas (nome, telefone, país, email, com um botão para apagar); a lista mostrava-se corretamente, mas em ecrã de telemóvel a tabela larga ficava cortada — era preciso arrastar para o lado para ver o email inteiro ou o botão de apagar, sem isso ser óbvio. Passou a mostrar um cartão por utilizador (empilhados, nunca lado a lado), por isso nada fica escondido fora do ecrã. Cada cartão mostra agora também um ponto verde/cinzento (🟢 online agora / offline), e o topo do painel resume "N cadastrado(s) · M online agora" — vê-se de imediato quem está ligado à app neste momento, não só quem já se registou alguma vez.
 
+### 🪵 Logs de erro do servidor (só para o administrador)
+
+Diagnosticar um problema em produção dependia inteiramente de a pessoa afetada enviar um screenshot da mensagem de erro — o servidor não guardava os seus próprios erros nenhures visíveis. Agora um botão "🪵 Ver logs de erro" no painel do administrador mostra as últimas ~200 chamadas a `console.error` do servidor (mensagem + hora), incluindo as de qualquer integração externa (Gutendex, Numverify, TURN, notícias, etc.), sem precisar de acesso à consola/aos logs do Railway.
+
+- **Captura automática e transversal**: em vez de mudar cada `console.error(...)` já existente no código (são dezenas, em cada integração externa), a própria função `console.error` é envolvida uma única vez, logo após o servidor arrancar — continua a escrever na consola normal, e também guarda uma cópia num buffer em memória.
+- **Só em memória, últimas 200 entradas**: não é um substituto de um serviço de logging a sério (perde-se num reinício/deploy), mas resolve já o problema real de diagnóstico sem log nenhum.
+- **Acesso restrito ao administrador** (`/api/admin/logs`, mesma autenticação por token de sessão do painel de utilizadores) — nunca acessível a outra conta.
+
 ## ✅ Confirmação de email no registo (recusa emails falsos)
 
 O email passou a ser **obrigatório** ao criar conta (antes era opcional), e — quando o servidor tem envio de email configurado (`EMAIL_USER`/`EMAIL_PASS`, a mesma configuração já usada pela verificação em duas etapas e "esqueci a senha") — a conta só é criada a sério depois de confirmado um código de 6 dígitos enviado para esse endereço. Um email inventado, com erro de escrita, ou que não é da própria pessoa nunca recebe o código, e a conta correspondente nunca chega a existir de verdade (não fica "meio-criada" nem ocupa o número de telefone/nome de utilizador para sempre).
