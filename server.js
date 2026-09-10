@@ -529,7 +529,7 @@ app.post('/api/register', async (req, res) => {
   // é criada a sério depois de confirmado um código enviado para esse
   // endereço — nunca chega a ninguém que tenha escrito um email que não
   // existe ou não é dela.
-  if (getMailTransporter()) {
+  if (isEmailConfigured()) {
     const code = generateLoginCode();
     pendingRegistrations[phone] = { ...pendingData, code, attempts: 0, expiresAt: Date.now() + REGISTRATION_CODE_TTL_MS };
     const sent = await sendRegistrationVerificationEmail(email, code);
@@ -587,7 +587,7 @@ app.post('/api/login', async (req, res) => {
   }
   // Verificação em duas etapas: só entra em ação para um dispositivo NOVO,
   // numa conta que a ativou e que tem email guardado — ver comentário acima.
-  if (!existing && user.twoFactorEnabled && user.email && getMailTransporter()) {
+  if (!existing && user.twoFactorEnabled && user.email && isEmailConfigured()) {
     const code = generateLoginCode();
     pendingLoginCodes[phone] = { code, deviceId, deviceName, attempts: 0, expiresAt: Date.now() + TWOFA_CODE_TTL_MS };
     const sent = await sendLoginCodeEmail(user, code);
@@ -2960,6 +2960,55 @@ function getMailTransporter() {
     : nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS }, ...timeouts });
   return mailTransporter;
 }
+// O SMTP direto (getMailTransporter() acima) falha muitas vezes com
+// "Connection timeout" quando o servidor está hospedado numa plataforma na
+// nuvem (Railway, Render, Heroku, etc.) — a Google (e outros provedores)
+// bloqueiam/ignoram silenciosamente ligações SMTP vindas de gamas de IP
+// conhecidas de alojamento, como prevenção de spam. Isto não tem a ver com
+// as credenciais estarem certas ou erradas; é a ligação em si que nunca
+// chega a estabelecer-se. O Resend (resend.com, grátis até 3000 emails/mês)
+// resolve isto por completo — usa uma API HTTPS normal (o mesmo tipo de
+// pedido que esta app já faz ao Cloudinary/Gemini/etc.), nunca uma ligação
+// SMTP direta, por isso nunca esbarra neste bloqueio.
+// RESEND_FROM_EMAIL é opcional — sem domínio próprio verificado no Resend,
+// usa o endereço de testes deles (onboarding@resend.dev), que já funciona
+// imediatamente sem configuração extra.
+async function sendAppEmail({ to, subject, text, html }) {
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const from = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+      const resendApiBase = process.env.RESEND_API_BASE || 'https://api.resend.com';
+      const r = await fetch(`${resendApiBase}/emails`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to, subject, text, html })
+      });
+      if (r.ok) return true;
+      const errData = await r.json().catch(() => ({}));
+      console.error(`Erro ao enviar email via Resend (HTTP ${r.status}):`, errData.message || 'erro desconhecido');
+    } catch (err) {
+      console.error('Erro ao enviar email via Resend:', err.message);
+    }
+    // Não desiste já — tenta o SMTP a seguir, se estiver configurado, em vez
+    // de bloquear logo (o mesmo espírito de cascata das outras integrações
+    // desta app, ex.: validação de telemóvel Numverify → Veriphone → AbstractAPI).
+  }
+  const transporter = getMailTransporter();
+  if (!transporter) return false;
+  try {
+    await transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, text, html });
+    return true;
+  } catch (err) {
+    console.error('Erro ao enviar email via SMTP:', err.message);
+    return false;
+  }
+}
+// Usado em todos os sítios que só precisam de saber "há alguma forma de
+// mandar email configurada?" (mostrar/esconder um passo opcional, etc.) —
+// nunca chamar isto para enviar o email em si, ver sendAppEmail() para isso.
+function isEmailConfigured() {
+  return !!process.env.RESEND_API_KEY || !!getMailTransporter();
+}
 function escapeHtmlServer(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -2967,7 +3016,7 @@ function escapeHtmlServer(str) {
 // ==================== VERIFICAÇÃO EM DUAS ETAPAS (login em dispositivo novo) ====================
 // Opcional (a pessoa ativa no perfil) e só entra em ação quando: a conta tem
 // um email guardado E o servidor tem envio de email configurado (mesma
-// getMailTransporter() dos avisos de incêndio) E o dispositivo a tentar
+// isEmailConfigured() dos avisos de incêndio) E o dispositivo a tentar
 // entrar é mesmo NOVO — os dispositivos já ligados continuam a entrar
 // normalmente, sem código nenhum. Se o envio do email falhar por qualquer
 // razão (ex.: SMTP em baixo), o login segue em frente sem 2FA em vez de
@@ -2984,26 +3033,17 @@ function maskEmail(email) {
   return `${visible}${'*'.repeat(Math.max(user.length - visible.length, 1))}@${domain}`;
 }
 async function sendLoginCodeEmail(user, code) {
-  const transporter = getMailTransporter();
-  if (!transporter) return false;
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: user.email,
-      subject: '🔐 Código de verificação — ChatApp',
-      text: `O teu código de verificação é: ${code}\n\nVálido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.`,
-      html: `<p>O teu código de verificação é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.</p>`
-    });
-    return true;
-  } catch (err) {
-    console.error('Erro ao enviar código de verificação:', err.message);
-    return false;
-  }
+  return sendAppEmail({
+    to: user.email,
+    subject: '🔐 Código de verificação — ChatApp',
+    text: `O teu código de verificação é: ${code}\n\nVálido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.`,
+    html: `<p>O teu código de verificação é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.</p>`
+  });
 }
 
 // ==================== CONFIRMAÇÃO DE EMAIL NO REGISTO ====================
 // Exige um email real ao criar conta — ver /api/register. Só entra em ação
-// quando o servidor tem email configurado (getMailTransporter()); sem isso,
+// quando o servidor tem email configurado (isEmailConfigured()); sem isso,
 // não há como mandar nada, e o registo segue em frente sem confirmar (nunca
 // bloqueia alguém de se registar só porque o servidor não tem email pronto).
 // Guardado por telefone (não por conta — a conta só é criada DEPOIS de
@@ -3021,21 +3061,12 @@ function isValidEmailFormat(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
 async function sendRegistrationVerificationEmail(email, code) {
-  const transporter = getMailTransporter();
-  if (!transporter) return false;
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: '✅ Confirma o teu registo — ChatApp',
-      text: `O teu código de confirmação de registo é: ${code}\n\nVálido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.`,
-      html: `<p>O teu código de confirmação de registo é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.</p>`
-    });
-    return true;
-  } catch (err) {
-    console.error('Erro ao enviar código de confirmação de registo:', err.message);
-    return false;
-  }
+  return sendAppEmail({
+    to: email,
+    subject: '✅ Confirma o teu registo — ChatApp',
+    text: `O teu código de confirmação de registo é: ${code}\n\nVálido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.`,
+    html: `<p>O teu código de confirmação de registo é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.</p>`
+  });
 }
 
 // ==================== REDEFINIR SENHA (esqueci a senha) ====================
@@ -3046,28 +3077,19 @@ async function sendRegistrationVerificationEmail(email, code) {
 const passwordResetCodes = {}; // phone -> {code, attempts, expiresAt}
 const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000;
 async function sendPasswordResetEmail(user, code) {
-  const transporter = getMailTransporter();
-  if (!transporter) return false;
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: user.email,
-      subject: '🔑 Redefinir senha — ChatApp',
-      text: `Pediste para redefinir a senha da tua conta. O código é: ${code}\n\nVálido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.`,
-      html: `<p>Pediste para redefinir a senha da tua conta. O código é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.</p>`
-    });
-    return true;
-  } catch (err) {
-    console.error('Erro ao enviar código de redefinição de senha:', err.message);
-    return false;
-  }
+  return sendAppEmail({
+    to: user.email,
+    subject: '🔑 Redefinir senha — ChatApp',
+    text: `Pediste para redefinir a senha da tua conta. O código é: ${code}\n\nVálido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.`,
+    html: `<p>Pediste para redefinir a senha da tua conta. O código é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.</p>`
+  });
 }
 app.post('/api/password-reset/request', async (req, res) => {
   const phone = (req.body?.phone || '').trim();
   const user = accounts[phone];
   if (!user) return res.status(404).json({ error: 'Não existe nenhuma conta com esse telefone.' });
   if (!user.email) return res.status(400).json({ error: 'Esta conta não tem email guardado — não há para onde enviar o código. Pede a um administrador para apagar a conta e regista-te de novo.' });
-  if (!getMailTransporter()) return res.status(503).json({ error: 'O envio de email não está configurado neste servidor agora. Pede a um administrador para apagar a conta e regista-te de novo.' });
+  if (!isEmailConfigured()) return res.status(503).json({ error: 'O envio de email não está configurado neste servidor agora. Pede a um administrador para apagar a conta e regista-te de novo.' });
   const code = generateLoginCode();
   passwordResetCodes[phone] = { code, attempts: 0, expiresAt: Date.now() + PASSWORD_RESET_TTL_MS };
   const sent = await sendPasswordResetEmail(user, code);
@@ -3132,29 +3154,23 @@ async function completeLogin(user, existingDevice, deviceId, deviceName, res) {
   res.json({ success: true, user: publicUser(user), token });
 }
 app.post('/api/fires/send-email', async (req, res) => {
-  const transporter = getMailTransporter();
-  if (!transporter) return res.json({ configured: false });
+  if (!isEmailConfigured()) return res.json({ configured: false });
   const token = req.headers['x-auth-token'] || req.body?.token;
   const phone = sessions[token];
   const account = accounts[phone];
   if (!account) return res.status(403).json({ error: 'Sessão inválida — faz login de novo.' });
   const { to, lat, lng } = req.body || {};
   if (!to || typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'Dados em falta.' });
-  try {
-    const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
-    const senderName = escapeHtmlServer(account.name);
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to,
-      subject: '🔥 Aviso de possível incêndio — ChatApp',
-      text: `${account.name} reportou um possível incêndio perto desta localização: ${mapsLink}\n\nCoordenadas: ${lat}, ${lng}`,
-      html: `<p>🔥 <strong>${senderName}</strong> reportou um possível incêndio perto desta localização:</p><p><a href="${mapsLink}">${mapsLink}</a></p><p>Coordenadas: ${lat}, ${lng}</p><p style="color:#888;font-size:12px;">Enviado automaticamente pelo ChatApp — não é um alerta oficial dos bombeiros.</p>`
-    });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Erro ao enviar email de incêndio:', err.message);
-    res.status(502).json({ error: 'Não foi possível enviar o email agora.' });
-  }
+  const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
+  const senderName = escapeHtmlServer(account.name);
+  const sent = await sendAppEmail({
+    to,
+    subject: '🔥 Aviso de possível incêndio — ChatApp',
+    text: `${account.name} reportou um possível incêndio perto desta localização: ${mapsLink}\n\nCoordenadas: ${lat}, ${lng}`,
+    html: `<p>🔥 <strong>${senderName}</strong> reportou um possível incêndio perto desta localização:</p><p><a href="${mapsLink}">${mapsLink}</a></p><p>Coordenadas: ${lat}, ${lng}</p><p style="color:#888;font-size:12px;">Enviado automaticamente pelo ChatApp — não é um alerta oficial dos bombeiros.</p>`
+  });
+  if (!sent) return res.status(502).json({ error: 'Não foi possível enviar o email agora.' });
+  res.json({ success: true });
 });
 
 // ==================== TURISMO (pontos de interesse pelo mundo) ====================

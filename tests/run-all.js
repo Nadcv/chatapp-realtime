@@ -84,7 +84,8 @@ const MOCK_SERVERS = [
   'mock_veriphone_server.js',       // 3022 - validação de telemóvel no registo (2º provedor)
   'mock_abstractapi_server.js',     // 3023 - validação de telemóvel no registo (3º provedor)
   'mock_gutendex_server.js',        // 3024 - Biblioteca (Project Gutenberg)
-  'mock_archive_server.js'          // 3025 - Biblioteca (Internet Archive, 2ª fonte)
+  'mock_archive_server.js',         // 3025 - Biblioteca (Internet Archive, 2ª fonte)
+  'mock_resend_server.js'           // 3026 - envio de email via API HTTPS (Resend), via principal sobre o SMTP direto
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -161,6 +162,14 @@ const EMAIL_ENV_OVERRIDES = {
   SMTP_PORT: FAKE_SMTP_ARGS[0]
 };
 const EMAIL_BATCH_FILES = new Set(['test_2fa.js', 'test_password_reset.js', 'test_register_email_verification.js']);
+
+// Testa a via principal de envio de email (Resend, API HTTPS) e a queda
+// para o SMTP direto quando o Resend falha — precisa do SEU PRÓPRIO lote
+// (com RESEND_API_KEY/RESEND_API_BASE definidas) para não mudar o
+// comportamento dos 3 testes acima, que continuam a testar especificamente
+// o caminho SMTP (sem Resend configurado, exatamente como antes).
+const RESEND_ENV_OVERRIDES = { ...EMAIL_ENV_OVERRIDES, RESEND_API_KEY: 'mock-resend-key', RESEND_API_BASE: 'http://localhost:3026' };
+const RESEND_BATCH_FILES = new Set(['test_email_resend.js']);
 
 // Testes que exigem o dataset "em trânsito" da CP (ver nota acima) — correm
 // num 2º lote, com o server.js reiniciado só para trocar o CP_GTFS_URL.
@@ -282,9 +291,10 @@ async function main() {
 
   const allFiles = listTestFiles();
   const adminBatchFiles = allFiles.filter((f) => ADMIN_BATCH_FILES.has(f));
-  const batch1Files = allFiles.filter((f) => !BATCH2_FILES.has(f) && !EMAIL_BATCH_FILES.has(f) && !ADMIN_BATCH_FILES.has(f));
+  const batch1Files = allFiles.filter((f) => !BATCH2_FILES.has(f) && !EMAIL_BATCH_FILES.has(f) && !ADMIN_BATCH_FILES.has(f) && !RESEND_BATCH_FILES.has(f));
   const batch2Files = allFiles.filter((f) => BATCH2_FILES.has(f));
   const emailBatchFiles = allFiles.filter((f) => EMAIL_BATCH_FILES.has(f));
+  const resendBatchFiles = allFiles.filter((f) => RESEND_BATCH_FILES.has(f));
 
   const results = [];
   try {
@@ -292,6 +302,7 @@ async function main() {
     results.push(...await runBatch(batch1Files, {}, 'geral'));
     results.push(...await runBatch(batch2Files, { CP_GTFS_URL: 'http://localhost:3015/gtfs_transit.zip' }, 'comboios em trânsito (CP)'));
     results.push(...await runBatch(emailBatchFiles, EMAIL_ENV_OVERRIDES, 'email (2FA / redefinir senha)'));
+    results.push(...await runBatch(resendBatchFiles, RESEND_ENV_OVERRIDES, 'email via Resend (API HTTPS)'));
   } finally {
     killAll();
   }

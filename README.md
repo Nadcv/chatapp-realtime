@@ -646,11 +646,21 @@ Novo botão 🔥 no cabeçalho: mapa com os focos de incêndio detetados por sat
 **Sobre "ligar/enviar SMS aos bombeiros":** por segurança, isto **não é** um despacho automático real de emergência — não existe nenhuma API pública que ligue de verdade aos bombeiros, e fingir que sim seria perigoso (alguém podia achar que já alertou a emergência e não ligar a sério). Em vez disso:
 - **🚨 Ligar 112** — botão que abre logo o telefone a marcar o 112 (número de emergência europeu, cobre Portugal), a pessoa só toca em ligar. Real, sem depender de nenhuma API.
 - **✉️ SMS** — escreves um número teu (um familiar, ou o número local dos bombeiros que já saibas) e o botão abre a app de SMS do telemóvel já preenchida com a tua localização atual — revês e envias tu mesmo, não é automático.
-- **📧 Email real** — diferente do SMS, este é enviado de verdade pelo próprio servidor (não abre nada no teu telemóvel) para o endereço que escreveres, com a tua localização. Precisa de uma conta de email configurada no servidor (grátis):
+- **📧 Email real** — diferente do SMS, este é enviado de verdade pelo próprio servidor (não abre nada no teu telemóvel) para o endereço que escreveres, com a tua localização. Esta é a mesma configuração de email usada por 2FA, redefinir senha e confirmação de registo — configura uma vez, funciona em todos.
+
+  **Recomendado — Resend (API HTTPS, grátis até 3000 emails/mês, sem cartão):**
+  1. Cria conta em https://resend.com e gera uma API key
+  2. No Railway/Render, define `RESEND_API_KEY` com essa chave
+  3. (Opcional) Se tiveres um domínio próprio verificado no Resend, define também `RESEND_FROM_EMAIL`; sem isso, usa o endereço de testes deles (`onboarding@resend.dev`), que já funciona imediatamente
+
+  **Porquê Resend em vez de SMTP direto (Gmail, etc.)**: um servidor SMTP direto muitas vezes falha com "Connection timeout" quando o servidor está hospedado numa plataforma na nuvem (Railway, Render, Heroku, etc.) — a Google e outros provedores bloqueiam/ignoram silenciosamente ligações SMTP vindas de gamas de IP de alojamento, como prevenção de spam. Não é um problema de credenciais erradas; é a ligação em si que nunca chega a estabelecer-se. O Resend usa uma API HTTPS normal (o mesmo tipo de pedido que esta app já faz ao Cloudinary/Gemini/etc.), por isso nunca esbarra nesse bloqueio.
+
+  **Alternativa — SMTP direto (Gmail ou outro):**
   1. Numa conta Gmail (pode ser uma só para isto), ativa a verificação em 2 passos e cria uma **"Palavra-passe de aplicação"** em https://myaccount.google.com/apppasswords (a palavra-passe normal da conta não funciona aqui, tem de ser esta)
   2. No Railway/Render, define `EMAIL_USER` (o teu email Gmail) e `EMAIL_PASS` (a palavra-passe de aplicação de 16 letras)
   3. (Opcional) Se preferires usar outro serviço de email em vez do Gmail, define também `SMTP_HOST` e `SMTP_PORT`
-  4. Sem essas variáveis, o botão mostra um aviso claro a pedir a configuração, em vez de travar
+  4. Serve também como reserva automática: se `RESEND_API_KEY` estiver definida mas o envio via Resend falhar por qualquer razão, o servidor tenta este SMTP a seguir (se estiver configurado), em vez de desistir logo — a mesma lógica de cascata já usada noutras integrações desta app (ex.: validação de telemóvel Numverify → Veriphone → AbstractAPI)
+  5. Sem nenhuma destas variáveis configuradas, o botão mostra um aviso claro a pedir a configuração, em vez de travar
 
 ## 📖 Notícias abrem dentro da própria app — agora com Modo Leitura de verdade
 
