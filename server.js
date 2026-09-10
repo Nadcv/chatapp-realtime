@@ -3608,6 +3608,36 @@ function isPrivateOrReservedIp(ip) {
   }
   return true; // não reconhecido como IP válido — recusa por precaução
 }
+// Faz um fetch validando o IP resolvido ANTES de cada pedido — incluindo
+// cada redirecionamento HTTP que a resposta possa devolver, um a um. Nunca
+// usa `redirect: 'follow'`, que seguiria um 30x para dentro da rede interna
+// sem voltar a validar nada — só o hostname ORIGINAL era verificado, e um
+// site (ou um atacante que controle um) podia responder com
+// "Location: http://169.254.169.254/..." e o fetch seguia às cegas. Usado
+// por qualquer proxy que busca uma URL fornecida por quem usa a app
+// (pré-visualização de links, notícias, ficheiros anexados ao Gemini).
+async function safeFetchNoSSRF(urlStr, options = {}, maxRedirects = 5) {
+  let currentUrl = urlStr;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    let parsed;
+    try { parsed = new URL(currentUrl); } catch (e) { throw new Error('URL inválido.'); }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('Protocolo não permitido.');
+    let address;
+    try {
+      ({ address } = await dns.promises.lookup(parsed.hostname));
+    } catch (e) {
+      throw new Error('Não foi possível resolver o endereço.');
+    }
+    if (isPrivateOrReservedIp(address)) throw new Error('Endereço não permitido.');
+    const r = await fetch(parsed.toString(), { ...options, redirect: 'manual' });
+    if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+      currentUrl = new URL(r.headers.get('location'), parsed).toString();
+      continue;
+    }
+    return r;
+  }
+  throw new Error('Demasiados redirecionamentos.');
+}
 function extractMetaContent(html, property) {
   const patterns = [
     new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'),
@@ -3635,20 +3665,10 @@ app.get('/api/link-preview', async (req, res) => {
   }
 
   try {
-    const { address } = await dns.promises.lookup(parsed.hostname);
-    if (isPrivateOrReservedIp(address)) {
-      return res.json({ url: rawUrl }); // sem preview, mas não revela que foi bloqueado por segurança
-    }
-  } catch (e) {
-    return res.json({ url: rawUrl }); // não resolveu o nome — sem preview, sem erro
-  }
-
-  try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
-    const r = await fetch(parsed.toString(), {
+    const r = await safeFetchNoSSRF(parsed.toString(), {
       signal: controller.signal,
-      redirect: 'follow',
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatAppLinkPreview/1.0)' }
     });
     clearTimeout(timeoutId);
@@ -3900,7 +3920,7 @@ app.get('/api/news/read', async (req, res) => {
     // que não se pareçam com um browser real — por isso usamos aqui um
     // User-Agent e cabeçalhos completos de um Chrome normal, em vez de nos
     // identificarmos como um robô.
-    const r = await fetch(articleUrl, {
+    const r = await safeFetchNoSSRF(articleUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -4114,7 +4134,14 @@ async function toGeminiInlineData(fileData, fileType) {
       return { mime_type: fileType || match[1], data: match[2] };
     }
     if (/^https?:\/\//.test(fileData)) {
-      const r = await fetch(fileData);
+      // Só ficheiros já enviados para o NOSSO Cloudinary (ver /api/upload) —
+      // nunca qualquer URL à escolha de quem usa a app. Sem isto, dava para
+      // mandar o servidor buscar qualquer endereço (incluindo redes
+      // internas) e ler de volta a descrição que o Gemini faz do conteúdo.
+      let parsedHost;
+      try { parsedHost = new URL(fileData).hostname; } catch (e) { return null; }
+      if (parsedHost !== 'res.cloudinary.com') return null;
+      const r = await safeFetchNoSSRF(fileData);
       if (!r.ok) return null;
       const buf = Buffer.from(await r.arrayBuffer());
       if (buf.length > 15 * 1024 * 1024) return null; // não tenta ficheiros enormes inline
@@ -5278,11 +5305,20 @@ io.on('connection', (socket) => {
   socket.emit('groups_update', visibleGroupsForPhone(null));
   socket.emit('communities_update', Object.values(communities));
 
+  // O telefone NUNCA vem confiado diretamente do que o cliente manda — isso
+  // permitia a qualquer pessoa ligar-se com um socket.io "cru" e dizer-se
+  // dona de qualquer número de telefone (bastava sabê-lo, nem sequer a
+  // senha), e todas as verificações de autorização desta app
+  // (isDmRoomAllowedForPhone, isGroupMember, etc.) confiam cegamente neste
+  // telefone. Em vez disso, resolve-se o telefone a partir do MESMO token de
+  // sessão emitido por /api/login e /api/register (sessions[token]) — o
+  // mesmo mecanismo que já protege todas as rotas HTTP administrativas.
   socket.on('user_login', (userData) => {
-    users[socket.id].name = userData?.name || 'Anônimo';
-    users[socket.id].phone = userData?.phone || null;
-    const myPhone = users[socket.id].phone;
-    if (myPhone) {
+    const myPhone = sessions[userData?.token] || null;
+    const account = myPhone ? accounts[myPhone] : null;
+    users[socket.id].name = account?.name || 'Anônimo';
+    users[socket.id].phone = account ? myPhone : null;
+    if (account) {
       onlinePhones.add(myPhone);
       registerPhoneSocket(myPhone, socket.id);
       sendContactsTo(myPhone);

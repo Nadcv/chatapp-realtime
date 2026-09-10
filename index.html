@@ -4158,7 +4158,7 @@
     socket.on('connect', () => {
         setOfflineBannerVisible(false);
         if (APP.user) {
-            socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
+            socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone, token: APP.token });
             APP.joinedRooms.clear();
             APP.chats.forEach(chat => {
                 if (chat.type !== 'ai') { socket.emit('join_room', { chatId: chat.id, toPhone: chat.phone }); APP.joinedRooms.add(chat.id); }
@@ -4790,7 +4790,7 @@
         renderHeaderAvatar();
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
-        socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone });
+        socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone, token: APP.token });
         checkDndActive(); // sincroniza logo o estado do "não incomodar" com o servidor
         loadOfflineQueueFromStorage(); // mensagens por enviar de antes de fechar/recarregar a app (ver "Modo offline")
         setOfflineBannerVisible(!socket.connected);
@@ -5509,7 +5509,7 @@
 
     // ==================== FOTO DE PERFIL ====================
     function avatarInnerHtml(name, avatarUrl) {
-        return avatarUrl ? `<img src="${avatarUrl}" alt="${name}">` : (name || '?').charAt(0).toUpperCase();
+        return avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(name || '')}">` : escapeHtml((name || '?').charAt(0).toUpperCase());
     }
     function hasActiveStatus(phone) {
         const feed = APP.statusFeed.find(s => s.phone === phone);
@@ -5813,7 +5813,7 @@
                 <div class="chat-item" onclick='viewStatusFeed(${JSON.stringify(s.phone)})'>
                     <div class="chat-item-avatar avatar-user avatar-status-ring">${avatarInnerHtml(s.name, s.avatarUrl)}</div>
                     <div class="chat-item-info">
-                        <h4>${s.name}</h4>
+                        <h4>${escapeHtml(s.name)}</h4>
                         <p>${s.items.length} estado(s) · ${new Date(last.postedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                 </div>`;
@@ -6335,11 +6335,11 @@
         const msgs = APP.messages[APP.currentChatId] || [];
         const original = msgs.find(m => m.id === originalMsgId);
         APP.threadOriginalId = originalMsgId;
-        document.getElementById('threadOriginal').innerHTML = original ? `<strong>${original.type === 'sent' ? 'Você' : original.sender}</strong><br>${original.text || ''}` : 'Mensagem original';
+        document.getElementById('threadOriginal').innerHTML = original ? `<strong>${escapeHtml(original.type === 'sent' ? 'Você' : original.sender)}</strong><br>${escapeHtml(original.text || '')}` : 'Mensagem original';
         const replies = msgs.filter(m => m.replyTo?.id === originalMsgId);
         document.getElementById('threadReplies').innerHTML = replies.map(r => `
             <div style="background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:13px;">
-                <strong>${r.type === 'sent' ? 'Você' : r.sender}</strong> <span style="color:var(--text-secondary);font-size:11px;">${r.time || ''}</span><br>${r.deleted ? '(apagada)' : r.text}
+                <strong>${escapeHtml(r.type === 'sent' ? 'Você' : r.sender)}</strong> <span style="color:var(--text-secondary);font-size:11px;">${escapeHtml(r.time || '')}</span><br>${r.deleted ? '(apagada)' : escapeHtml(r.text || '')}
             </div>`).join('') || '<p style="color:#8696a0;font-size:13px;">Ainda sem respostas nesta thread</p>';
         document.getElementById('modalThread').classList.add('active');
     }
@@ -8694,7 +8694,7 @@
         el.innerHTML = chats.map(chat => `
             <div class="chat-item" onclick="closeArchivedScreen(); openChat('${chat.id}');">
                 <div class="chat-item-avatar avatar-user">${avatarInnerHtml(chat.name, chat.avatarUrl)}</div>
-                <div class="chat-item-info"><h4>${chat.name}</h4><p>Toca para abrir</p></div>
+                <div class="chat-item-info"><h4>${escapeHtml(chat.name)}</h4><p>Toca para abrir</p></div>
                 <button class="btn-icon" style="width:34px;height:34px;font-size:14px;flex:0 0 auto;" onclick="event.stopPropagation(); socket.emit('set_archived',{chatId:'${chat.id}',archived:false}); APP.archivedChats.delete('${chat.id}'); renderArchivedList(); renderChatList();" title="Desarquivar">🗄️</button>
             </div>`).join('');
     }
@@ -9024,16 +9024,16 @@
         const box = document.getElementById('searchUserResult');
         if (!box) return;
         if (!data.found) {
-            box.innerHTML = `<p style="color:#8696a0;">Não foi encontrado ninguém com o nome de utilizador "@${data.query}".</p>`;
+            box.innerHTML = `<p style="color:#8696a0;">Não foi encontrado ninguém com o nome de utilizador "@${escapeHtml(data.query)}".</p>`;
             return;
         }
         const u = data.user;
         box.innerHTML = `
             <div style="display:flex;align-items:center;gap:10px;">
-                <div class="chat-item-avatar avatar-user">${u.name.charAt(0).toUpperCase()}</div>
+                <div class="chat-item-avatar avatar-user">${escapeHtml(u.name.charAt(0).toUpperCase())}</div>
                 <div style="flex:1;">
-                    <strong>${u.name}</strong><br>
-                    <span style="color:#8696a0;font-size:12px;">@${u.username} · ${u.online ? '🟢 Online' : '⚪ Offline'}</span>
+                    <strong>${escapeHtml(u.name)}</strong><br>
+                    <span style="color:#8696a0;font-size:12px;">@${escapeHtml(u.username)} · ${u.online ? '🟢 Online' : '⚪ Offline'}</span>
                 </div>
             </div>
             <button class="btn btn-primary" style="margin-top:12px;" onclick="startChatWithFoundUser('${u.phone}')">💬 Iniciar conversa</button>`;
@@ -9153,7 +9153,7 @@
             <div class="chat-item ${APP.currentChatId === chat.id ? 'active' : ''}" onclick="openChat('${chat.id}')">
                 <div class="chat-item-avatar ${avatarClass}${statusRingClass}">${avatarContent}</div>
                 <div class="chat-item-info">
-                    <h4>${APP.pinnedChats.has(chat.id) ? '📌 ' : ''}${APP.lockedChats.has(chat.id) ? '🔒 ' : ''}${onlineDot}${chat.name} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
+                    <h4>${APP.pinnedChats.has(chat.id) ? '📌 ' : ''}${APP.lockedChats.has(chat.id) ? '🔒 ' : ''}${onlineDot}${escapeHtml(chat.name)} ${isGroup ? '<span style="font-size:11px;color:#8696a0;">('+chat.memberCount+' membros)</span>' : ''}</h4>
                     <p>${lastText}</p>
                 </div>
                 <div class="chat-item-meta">
@@ -12036,7 +12036,7 @@
             const isSent = msg.type === 'sent';
             const currentChat = APP.chats.find(c => c.id === APP.currentChatId);
             const showSender = !isSent && currentChat && (currentChat.type === 'group' || currentChat.type === 'ai');
-            const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${msg.replyTo.sender}</strong><br>${(msg.replyTo.text || '').substring(0, 80)}</div>` : '';
+            const replyHtml = msg.replyTo ? `<div class="reply-quote"><strong>${escapeHtml(msg.replyTo.sender)}</strong><br>${escapeHtml((msg.replyTo.text || '').substring(0, 80))}</div>` : '';
             const threadCount = replyCounts[msg.id] || 0;
             const threadHtml = threadCount ? `<div style="font-size:11px;color:var(--blue);cursor:pointer;margin-top:2px;" onclick="openThread('${msg.id}')">🧵 ${threadCount} resposta${threadCount > 1 ? 's' : ''}</div>` : '';
             const isPinned = (APP.pinnedByChatId[APP.currentChatId] || []).some(p => p.messageId === msg.id);
@@ -12055,7 +12055,7 @@
             if (linkPreviewUrl) maybeFetchLinkPreview(msg, linkPreviewUrl);
             html += `
             <div class="message ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
-                ${showSender ? `<div class="sender-name">${msg.sender}</div>` : ''}
+                ${showSender ? `<div class="sender-name">${escapeHtml(msg.sender)}</div>` : ''}
                 ${pinnedLabel}
                 ${topicLabel}
                 ${forwardedLabel}
@@ -14714,9 +14714,9 @@
         const container = document.getElementById('callContactList');
         container.innerHTML = APP.chats.filter(c => c.type !== 'ai').map(chat => `
             <div class="chat-item" style="cursor:pointer;" onclick="startCallWith('${chat.id}','video');closeModal('modalNewCall');">
-                <div class="chat-item-avatar ${chat.type==='group'?'avatar-group':'avatar-user'}">${chat.avatar||chat.name.charAt(0)}</div>
+                <div class="chat-item-avatar ${chat.type==='group'?'avatar-group':'avatar-user'}">${chat.avatar||escapeHtml(chat.name.charAt(0))}</div>
                 <div class="chat-item-info">
-                    <h4>${chat.name}</h4>
+                    <h4>${escapeHtml(chat.name)}</h4>
                     <p>${chat.type==='group'? 'Grupo · '+chat.memberCount+' membros':'Contato'}</p>
                 </div>
             </div>`).join('') || '<p style="color:#8696a0;text-align:center;">Nenhum contato disponível</p>';
