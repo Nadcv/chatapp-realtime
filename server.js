@@ -332,8 +332,24 @@ function saveUsers() {
   });
 }
 
+// scrypt é deliberadamente lento/pesado em CPU (é isso que o torna seguro
+// contra ataques de força bruta) — mas por isso mesmo, a versão SÍNCRONA
+// (scryptSync) BLOQUEIA a única thread de JavaScript do Node inteira durante
+// esse tempo. Como o Node é de um único processo/thread para o código da
+// app, isso significa que UM registo ou login (scryptSync) congela o
+// servidor INTEIRO nesse instante — nenhuma mensagem, chamada, ou pedido de
+// mais ninguém consegue ser processado até acabar. Sob carga (muitos
+// registos/logins ao mesmo tempo), isto empilha-se e pode bloquear o
+// servidor por segundos, mesmo para gente que não está a fazer login
+// nenhum. A versão assíncrona (crypto.scrypt) delega o cálculo para a
+// threadpool do libuv, sem nunca bloquear a thread principal.
 function hashPassword(password, salt) {
-  return crypto.scryptSync(password, salt, 64).toString('hex');
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey.toString('hex'));
+    });
+  });
 }
 
 // Bloqueia as senhas mais óbvias/mais usadas do mundo (equivalentes às listas
@@ -502,7 +518,7 @@ app.post('/api/register', async (req, res) => {
     wantsAdmin = true;
   }
   const salt = crypto.randomBytes(16).toString('hex');
-  const passwordHash = hashPassword(password, salt);
+  const passwordHash = await hashPassword(password, salt);
   const validBirthday = typeof birthday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(birthday) ? birthday : null;
   const deviceId = (req.body?.deviceId || '').trim();
   const deviceName = (req.body?.deviceName || 'Dispositivo desconhecido').trim().slice(0, 60);
@@ -558,7 +574,7 @@ app.post('/api/register/verify-email', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { phone, password } = req.body || {};
   const user = accounts[phone];
-  if (!user || hashPassword(password || '', user.salt) !== user.passwordHash) {
+  if (!user || (await hashPassword(password || '', user.salt)) !== user.passwordHash) {
     return res.status(401).json({ error: 'Telefone ou senha incorretos.' });
   }
   const deviceId = (req.body?.deviceId || '').trim();
@@ -970,7 +986,7 @@ app.post('/api/account/delete', async (req, res) => {
   const user = accounts[phone];
   if (!phone || !user) return res.status(403).json({ error: 'Sessão inválida.' });
   const { password } = req.body || {};
-  if (hashPassword(password || '', user.salt) !== user.passwordHash) {
+  if ((await hashPassword(password || '', user.salt)) !== user.passwordHash) {
     return res.status(401).json({ error: 'Senha incorreta.' });
   }
   await performAccountDeletion(phone);
@@ -3076,7 +3092,7 @@ app.post('/api/password-reset/confirm', async (req, res) => {
   delete passwordResetCodes[phone];
   const salt = crypto.randomBytes(16).toString('hex');
   user.salt = salt;
-  user.passwordHash = hashPassword(newPassword, salt);
+  user.passwordHash = await hashPassword(newPassword, salt);
   // Redefinir a senha invalida logo todas as sessões ativas desta conta —
   // se alguém tinha acesso indevido (era precisamente por isso que a pessoa
   // veio redefinir), perde-o já em vez de continuar ligado.
