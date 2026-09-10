@@ -23,6 +23,12 @@ let AdmZip = null;
 try { AdmZip = require('adm-zip'); } catch (e) { console.warn('⚠️ Pacote "adm-zip" não instalado — horários de comboio (GTFS) desativados.'); }
 
 const app = express();
+// Necessário para o redirect_uri do OAuth do Google Calendar (ver mais
+// abaixo) sair como "https://" em produção — o Railway (como a maioria dos
+// PaaS) termina o TLS num proxy à frente da app, por isso sem isto
+// req.protocol via sempre "http", e a Google recusa o pedido de token por
+// o redirect_uri não bater certo com o registado na Cloud Console.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
 
@@ -103,7 +109,12 @@ const accountSchema = new mongoose.Schema({
   // Administrador registado explicitamente com a senha de administrador do
   // servidor (ADMIN_SIGNUP_SECRET) — ver isAdminPhone() e /api/register.
   // Independente do "primeiro utilizador é sempre admin", que continua a valer.
-  isAdmin: { type: Boolean, default: false }
+  isAdmin: { type: Boolean, default: false },
+  // ==================== GOOGLE CALENDAR ====================
+  // { accessToken, refreshToken, expiresAt, connectedAt, syncRooms: { [roomId]: {calendarId, connectedAt} } }
+  // — ver secção "GOOGLE CALENDAR" mais abaixo (Object = aceita o objeto
+  // inteiro tal como está, sem precisar de declarar cada sub-campo).
+  googleCalendar: { type: Object, default: null }
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -390,7 +401,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null, googleCalendarConnected: !!u.googleCalendar?.refreshToken, googleCalendarSyncedRooms: Object.keys(u.googleCalendar?.syncRooms || {}) };
 }
 
 // ==================== VALIDAÇÃO DE TELEMÓVEL (cascata de provedores) ====================
@@ -3012,6 +3023,201 @@ function isEmailConfigured() {
 function escapeHtmlServer(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+// ==================== GOOGLE CALENDAR (OAuth2 + sincronização bidirecional) ====================
+// Liga-se UMA VEZ por conta (OAuth2, ver /api/google-calendar/connect e
+// /callback abaixo); depois, em cada grupo, cada pessoa liga/desliga a
+// sincronização à parte (ver 'google_calendar_sync_room') — nunca é
+// automático para todos os membros, cada um decide para cada grupo. Isto
+// evita dois problemas de bom senso: (1) grupos "abertos" (não privados)
+// nem sequer guardam uma lista de membros (ver isGroupMember/memberPhones),
+// por isso não há como "avisar toda a gente" ao ligar a conta; (2) mandar
+// eventos para o Google Calendar pessoal de alguém sem essa pessoa ter
+// explicitamente pedido seria surpreendente e invasivo.
+//
+// Em vez de escrever diretamente no calendário principal da pessoa, cria-se
+// um calendário secundário dedicado por grupo ("ChatApp: <nome do grupo>")
+// — assim nunca se mistura com os compromissos pessoais de ninguém, e dá
+// para desligar sem perder histórico (o calendário fica, só para de
+// receber updates novos).
+//
+// Sem SDK (googleapis) — chamadas HTTPS diretas com fetch(), o mesmo
+// padrão já usado nesta app para Resend/Cloudinary/Gemini/etc. Bases
+// configuráveis por variável de ambiente (GOOGLE_ACCOUNTS_BASE/
+// GOOGLE_OAUTH_TOKEN_BASE/GOOGLE_CALENDAR_API_BASE) só para os testes
+// automatizados apontarem a um mock local — em produção usam sempre os
+// valores reais da Google.
+function isGoogleCalendarConfigured() {
+  return !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
+}
+// state -> { phone, expiresAt } — liga o callback do Google (que não manda
+// nenhum token de sessão nosso, só o 'state' que nós próprios escolhemos)
+// de volta à conta que pediu a ligação. Expira em 10 min, tempo mais do que
+// suficiente para a pessoa fazer login na Google e aceitar as permissões.
+const pendingGoogleAuth = {};
+const GOOGLE_AUTH_STATE_TTL_MS = 10 * 60 * 1000;
+function googleRedirectUri(req) {
+  const base = process.env.GOOGLE_REDIRECT_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  return `${base}/api/google-calendar/callback`;
+}
+// Troca um 'code' (ou um 'refresh_token') por um access_token novo — usada
+// tanto no fim do OAuth como sempre que o access_token guardado já expirou.
+async function googleOAuthTokenRequest(params) {
+  const base = process.env.GOOGLE_OAUTH_TOKEN_BASE || 'https://oauth2.googleapis.com';
+  const r = await fetch(`${base}/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, ...params }).toString()
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error_description || data.error || `HTTP ${r.status}`);
+  return data;
+}
+// Devolve um access_token válido para esta conta, renovando com o
+// refresh_token se já tiver expirado. Se a renovação falhar (ex.: a pessoa
+// revogou o acesso diretamente na Google), a ligação já não serve para
+// nada — desliga-se aqui mesmo, para o resto da app voltar a tratar a
+// conta como "sem Google Calendar" em vez de tentar sem sucesso para sempre.
+async function getGoogleAccessToken(phone) {
+  const account = accounts[phone];
+  const gcal = account?.googleCalendar;
+  if (!gcal?.refreshToken) return null;
+  if (gcal.accessToken && gcal.expiresAt && gcal.expiresAt > Date.now() + 60000) return gcal.accessToken;
+  try {
+    const data = await googleOAuthTokenRequest({ grant_type: 'refresh_token', refresh_token: gcal.refreshToken });
+    gcal.accessToken = data.access_token;
+    gcal.expiresAt = Date.now() + (Number(data.expires_in) || 3600) * 1000;
+    if (isDbConnected) await AccountModel.updateOne({ phone }, { googleCalendar: gcal }).catch(e => console.error('Erro Mongo (renovar token Google):', e.message));
+    else saveUsers();
+    return gcal.accessToken;
+  } catch (err) {
+    console.error('Erro ao renovar token do Google Calendar (a desligar a ligação):', err.message);
+    account.googleCalendar = null;
+    if (isDbConnected) await AccountModel.updateOne({ phone }, { googleCalendar: null }).catch(() => {});
+    else saveUsers();
+    return null;
+  }
+}
+async function googleCalendarApiFetch(phone, apiPath, options = {}) {
+  const token = await getGoogleAccessToken(phone);
+  if (!token) return null;
+  const base = process.env.GOOGLE_CALENDAR_API_BASE || 'https://www.googleapis.com';
+  const r = await fetch(`${base}${apiPath}`, { ...options, headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) } });
+  return r;
+}
+// Cria (se ainda não existir) o calendário secundário dedicado a este grupo
+// na conta Google desta pessoa, e devolve o seu id. Guardado por conta+grupo
+// (account.googleCalendar.syncRooms[roomId]) — cada pessoa tem o "seu"
+// calendário próprio para este grupo, nunca partilhado entre pessoas.
+async function ensureGroupGoogleCalendar(phone, roomId, groupName) {
+  const account = accounts[phone];
+  const existing = account?.googleCalendar?.syncRooms?.[roomId];
+  if (existing?.calendarId) return existing.calendarId;
+  const r = await googleCalendarApiFetch(phone, '/calendar/v3/calendars', {
+    method: 'POST',
+    body: JSON.stringify({ summary: `ChatApp: ${groupName || 'Grupo'}` })
+  });
+  if (!r || !r.ok) { console.error('Erro ao criar calendário do Google para o grupo:', r ? await r.text().catch(() => '') : 'sem token'); return null; }
+  const data = await r.json();
+  if (!account.googleCalendar.syncRooms) account.googleCalendar.syncRooms = {};
+  account.googleCalendar.syncRooms[roomId] = { calendarId: data.id, connectedAt: new Date().toISOString() };
+  if (isDbConnected) await AccountModel.updateOne({ phone }, { googleCalendar: account.googleCalendar }).catch(e => console.error('Erro Mongo (calendário Google do grupo):', e.message));
+  else saveUsers();
+  return data.id;
+}
+function groupEventToGoogle(item) {
+  return { summary: item.title, description: item.description || undefined, start: { date: item.date }, end: { date: item.date } };
+}
+async function googleCalendarInsertEvent(phone, calendarId, item) {
+  const r = await googleCalendarApiFetch(phone, `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: JSON.stringify(groupEventToGoogle(item)) });
+  if (!r || !r.ok) { console.error('Erro ao criar evento no Google Calendar:', r ? await r.text().catch(() => '') : 'sem token'); return null; }
+  const data = await r.json();
+  return data.id;
+}
+async function googleCalendarDeleteEvent(phone, calendarId, googleEventId) {
+  if (!googleEventId) return;
+  const r = await googleCalendarApiFetch(phone, `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`, { method: 'DELETE' });
+  // 404/410 = já não existe do lado da Google (ex.: apagado por lá também) — não é um erro real.
+  if (r && !r.ok && r.status !== 404 && r.status !== 410) console.error('Erro ao apagar evento no Google Calendar:', await r.text().catch(() => ''));
+}
+// Sentido Google → app: procura eventos do calendário dedicado deste grupo
+// que ainda não vieram da própria app (não têm o nosso googleEventIds a
+// apontar para eles) — ou seja, foram criados/editados diretamente na
+// Google Calendar — e devolve-os já prontos a acrescentar à lista.
+async function googleCalendarPullNewEvents(phone, roomId, calendarId, existingItems) {
+  const r = await googleCalendarApiFetch(phone, `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?singleEvents=true&maxResults=250`);
+  if (!r || !r.ok) return [];
+  const data = await r.json().catch(() => ({}));
+  const knownGoogleIds = new Set(existingItems.map(i => i.googleEventIds?.[phone]).filter(Boolean));
+  const found = [];
+  for (const ev of (data.items || [])) {
+    if (ev.status === 'cancelled' || knownGoogleIds.has(ev.id)) continue;
+    const date = ev.start?.date || (ev.start?.dateTime || '').slice(0, 10);
+    if (!date || !ev.summary) continue;
+    found.push({
+      id: 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      title: String(ev.summary).slice(0, 140),
+      description: String(ev.description || '').slice(0, 500),
+      date,
+      createdBy: accounts[phone]?.name || 'Alguém', createdByPhone: phone,
+      createdAt: new Date().toISOString(), lastNotifiedDate: null,
+      googleEventIds: { [phone]: ev.id }, syncedFromGoogle: true
+    });
+  }
+  return found;
+}
+
+// Início do OAuth: a pessoa clica "Ligar ao Google Calendar" no perfil, o
+// browser navega a sério para aqui (não é um fetch — tem de ser navegação
+// de página completa, para a Google poder mostrar o ecrã de consentimento),
+// por isso o token vem por query string em vez do header habitual.
+app.get('/api/google-calendar/connect', (req, res) => {
+  const token = req.query.token;
+  const phone = sessions[token];
+  if (!phone || !accounts[phone]) return res.status(403).send('Sessão inválida.');
+  if (!isGoogleCalendarConfigured()) return res.status(503).send('Integração com o Google Calendar não está configurada neste servidor.');
+  const state = crypto.randomBytes(24).toString('hex');
+  pendingGoogleAuth[state] = { phone, expiresAt: Date.now() + GOOGLE_AUTH_STATE_TTL_MS };
+  const accountsBase = process.env.GOOGLE_ACCOUNTS_BASE || 'https://accounts.google.com';
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    redirect_uri: googleRedirectUri(req),
+    response_type: 'code',
+    scope: 'https://www.googleapis.com/auth/calendar',
+    access_type: 'offline',
+    prompt: 'consent',
+    state
+  });
+  res.redirect(`${accountsBase}/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+app.get('/api/google-calendar/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  const pending = state && pendingGoogleAuth[state];
+  if (pending) delete pendingGoogleAuth[state];
+  if (error || !pending || pending.expiresAt < Date.now()) {
+    return res.redirect('/?gcal=error');
+  }
+  try {
+    const data = await googleOAuthTokenRequest({ code, grant_type: 'authorization_code', redirect_uri: googleRedirectUri(req) });
+    const phone = pending.phone;
+    const account = accounts[phone];
+    if (!account) return res.redirect('/?gcal=error');
+    account.googleCalendar = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || account.googleCalendar?.refreshToken, // a Google só manda refresh_token na 1ª autorização
+      expiresAt: Date.now() + (Number(data.expires_in) || 3600) * 1000,
+      connectedAt: new Date().toISOString(),
+      syncRooms: account.googleCalendar?.syncRooms || {}
+    };
+    if (isDbConnected) await AccountModel.updateOne({ phone }, { googleCalendar: account.googleCalendar }).catch(e => console.error('Erro Mongo (ligar Google Calendar):', e.message));
+    else saveUsers();
+    res.redirect('/?gcal=connected');
+  } catch (err) {
+    console.error('Erro ao trocar código do Google Calendar por token:', err.message);
+    res.redirect('/?gcal=error');
+  }
+});
 
 // ==================== VERIFICAÇÃO EM DUAS ETAPAS (login em dispositivo novo) ====================
 // Opcional (a pessoa ativa no perfil) e só entra em ação quando: a conta tem
@@ -7383,9 +7589,25 @@ io.on('connection', (socket) => {
   // ==================== CALENDÁRIO PARTILHADO DE GRUPO ====================
   // Só existe para grupos (não conversas 1-para-1) — qualquer membro pode
   // adicionar um evento, mas só quem o criou ou um admin do grupo o apaga.
-  socket.on('group_event_get', (data) => {
+  // Ver secção "GOOGLE CALENDAR" mais acima para a parte da sincronização.
+  socket.on('group_event_get', async (data) => {
     const roomId = data?.roomId;
     if (!roomId) return;
+    const myPhone = users[socket.id]?.phone;
+    const syncInfo = myPhone ? accounts[myPhone]?.googleCalendar?.syncRooms?.[roomId] : null;
+    if (syncInfo?.calendarId) {
+      try {
+        const newItems = await googleCalendarPullNewEvents(myPhone, roomId, syncInfo.calendarId, groupEventsByRoom[roomId] || []);
+        if (newItems.length) {
+          if (!groupEventsByRoom[roomId]) groupEventsByRoom[roomId] = [];
+          groupEventsByRoom[roomId].push(...newItems);
+          groupEventsByRoom[roomId].sort((a, b) => a.date.localeCompare(b.date));
+          await persistGroupEventsRoom(roomId);
+          io.to(roomId).emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+          return;
+        }
+      } catch (err) { console.error('Erro ao puxar eventos do Google Calendar:', err.message); }
+    }
     socket.emit('group_event_list', { roomId, items: groupEventsByRoom[roomId] || [] });
   });
 
@@ -7407,6 +7629,16 @@ io.on('connection', (socket) => {
     };
     groupEventsByRoom[roomId].push(item);
     groupEventsByRoom[roomId].sort((a, b) => a.date.localeCompare(b.date));
+    // Espelha o evento novo para quem já tem este grupo sincronizado com o
+    // Google Calendar (cada pessoa decide isto à parte, ver 'google_calendar_sync_room').
+    for (const [phone, acc] of Object.entries(accounts)) {
+      const calendarId = acc.googleCalendar?.syncRooms?.[roomId]?.calendarId;
+      if (!calendarId) continue;
+      try {
+        const googleEventId = await googleCalendarInsertEvent(phone, calendarId, item);
+        if (googleEventId) { if (!item.googleEventIds) item.googleEventIds = {}; item.googleEventIds[phone] = googleEventId; }
+      } catch (err) { console.error('Erro ao espelhar evento no Google Calendar:', err.message); }
+    }
     await persistGroupEventsRoom(roomId);
     io.to(roomId).emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
     socket.emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
@@ -7419,10 +7651,84 @@ io.on('connection', (socket) => {
     const item = groupEventsByRoom[roomId]?.find(i => i.id === data?.eventId);
     if (!group || !myPhone || !item) return;
     if (item.createdByPhone !== myPhone && !isGroupAdmin(group, myPhone)) return;
+    for (const [phone, googleEventId] of Object.entries(item.googleEventIds || {})) {
+      const calendarId = accounts[phone]?.googleCalendar?.syncRooms?.[roomId]?.calendarId;
+      if (!calendarId) continue;
+      try { await googleCalendarDeleteEvent(phone, calendarId, googleEventId); } catch (err) { console.error('Erro ao apagar evento no Google Calendar:', err.message); }
+    }
     groupEventsByRoom[roomId] = groupEventsByRoom[roomId].filter(i => i.id !== data?.eventId);
     await persistGroupEventsRoom(roomId);
     io.to(roomId).emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
     socket.emit('group_event_updated', { roomId, items: groupEventsByRoom[roomId] });
+  });
+
+  // Liga/desliga a sincronização DESTE grupo com o Google Calendar da
+  // pessoa (precisa de já ter ligado a conta Google no perfil, ver
+  // 'google_calendar_disconnect' e /api/google-calendar/connect). Ligar cria
+  // (ou reaproveita) um calendário secundário dedicado a este grupo e manda
+  // já para lá os eventos existentes; desligar só para as atualizações
+  // novas — o calendário e o que já lá está ficam intactos do lado da Google.
+  socket.on('google_calendar_sync_room', async (data) => {
+    const roomId = data?.roomId;
+    const group = groups[roomId];
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!group || !account || !isGroupMember(group, myPhone)) return;
+    if (!account.googleCalendar?.refreshToken) {
+      socket.emit('google_calendar_sync_updated', { roomId, error: 'Liga primeiro a tua conta Google no perfil.' });
+      return;
+    }
+    if (!data?.enabled) {
+      if (account.googleCalendar.syncRooms) delete account.googleCalendar.syncRooms[roomId];
+      if (isDbConnected) await AccountModel.updateOne({ phone: myPhone }, { googleCalendar: account.googleCalendar }).catch(e => console.error('Erro Mongo (desligar sync Google):', e.message));
+      else saveUsers();
+      socket.emit('google_calendar_sync_updated', { roomId, enabled: false });
+      return;
+    }
+    const calendarId = await ensureGroupGoogleCalendar(myPhone, roomId, group.name);
+    if (!calendarId) {
+      socket.emit('google_calendar_sync_updated', { roomId, error: 'Não foi possível ligar ao Google Calendar agora. Tenta de novo mais tarde.' });
+      return;
+    }
+    // Sincronização inicial: manda para o Google os eventos que já existiam
+    // no grupo antes desta pessoa ligar a sincronização.
+    for (const item of (groupEventsByRoom[roomId] || [])) {
+      if (item.googleEventIds?.[myPhone]) continue;
+      try {
+        const googleEventId = await googleCalendarInsertEvent(myPhone, calendarId, item);
+        if (googleEventId) { if (!item.googleEventIds) item.googleEventIds = {}; item.googleEventIds[myPhone] = googleEventId; }
+      } catch (err) { console.error('Erro na sincronização inicial do Google Calendar:', err.message); }
+    }
+    await persistGroupEventsRoom(roomId);
+    socket.emit('google_calendar_sync_updated', { roomId, enabled: true });
+  });
+
+  // Estado atual da ligação ao Google Calendar — usado ao abrir o perfil e
+  // logo após voltar do OAuth (ver ?gcal=connected em index.html), para não
+  // depender do valor (possivelmente desatualizado) guardado no localStorage.
+  socket.on('google_calendar_get_status', () => {
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!account) return;
+    socket.emit('google_calendar_status', { connected: !!account.googleCalendar?.refreshToken, syncedRooms: Object.keys(account.googleCalendar?.syncRooms || {}) });
+  });
+
+  // Desliga a conta Google inteira (todos os grupos de uma vez) — usado no perfil.
+  socket.on('google_calendar_disconnect', async () => {
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!account?.googleCalendar) return;
+    const refreshToken = account.googleCalendar.refreshToken;
+    account.googleCalendar = null;
+    if (isDbConnected) await AccountModel.updateOne({ phone: myPhone }, { googleCalendar: null }).catch(e => console.error('Erro Mongo (desligar Google Calendar):', e.message));
+    else saveUsers();
+    socket.emit('google_calendar_disconnected', {});
+    // Cortesia — avisa a Google para revogar o acesso; se falhar não há nada
+    // a fazer (deixamos já de usar o token de qualquer forma).
+    if (refreshToken) {
+      const base = process.env.GOOGLE_OAUTH_TOKEN_BASE || 'https://oauth2.googleapis.com';
+      fetch(`${base}/revoke?token=${encodeURIComponent(refreshToken)}`, { method: 'POST' }).catch(() => {});
+    }
   });
 
   // ==================== NOTAS COLABORATIVAS ====================

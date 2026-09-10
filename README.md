@@ -1374,3 +1374,21 @@ Uma revisão de segurança dedicada (metodologia: identificação → verificaç
 
 As três rotas de SSRF partilham agora uma única função (`safeFetchNoSSRF` em `server.js`) que resolve o endereço e recusa IPs privados/reservados (a mesma verificação já existente, `isPrivateOrReservedIp`) **antes de cada pedido, incluindo cada salto de redirecionamento** — nunca usa `redirect: 'follow'` às cegas. O `/api/gemini-chat` ganhou também uma allowlist adicional (só aceita ficheiros já hospedados no próprio Cloudinary da app).
 
+## 📆 Integração com o Google Calendar (sincronização bidirecional por grupo)
+
+Primeira de duas integrações externas pedidas (Google Calendar e Slack, uma de cada vez). Liga-se **uma vez por conta** (perfil → "🔗 Integrações externas") e depois **cada pessoa escolhe, grupo a grupo**, se quer sincronizar esse calendário de grupo com o Google — nunca é automático para todos os membros de uma vez.
+
+- **Porquê por opt-in e não "para todo o grupo"**: grupos "abertos" (não privados) nem sequer guardam uma lista de membros nesta app (qualquer conta cadastrada vê-os), por isso não há como "avisar toda a gente" ao ligar uma conta; e mandar eventos para o Google Calendar pessoal de alguém sem essa pessoa ter pedido seria invasivo. Por isso, quem liga a sincronização de um grupo ganha um **calendário secundário dedicado** na sua própria conta Google (`ChatApp: <nome do grupo>`) — nunca escreve no calendário principal/pessoal — e desligar só para as atualizações novas (o calendário e o que já lá estava ficam intactos).
+- **Nos dois sentidos**: um evento criado na app é espelhado no Google Calendar de quem sincronizou esse grupo; e um evento criado ou editado diretamente no Google Calendar (nesse calendário dedicado) aparece de volta na app da próxima vez que alguém sincronizado abrir o calendário do grupo.
+- Sem SDK (`googleapis`) — chamadas HTTPS diretas com `fetch()`, o mesmo padrão já usado nesta app para Resend/Cloudinary/Gemini/etc.
+
+**Configuração** (grátis, precisa de uma app OAuth2 na Google Cloud Console):
+1. Cria um projeto em https://console.cloud.google.com/ (ou reaproveita um já existente), ativa a **Google Calendar API**
+2. Em "Ecrã de consentimento OAuth", configura o básico (nome da app, email de suporte)
+3. Em "Credenciais" → "Criar credenciais" → "ID de cliente OAuth", tipo **Aplicação Web**
+4. Em **"URIs de redirecionamento autorizados"**, adiciona exatamente `https://<o-teu-domínio-do-Railway>/api/google-calendar/callback` (e, se testares localmente, também `http://localhost:3000/api/google-calendar/callback`)
+5. No Railway/Render, define `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` com os valores gerados
+6. Sem estas duas variáveis, o botão "Ligar ao Google Calendar" no perfil mostra um aviso claro em vez de travar
+
+**Nota técnica**: o `redirect_uri` enviado à Google é montado a partir do próprio pedido (`req.protocol`/`req.get('host')`), por isso funciona automaticamente em qualquer domínio — não precisa de mais nenhuma variável de ambiente para isso. Foi preciso ligar `app.set('trust proxy', 1)` no Express para isto sair como `https://` em produção (o Railway, como a maioria dos PaaS, termina o TLS num proxy à frente da app).
+

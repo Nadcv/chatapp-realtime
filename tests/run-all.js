@@ -85,7 +85,8 @@ const MOCK_SERVERS = [
   'mock_abstractapi_server.js',     // 3023 - validação de telemóvel no registo (3º provedor)
   'mock_gutendex_server.js',        // 3024 - Biblioteca (Project Gutenberg)
   'mock_archive_server.js',         // 3025 - Biblioteca (Internet Archive, 2ª fonte)
-  'mock_resend_server.js'           // 3026 - envio de email via API HTTPS (Resend), via principal sobre o SMTP direto
+  'mock_resend_server.js',          // 3026 - envio de email via API HTTPS (Resend), via principal sobre o SMTP direto
+  'mock_google_calendar_server.js'  // 3027 - Google Calendar (OAuth2 + Calendar API, accounts/token/calendar simulados no mesmo mock)
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -148,7 +149,12 @@ const BASE_ENV = {
   ABSTRACT_PHONE_API_BASE: 'http://localhost:3023',
   ABSTRACT_PHONE_API_KEY: 'mock-abstract-key',
   GUTENDEX_API_BASE: 'http://localhost:3024',
-  ARCHIVE_API_BASE: 'http://localhost:3025'
+  ARCHIVE_API_BASE: 'http://localhost:3025',
+  GOOGLE_CLIENT_ID: 'mock-google-client-id',
+  GOOGLE_CLIENT_SECRET: 'mock-google-client-secret',
+  GOOGLE_ACCOUNTS_BASE: 'http://localhost:3027',
+  GOOGLE_OAUTH_TOKEN_BASE: 'http://localhost:3027',
+  GOOGLE_CALENDAR_API_BASE: 'http://localhost:3027'
 };
 
 // Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por
