@@ -2695,6 +2695,7 @@
             <div class="modal" style="max-height:85vh;overflow-y:auto;">
                 <h3>📆 Calendário do grupo</h3>
                 <p class="member-count">Eventos visíveis a todo o grupo — no dia marcado, é postado sozinho um lembrete na conversa.</p>
+                <div id="groupCalendarGoogleSyncBox" style="background:var(--bg-secondary);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:12px;"></div>
                 <div id="groupCalendarList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeModal('modalGroupCalendar')">Fechar</button>
@@ -2905,6 +2906,11 @@
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">💠 Chave Pix (opcional)</label>
                     <input type="text" id="profilePixKeyInput" placeholder="CPF, email, telefone ou chave aleatória" onchange="saveProfilePixKey(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
                     <p style="color:#8696a0;font-size:11px;margin-top:6px;">Usada para gerar um código Pix pronto a copiar quando alguém tiver de te pagar (ex.: ao acertar contas de viagem). Visível para quem te tem como contacto.</p>
+                </div>
+                <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+                    <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🔗 Integrações externas</div>
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px;">📆 Google Calendar</label>
+                    <div id="googleCalendarProfileBox"></div>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🔐 Segurança</div>
@@ -4773,7 +4779,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled, pixKey: user.pixKey || null };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled, pixKey: user.pixKey || null, googleCalendarConnected: !!user.googleCalendarConnected, googleCalendarSyncedRooms: user.googleCalendarSyncedRooms || [] };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -4791,6 +4797,7 @@
         document.getElementById('headerName').textContent = APP.user.name;
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone, token: APP.token });
+        socket.emit('google_calendar_get_status', {}); // atualiza APP.user.googleCalendarConnected sem depender do localStorage (ex.: acabado de voltar do OAuth)
         checkDndActive(); // sincroniza logo o estado do "não incomodar" com o servidor
         loadOfflineQueueFromStorage(); // mensagens por enviar de antes de fechar/recarregar a app (ver "Modo offline")
         setOfflineBannerVisible(!socket.connected);
@@ -4926,6 +4933,17 @@
         if (joinGroupToken) {
             history.replaceState(null, '', location.pathname);
             APP.pendingGroupInviteToken = joinGroupToken;
+        }
+        // Voltou do OAuth do Google Calendar (ver /api/google-calendar/callback
+        // em server.js) — faz sentido mesmo já com sessão iniciada (é sempre o
+        // caso: só se liga a conta Google depois de já se ter entrado na app).
+        // O token da app não vai nesse redirect (é a Google a mandar de
+        // volta), por isso o estado real só chega a seguir, via
+        // 'google_calendar_get_status' (ver enterApp()).
+        const gcalResult = new URLSearchParams(location.search).get('gcal');
+        if (gcalResult) {
+            history.replaceState(null, '', location.pathname);
+            APP.pendingGoogleCalendarResult = gcalResult;
         }
         const token = localStorage.getItem('authToken');
         const userRaw = localStorage.getItem('authUser');
@@ -5537,6 +5555,7 @@
         document.getElementById('hideOnlineStatusCheck').checked = !!APP.user.hideOnlineStatus;
         document.getElementById('hideReadReceiptsCheck').checked = !!APP.user.hideReadReceipts;
         loadDndSettingsIntoProfile();
+        renderGoogleCalendarProfileSection();
         if (window.PublicKeyCredential) { document.getElementById('webauthnSection').style.display = 'block'; loadWebauthnCredentials(); }
         document.getElementById('modalProfile').classList.add('active');
     }
@@ -5578,6 +5597,46 @@
         document.getElementById('twoFactorCheck').checked = APP.user.twoFactorEnabled;
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         if (data.error) alert(data.error);
+    });
+
+    // ==================== GOOGLE CALENDAR (ligação da conta) ====================
+    // Ver server.js ("GOOGLE CALENDAR") para a troca de OAuth em si — aqui só
+    // se pede o estado atual e se reflete no perfil. A sincronização de cada
+    // grupo em si liga-se dentro do próprio calendário do grupo (mais abaixo).
+    function connectGoogleCalendar() {
+        if (!APP.token) return;
+        location.href = '/api/google-calendar/connect?token=' + encodeURIComponent(APP.token);
+    }
+    function disconnectGoogleCalendar() {
+        if (!confirm('Desligar o Google Calendar? Os grupos que sincronizavas param de receber novidades (o calendário e os eventos já criados na Google ficam intactos).')) return;
+        socket.emit('google_calendar_disconnect');
+    }
+    function renderGoogleCalendarProfileSection() {
+        const box = document.getElementById('googleCalendarProfileBox');
+        if (!box || !APP.user) return;
+        box.innerHTML = APP.user.googleCalendarConnected
+            ? `<p style="color:#8696a0;font-size:11px;margin:0 0 8px;">✅ Conta Google ligada. Em cada grupo, abre "📆 Calendário" para ligar a sincronização desse grupo.</p><button class="btn-small btn-danger" onclick="disconnectGoogleCalendar()">Desligar Google Calendar</button>`
+            : `<p style="color:#8696a0;font-size:11px;margin:0 0 8px;">Sincroniza os calendários dos teus grupos com o Google Calendar (nos dois sentidos, num calendário próprio por grupo).</p><button class="btn-small btn-accept" onclick="connectGoogleCalendar()">🔗 Ligar ao Google Calendar</button>`;
+    }
+    socket.on('google_calendar_status', (data) => {
+        if (!APP.user || !data) return;
+        APP.user.googleCalendarConnected = !!data.connected;
+        APP.user.googleCalendarSyncedRooms = data.syncedRooms || [];
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderGoogleCalendarProfileSection();
+        if (APP.pendingGoogleCalendarResult) {
+            const result = APP.pendingGoogleCalendarResult;
+            APP.pendingGoogleCalendarResult = null;
+            if (result === 'connected') alert('✅ Conta Google ligada! Agora podes ativar a sincronização em cada grupo, dentro do calendário do grupo.');
+            else alert('⚠️ Não foi possível ligar a conta Google. Tenta novamente.');
+        }
+    });
+    socket.on('google_calendar_disconnected', () => {
+        if (!APP.user) return;
+        APP.user.googleCalendarConnected = false;
+        APP.user.googleCalendarSyncedRooms = [];
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderGoogleCalendarProfileSection();
     });
 
     // ==================== OS MEUS DADOS (exportar / apagar conta) ====================
@@ -12830,8 +12889,39 @@
     function openGroupCalendarModal() {
         if (!APP.currentChatId) return;
         socket.emit('group_event_get', { roomId: APP.currentChatId });
+        renderGroupCalendarGoogleSyncBox();
         document.getElementById('modalGroupCalendar').classList.add('active');
     }
+    // Sincronização com o Google Calendar (ver server.js, secção "GOOGLE
+    // CALENDAR") — à parte por grupo, cada pessoa decide para os grupos que
+    // quiser, nunca automático para toda a gente.
+    function renderGroupCalendarGoogleSyncBox() {
+        const box = document.getElementById('groupCalendarGoogleSyncBox');
+        if (!box || !APP.currentChatId) return;
+        if (!APP.user.googleCalendarConnected) {
+            box.innerHTML = `<span style="color:var(--text-secondary);">📆 Liga o Google Calendar no teu perfil para sincronizar este grupo.</span>`;
+            return;
+        }
+        const isSynced = (APP.user.googleCalendarSyncedRooms || []).includes(APP.currentChatId);
+        box.innerHTML = `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="groupCalendarSyncCheck" ${isSynced ? 'checked' : ''} onchange="toggleGroupCalendarGoogleSync(this.checked)">
+            Sincronizar este grupo com o meu Google Calendar
+        </label>`;
+    }
+    function toggleGroupCalendarGoogleSync(enabled) {
+        if (!APP.currentChatId) return;
+        socket.emit('google_calendar_sync_room', { roomId: APP.currentChatId, enabled });
+    }
+    socket.on('google_calendar_sync_updated', (data) => {
+        if (!data || data.roomId !== APP.currentChatId) return;
+        if (data.error) { alert('⚠️ ' + data.error); renderGroupCalendarGoogleSyncBox(); return; }
+        const rooms = new Set(APP.user.googleCalendarSyncedRooms || []);
+        if (data.enabled) rooms.add(data.roomId); else rooms.delete(data.roomId);
+        APP.user.googleCalendarSyncedRooms = [...rooms];
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderGroupCalendarGoogleSyncBox();
+        socket.emit('group_event_get', { roomId: APP.currentChatId }); // eventos existentes podem ter ganho um novo link ao Google (sincronização inicial)
+    });
     function renderGroupCalendarList() {
         const box = document.getElementById('groupCalendarList');
         if (!GROUP_CALENDAR.items.length) {
