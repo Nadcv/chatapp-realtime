@@ -67,6 +67,21 @@ normais do servidor, mas um novo `git push` apaga o histórico. Para persistênc
 garantida entre deploys, o próximo passo é usar um banco de dados de verdade
 (ex: Postgres, que o Railway oferece como plugin) em vez do arquivo local.
 
+### Escrita segura destes ficheiros locais (sem corromper/perder dados)
+
+Todos os `messages.json`, `groups.json`, `users.json` e os demais ficheiros locais
+(só usados quando `MONGO_URI` não está definida) são gravados através de uma
+função partilhada (`writeJsonFileSafe()` no `server.js`), não com um
+`fs.writeFile()` direto. Isto porque duas gravações do MESMO ficheiro perto uma
+da outra (ex.: duas mensagens seguidas na mesma sala, cada uma a disparar
+`saveMessagesLocal()`) abrem o ficheiro cada uma por si, sem nenhuma ordem
+garantida entre elas — na teoria, isso podia originar tanto uma escrita
+misturada como uma gravação mais recente a ser substituída por uma mais antiga
+que ainda estava a demorar. A correção tem duas partes: (1) escreve para um
+ficheiro temporário e só troca o nome (rename, atómico) para o ficheiro final
+no fim, e (2) mantém uma fila por caminho de ficheiro, para nunca haver duas
+gravações do mesmo ficheiro a decorrer ao mesmo tempo.
+
 ## Sobre as chamadas de vídeo (WebRTC)
 
 O código já inclui:

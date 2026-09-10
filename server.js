@@ -279,6 +279,39 @@ let accounts = {}; // phone -> { id, name, phone, username, country, email, salt
 let usernameIndex = {}; // username (minúsculas) -> phone
 let firstRegisteredPhone = null;
 
+// ==================== ESCRITA SEGURA DE FICHEIROS JSON LOCAIS ====================
+// Todos os "save*Local()" abaixo (users.json, groups.json, messages.json,
+// etc. — só usados quando MONGO_URI não está definida, ver aviso no arranque)
+// gravavam com um `fs.writeFile(FICHEIRO, JSON.stringify(dados), cb)` direto.
+// Isso tem um risco real: se duas gravações do MESMO ficheiro acontecerem
+// perto uma da outra (ex.: duas mensagens seguidas na mesma sala, cada uma a
+// chamar saveMessagesLocal()), a segunda pode truncar o ficheiro enquanto a
+// primeira ainda está a escrever — corrompendo o JSON e perdendo dados. Esta
+// função resolve as duas partes do problema:
+// 1) Escreve para um ficheiro temporário e só troca o nome (rename) para o
+//    ficheiro final no fim — a troca de nome é atómica no sistema de
+//    ficheiros, por isso nunca há um estado "a meio" visível para quem lê.
+// 2) Mantém uma fila por caminho de ficheiro — uma segunda gravação do MESMO
+//    ficheiro só começa depois da anterior terminar, nunca ao mesmo tempo.
+// É um "drop-in replacement" de fs.writeFile (mesmos 3 argumentos, incluindo
+// já receber a string JSON pronta), por isso trocar as chamadas não precisa
+// de mudar mais nada nos "save*Local()" existentes.
+const pendingJsonWrites = new Map(); // caminho do ficheiro -> promessa da última escrita já agendada
+function writeJsonFileSafe(filePath, data, callback) {
+  const previous = pendingJsonWrites.get(filePath) || Promise.resolve();
+  const next = previous.then(() => new Promise((resolve) => {
+    const tmpPath = `${filePath}.tmp${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    fs.writeFile(tmpPath, data, (err) => {
+      if (err) { if (callback) callback(err); resolve(); return; }
+      fs.rename(tmpPath, filePath, (err2) => {
+        if (callback) callback(err2 || null);
+        resolve();
+      });
+    });
+  }));
+  pendingJsonWrites.set(filePath, next);
+}
+
 const USERS_FILE = path.join(__dirname, 'users.json');
 function loadUsersLocal() {
   try {
@@ -294,7 +327,7 @@ function loadUsersLocal() {
 }
 function saveUsers() {
   if (isDbConnected) return; // gravado pontualmente no Mongo em cada operação (ver chamadas a AccountModel abaixo)
-  fs.writeFile(USERS_FILE, JSON.stringify({ accounts, firstRegisteredPhone }), (err) => {
+  writeJsonFileSafe(USERS_FILE, JSON.stringify({ accounts, firstRegisteredPhone }), (err) => {
     if (err) console.error('Erro ao salvar usuários:', err.message);
   });
 }
@@ -2330,7 +2363,7 @@ function loadTravelHistoryLocal() {
   catch (err) { console.error('Erro ao carregar histórico de viagens:', err.message); }
 }
 function saveTravelHistoryLocal() {
-  fs.writeFile(TRAVEL_HISTORY_FILE, JSON.stringify(travelHistoryByPhone), (err) => { if (err) console.error('Erro ao salvar histórico de viagens:', err.message); });
+  writeJsonFileSafe(TRAVEL_HISTORY_FILE, JSON.stringify(travelHistoryByPhone), (err) => { if (err) console.error('Erro ao salvar histórico de viagens:', err.message); });
 }
 function logFlightSearch(phone, entry) {
   if (!phone) return;
@@ -2707,7 +2740,7 @@ function loadPriceAlertsLocal() {
   catch (err) { console.error('Erro ao carregar alertas de preço:', err.message); }
 }
 function savePriceAlertsLocal() {
-  fs.writeFile(PRICE_ALERTS_FILE, JSON.stringify(priceAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de preço:', err.message); });
+  writeJsonFileSafe(PRICE_ALERTS_FILE, JSON.stringify(priceAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de preço:', err.message); });
 }
 const MAX_PRICE_ALERTS_PER_USER = 5;
 
@@ -4343,7 +4376,7 @@ function loadMessagesLocal() {
 }
 function saveMessagesLocal() {
   if (isDbConnected) return;
-  fs.writeFile(DATA_FILE, JSON.stringify(messagesByRoom), (err) => {
+  writeJsonFileSafe(DATA_FILE, JSON.stringify(messagesByRoom), (err) => {
     if (err) console.error('Erro ao salvar histórico local:', err.message);
   });
 }
@@ -4363,7 +4396,7 @@ function loadGroupsLocal() {
 }
 function saveGroupsLocal() {
   if (isDbConnected) return;
-  fs.writeFile(GROUPS_FILE, JSON.stringify(groups), (err) => {
+  writeJsonFileSafe(GROUPS_FILE, JSON.stringify(groups), (err) => {
     if (err) console.error('Erro ao salvar grupos localmente:', err.message);
   });
 }
@@ -4381,7 +4414,7 @@ function loadCommunitiesLocal() {
 }
 function saveCommunitiesLocal() {
   if (isDbConnected) return;
-  fs.writeFile(COMMUNITIES_FILE, JSON.stringify(communities), (err) => {
+  writeJsonFileSafe(COMMUNITIES_FILE, JSON.stringify(communities), (err) => {
     if (err) console.error('Erro ao salvar comunidades localmente:', err.message);
   });
 }
@@ -4518,7 +4551,7 @@ function loadActivitiesLocal() {
 }
 function saveActivitiesLocal() {
   if (isDbConnected) return;
-  fs.writeFile(ACTIVITIES_FILE, JSON.stringify(activities.slice(0, 500)), (err) => {
+  writeJsonFileSafe(ACTIVITIES_FILE, JSON.stringify(activities.slice(0, 500)), (err) => {
     if (err) console.error('Erro ao salvar atividades localmente:', err.message);
   });
 }
@@ -4536,7 +4569,7 @@ function loadTodosLocal() {
 }
 function saveTodosLocal() {
   if (isDbConnected) return;
-  fs.writeFile(TODOS_FILE, JSON.stringify(todosByRoom), (err) => {
+  writeJsonFileSafe(TODOS_FILE, JSON.stringify(todosByRoom), (err) => {
     if (err) console.error('Erro ao salvar tarefas localmente:', err.message);
   });
 }
@@ -4561,7 +4594,7 @@ function loadGroupEventsLocal() {
 }
 function saveGroupEventsLocal() {
   if (isDbConnected) return;
-  fs.writeFile(GROUP_EVENTS_FILE, JSON.stringify(groupEventsByRoom), (err) => {
+  writeJsonFileSafe(GROUP_EVENTS_FILE, JSON.stringify(groupEventsByRoom), (err) => {
     if (err) console.error('Erro ao salvar calendário de grupo localmente:', err.message);
   });
 }
@@ -4593,7 +4626,7 @@ function loadCollabNotesLocal() {
 }
 function saveCollabNotesLocal() {
   if (isDbConnected) return;
-  fs.writeFile(COLLAB_NOTES_FILE, JSON.stringify(collabNotesByRoom), (err) => {
+  writeJsonFileSafe(COLLAB_NOTES_FILE, JSON.stringify(collabNotesByRoom), (err) => {
     if (err) console.error('Erro ao salvar notas colaborativas localmente:', err.message);
   });
 }
@@ -4628,7 +4661,7 @@ function loadNotesLocal() {
 }
 function saveNotesLocal() {
   if (isDbConnected) return;
-  fs.writeFile(NOTES_FILE, JSON.stringify(notesByPhone), (err) => {
+  writeJsonFileSafe(NOTES_FILE, JSON.stringify(notesByPhone), (err) => {
     if (err) console.error('Erro ao salvar notas localmente:', err.message);
   });
 }
@@ -4650,7 +4683,7 @@ function loadPinsLocal() {
   } catch (err) { console.error('Erro ao carregar mensagens fixadas:', err.message); }
 }
 function savePinsLocal() {
-  fs.writeFile(PINS_FILE, JSON.stringify(pinnedByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens fixadas:', err.message); });
+  writeJsonFileSafe(PINS_FILE, JSON.stringify(pinnedByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens fixadas:', err.message); });
 }
 
 // ==================== MENSAGENS TEMPORÁRIAS (autodestrutivas) ====================
@@ -4661,7 +4694,7 @@ function loadDisappearingLocal() {
   catch (err) { console.error('Erro ao carregar mensagens temporárias:', err.message); }
 }
 function saveDisappearingLocal() {
-  fs.writeFile(DISAPPEAR_FILE, JSON.stringify(disappearingByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens temporárias:', err.message); });
+  writeJsonFileSafe(DISAPPEAR_FILE, JSON.stringify(disappearingByRoom), (err) => { if (err) console.error('Erro ao salvar mensagens temporárias:', err.message); });
 }
 
 // ==================== ESTADOS (tipo "stories", expiram em 24h) ====================
@@ -4672,7 +4705,7 @@ function loadStatusesLocal() {
   catch (err) { console.error('Erro ao carregar estados:', err.message); }
 }
 function saveStatusesLocal() {
-  fs.writeFile(STATUSES_FILE, JSON.stringify(statusesByPhone), (err) => { if (err) console.error('Erro ao salvar estados:', err.message); });
+  writeJsonFileSafe(STATUSES_FILE, JSON.stringify(statusesByPhone), (err) => { if (err) console.error('Erro ao salvar estados:', err.message); });
 }
 function pruneExpiredStatuses() {
   const now = Date.now();
@@ -4700,7 +4733,7 @@ function loadCallLogLocal() {
   catch (err) { console.error('Erro ao carregar histórico de chamadas:', err.message); }
 }
 function saveCallLogLocal() {
-  fs.writeFile(CALLLOG_FILE, JSON.stringify(callLogByPhone), (err) => { if (err) console.error('Erro ao salvar histórico de chamadas:', err.message); });
+  writeJsonFileSafe(CALLLOG_FILE, JSON.stringify(callLogByPhone), (err) => { if (err) console.error('Erro ao salvar histórico de chamadas:', err.message); });
 }
 
 // ==================== MENSAGENS AGENDADAS ====================
@@ -4711,7 +4744,7 @@ function loadScheduledLocal() {
   catch (err) { console.error('Erro ao carregar mensagens agendadas:', err.message); }
 }
 function saveScheduledLocal() {
-  fs.writeFile(SCHEDULED_FILE, JSON.stringify(scheduledMessages), (err) => { if (err) console.error('Erro ao salvar mensagens agendadas:', err.message); });
+  writeJsonFileSafe(SCHEDULED_FILE, JSON.stringify(scheduledMessages), (err) => { if (err) console.error('Erro ao salvar mensagens agendadas:', err.message); });
 }
 // Avança 'prevSendAt' pelo intervalo da recorrência até passar de 'now' — nunca só
 // soma um único intervalo, porque se o servidor esteve em baixo o suficiente para
@@ -4736,7 +4769,7 @@ function loadMutedLocal() {
   catch (err) { console.error('Erro ao carregar conversas silenciadas:', err.message); }
 }
 function saveMutedLocal() {
-  fs.writeFile(MUTED_FILE, JSON.stringify(mutedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas silenciadas:', err.message); });
+  writeJsonFileSafe(MUTED_FILE, JSON.stringify(mutedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas silenciadas:', err.message); });
 }
 
 // ==================== CONVERSAS ARQUIVADAS ====================
@@ -4747,7 +4780,7 @@ function loadArchivedLocal() {
   catch (err) { console.error('Erro ao carregar conversas arquivadas:', err.message); }
 }
 function saveArchivedLocal() {
-  fs.writeFile(ARCHIVED_FILE, JSON.stringify(archivedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas arquivadas:', err.message); });
+  writeJsonFileSafe(ARCHIVED_FILE, JSON.stringify(archivedByPhone), (err) => { if (err) console.error('Erro ao salvar conversas arquivadas:', err.message); });
 }
 
 // ==================== CONVERSAS FIXADAS NO TOPO ====================
@@ -4762,7 +4795,7 @@ function loadPinnedChatsLocal() {
   catch (err) { console.error('Erro ao carregar conversas fixadas:', err.message); }
 }
 function savePinnedChatsLocal() {
-  fs.writeFile(PINNED_CHATS_FILE, JSON.stringify(pinnedChatsByPhone), (err) => { if (err) console.error('Erro ao salvar conversas fixadas:', err.message); });
+  writeJsonFileSafe(PINNED_CHATS_FILE, JSON.stringify(pinnedChatsByPhone), (err) => { if (err) console.error('Erro ao salvar conversas fixadas:', err.message); });
 }
 
 // ==================== UTILIZADORES BLOQUEADOS ====================
@@ -4773,7 +4806,7 @@ function loadBlockedLocal() {
   catch (err) { console.error('Erro ao carregar bloqueados:', err.message); }
 }
 function saveBlockedLocal() {
-  fs.writeFile(BLOCKED_FILE, JSON.stringify(blockedByPhone), (err) => { if (err) console.error('Erro ao salvar bloqueados:', err.message); });
+  writeJsonFileSafe(BLOCKED_FILE, JSON.stringify(blockedByPhone), (err) => { if (err) console.error('Erro ao salvar bloqueados:', err.message); });
 }
 
 // ==================== LISTAS DE TRANSMISSÃO ====================
@@ -4789,7 +4822,7 @@ function loadBroadcastsLocal() {
   catch (err) { console.error('Erro ao carregar listas de transmissão:', err.message); }
 }
 function saveBroadcastsLocal() {
-  fs.writeFile(BROADCASTS_FILE, JSON.stringify(broadcastsByPhone), (err) => { if (err) console.error('Erro ao salvar listas de transmissão:', err.message); });
+  writeJsonFileSafe(BROADCASTS_FILE, JSON.stringify(broadcastsByPhone), (err) => { if (err) console.error('Erro ao salvar listas de transmissão:', err.message); });
 }
 
 // ==================== PASTAS/ETIQUETAS PARA ORGANIZAR CONVERSAS ====================
@@ -4803,7 +4836,7 @@ function loadFoldersLocal() {
   catch (err) { console.error('Erro ao carregar pastas de conversas:', err.message); }
 }
 function saveFoldersLocal() {
-  fs.writeFile(FOLDERS_FILE, JSON.stringify(foldersByPhone), (err) => { if (err) console.error('Erro ao salvar pastas de conversas:', err.message); });
+  writeJsonFileSafe(FOLDERS_FILE, JSON.stringify(foldersByPhone), (err) => { if (err) console.error('Erro ao salvar pastas de conversas:', err.message); });
 }
 
 // ==================== FAVORITOS DO TURISMO ====================
@@ -4816,7 +4849,7 @@ function loadTourismFavoritesLocal() {
   catch (err) { console.error('Erro ao carregar favoritos de turismo:', err.message); }
 }
 function saveTourismFavoritesLocal() {
-  fs.writeFile(TOURISM_FAVORITES_FILE, JSON.stringify(tourismFavoritesByPhone), (err) => { if (err) console.error('Erro ao salvar favoritos de turismo:', err.message); });
+  writeJsonFileSafe(TOURISM_FAVORITES_FILE, JSON.stringify(tourismFavoritesByPhone), (err) => { if (err) console.error('Erro ao salvar favoritos de turismo:', err.message); });
 }
 
 // ==================== LISTA DE COMPRAS ====================
@@ -4846,7 +4879,7 @@ function loadShoppingListLocal() {
   catch (err) { console.error('Erro ao carregar lista de compras:', err.message); }
 }
 function saveShoppingListLocal() {
-  fs.writeFile(SHOPPING_LIST_FILE, JSON.stringify(shoppingListByPhone), (err) => { if (err) console.error('Erro ao salvar lista de compras:', err.message); });
+  writeJsonFileSafe(SHOPPING_LIST_FILE, JSON.stringify(shoppingListByPhone), (err) => { if (err) console.error('Erro ao salvar lista de compras:', err.message); });
 }
 function getMyShoppingList(phone) {
   if (!shoppingListByPhone[phone]) shoppingListByPhone[phone] = { items: [], history: [] };
@@ -4865,7 +4898,7 @@ function loadRemindersLocal() {
   catch (err) { console.error('Erro ao carregar lembretes:', err.message); }
 }
 function saveRemindersLocal() {
-  fs.writeFile(REMINDERS_FILE, JSON.stringify(remindersByPhone), (err) => { if (err) console.error('Erro ao salvar lembretes:', err.message); });
+  writeJsonFileSafe(REMINDERS_FILE, JSON.stringify(remindersByPhone), (err) => { if (err) console.error('Erro ao salvar lembretes:', err.message); });
 }
 
 // ==================== DESPESAS FIXAS MENSAIS (RECORRENTES) ====================
@@ -4883,7 +4916,7 @@ function loadRecurringExpensesLocal() {
   catch (err) { console.error('Erro ao carregar despesas fixas:', err.message); }
 }
 function saveRecurringExpensesLocal() {
-  fs.writeFile(RECURRING_EXPENSES_FILE, JSON.stringify(recurringExpensesByChat), (err) => { if (err) console.error('Erro ao salvar despesas fixas:', err.message); });
+  writeJsonFileSafe(RECURRING_EXPENSES_FILE, JSON.stringify(recurringExpensesByChat), (err) => { if (err) console.error('Erro ao salvar despesas fixas:', err.message); });
 }
 function getRoomParticipantPhones(chatId) {
   const phones = new Set();
@@ -4907,7 +4940,7 @@ function loadScheduledCallsLocal() {
   catch (err) { console.error('Erro ao carregar chamadas agendadas:', err.message); }
 }
 function saveScheduledCallsLocal() {
-  fs.writeFile(SCHEDULED_CALLS_FILE, JSON.stringify(scheduledCalls), (err) => { if (err) console.error('Erro ao salvar chamadas agendadas:', err.message); });
+  writeJsonFileSafe(SCHEDULED_CALLS_FILE, JSON.stringify(scheduledCalls), (err) => { if (err) console.error('Erro ao salvar chamadas agendadas:', err.message); });
 }
 
 // ==================== "NÃO INCOMODAR" AGENDADO ====================
@@ -4946,7 +4979,7 @@ function loadAlertsLocal() {
   catch (err) { console.error('Erro ao carregar alertas de estrada:', err.message); }
 }
 function saveAlertsLocal() {
-  fs.writeFile(ALERTS_FILE, JSON.stringify(roadAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de estrada:', err.message); });
+  writeJsonFileSafe(ALERTS_FILE, JSON.stringify(roadAlerts), (err) => { if (err) console.error('Erro ao salvar alertas de estrada:', err.message); });
 }
 function pruneExpiredAlerts() {
   const now = Date.now();
