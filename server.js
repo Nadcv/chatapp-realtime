@@ -29,7 +29,12 @@ const app = express();
 // req.protocol via sempre "http", e a Google recusa o pedido de token por
 // o redirect_uri não bater certo com o registado na Cloud Console.
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '20mb' })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
+// 'verify' guarda o corpo em bruto do pedido (req.rawBody) — só é usado para
+// validar a assinatura HMAC dos webhooks do Slack (ver /api/slack/events),
+// que exige o texto exato recebido, byte a byte, e não uma versão
+// reserializada do JSON já interpretado (podem não ser idênticos). Não muda
+// nada no comportamento normal do parser para todas as outras rotas.
+app.use(express.json({ limit: '20mb', verify: (req, res, buf) => { req.rawBody = buf; } })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
 
 // ==================== LOGS RECENTES (para o admin ver erros em produção) ====================
@@ -114,7 +119,11 @@ const accountSchema = new mongoose.Schema({
   // { accessToken, refreshToken, expiresAt, connectedAt, syncRooms: { [roomId]: {calendarId, connectedAt} } }
   // — ver secção "GOOGLE CALENDAR" mais abaixo (Object = aceita o objeto
   // inteiro tal como está, sem precisar de declarar cada sub-campo).
-  googleCalendar: { type: Object, default: null }
+  googleCalendar: { type: Object, default: null },
+  // ==================== SLACK ====================
+  // { botToken, teamId, teamName, connectedAt, channels: { [roomId]: channelId } }
+  // — ver secção "SLACK" mais abaixo.
+  slack: { type: Object, default: null }
 });
 const AccountModel = mongoose.model('Account', accountSchema);
 
@@ -401,7 +410,7 @@ const sessions = {};
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null, googleCalendarConnected: !!u.googleCalendar?.refreshToken, googleCalendarSyncedRooms: Object.keys(u.googleCalendar?.syncRooms || {}) };
+  return { id: u.id, name: u.name, phone: u.phone, username: u.username || null, country: u.country, email: u.email, isAdmin: isAdminPhone(u.phone), createdAt: u.createdAt, publicKey: u.publicKey || null, avatarUrl: u.avatarUrl || null, preferredLang: u.preferredLang || null, accentColor: u.accentColor || null, chatWallpaper: u.chatWallpaper || null, totalTimeSpentSec: u.totalTimeSpentSec || 0, birthday: u.birthday || null, twoFactorEnabled: !!u.twoFactorEnabled, pixKey: u.pixKey || null, googleCalendarConnected: !!u.googleCalendar?.refreshToken, googleCalendarSyncedRooms: Object.keys(u.googleCalendar?.syncRooms || {}), slackConnected: !!u.slack?.botToken, slackTeamName: u.slack?.teamName || null, slackLinkedRooms: u.slack?.channels || {} };
 }
 
 // ==================== VALIDAÇÃO DE TELEMÓVEL (cascata de provedores) ====================
@@ -3217,6 +3226,217 @@ app.get('/api/google-calendar/callback', async (req, res) => {
   } catch (err) {
     console.error('Erro ao trocar código do Google Calendar por token:', err.message);
     res.redirect('/?gcal=error');
+  }
+});
+
+// ==================== SLACK (OAuth2 + ponte de mensagens bidirecional) ====================
+// Liga-se UMA VEZ por conta (perfil → "🔗 Integrações externas"), tal como o
+// Google Calendar acima — e depois, em cada GRUPO (nunca conversas 1-para-1:
+// essas podem ter E2EE, e o servidor nunca vê o texto em claro para as
+// poder mandar para lado nenhum), liga-se um canal do Slack à parte.
+// Mensagens escritas na app aparecem no canal do Slack (chat.postMessage) e
+// mensagens escritas no canal do Slack voltam para a conversa do grupo (via
+// Events API — o Slack manda um pedido HTTP para /api/slack/events sempre
+// que alguém escreve num canal onde o "bot" está).
+//
+// Sem SDK (@slack/bolt ou @slack/web-api) — chamadas HTTPS diretas com
+// fetch(), o mesmo padrão já usado nesta app para Resend/Google Calendar/
+// Cloudinary/etc. SLACK_BASE só existe para os testes automatizados
+// apontarem a um mock local — em produção é sempre https://slack.com.
+function isSlackConfigured() {
+  return !!process.env.SLACK_CLIENT_ID && !!process.env.SLACK_CLIENT_SECRET && !!process.env.SLACK_SIGNING_SECRET;
+}
+const pendingSlackAuth = {}; // state -> { phone, expiresAt } — mesmo papel do pendingGoogleAuth, ver acima
+const SLACK_AUTH_STATE_TTL_MS = 10 * 60 * 1000;
+function slackRedirectUri(req) {
+  const base = process.env.SLACK_REDIRECT_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  return `${base}/api/slack/callback`;
+}
+function slackApiBase() {
+  return process.env.SLACK_BASE || 'https://slack.com';
+}
+async function slackApiFetch(botToken, apiPath, options = {}) {
+  const r = await fetch(`${slackApiBase()}${apiPath}`, {
+    ...options,
+    headers: { 'Authorization': `Bearer ${botToken}`, 'Content-Type': 'application/json; charset=utf-8', ...(options.headers || {}) }
+  });
+  return r.json().catch(() => ({ ok: false }));
+}
+// Valida que um pedido a /api/slack/events veio mesmo do Slack (e não de
+// alguém a tentar forjar mensagens): a Slack assina cada pedido com HMAC-SHA256
+// da string "v0:<timestamp>:<corpo em bruto>", usando o "signing secret" — só
+// quem o conhece (nós e a Slack) consegue calcular a assinatura certa.
+// Rejeita também pedidos com mais de 5 minutos (proteção contra repetição).
+function verifySlackSignature(req) {
+  const signingSecret = process.env.SLACK_SIGNING_SECRET;
+  const timestamp = req.headers['x-slack-request-timestamp'];
+  const signature = req.headers['x-slack-signature'];
+  if (!signingSecret || !timestamp || !signature || !req.rawBody) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+  const base = `v0:${timestamp}:${req.rawBody}`;
+  const expected = 'v0=' + crypto.createHmac('sha256', signingSecret).update(base).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch (e) { return false; } // comprimentos diferentes — nunca pode ser igual, mas timingSafeEqual rebenta em vez de devolver false
+}
+// Cache simples do nome de exibição de cada pessoa do Slack (users.info) —
+// evita pedir à API do Slack o mesmo nome em cada mensagem só para mostrar
+// "Fulano (via Slack): ...". Nunca expira sozinha (o nome de alguém no
+// Slack muda muito raramente); perde-se só quando o servidor reinicia.
+const slackUserNameCache = {}; // `${teamId}:${userId}` -> nome
+async function getSlackUserName(botToken, teamId, userId) {
+  const key = `${teamId}:${userId}`;
+  if (slackUserNameCache[key]) return slackUserNameCache[key];
+  const data = await slackApiFetch(botToken, `/api/users.info?user=${encodeURIComponent(userId)}`);
+  const name = data?.ok ? (data.user?.profile?.display_name || data.user?.real_name || data.user?.name || 'Alguém do Slack') : 'Alguém do Slack';
+  slackUserNameCache[key] = name;
+  return name;
+}
+// Dedupe simples dos event_id do Slack — a Events API reenvia o mesmo
+// evento se não recebermos os 200 OK a tempo (ex.: um pico de carga), e sem
+// isto essa repetição criava a mesma mensagem duas vezes na conversa.
+const recentSlackEventIds = [];
+const MAX_RECENT_SLACK_EVENT_IDS = 500;
+function isDuplicateSlackEvent(eventId) {
+  if (!eventId) return false;
+  if (recentSlackEventIds.includes(eventId)) return true;
+  recentSlackEventIds.push(eventId);
+  if (recentSlackEventIds.length > MAX_RECENT_SLACK_EVENT_IDS) recentSlackEventIds.shift();
+  return false;
+}
+// Dado um workspace (team_id) e um canal do Slack, encontra qual conta e
+// qual grupo desta app estão ligados a ele — percorre as contas porque a
+// ligação é por conta (tal como o Google Calendar), não há um índice
+// central de "workspace -> conta" (o volume de contas desta app não
+// justifica manter esse índice à parte).
+function findSlackBridgeTarget(teamId, channelId) {
+  for (const [phone, acc] of Object.entries(accounts)) {
+    if (acc.slack?.teamId !== teamId) continue;
+    for (const [roomId, linkedChannelId] of Object.entries(acc.slack.channels || {})) {
+      if (linkedChannelId === channelId) return { phone, roomId };
+    }
+  }
+  return null;
+}
+// Sentido app → Slack: espelha uma mensagem de grupo em todos os canais do
+// Slack que alguém tenha ligado a este grupo (normalmente só uma pessoa,
+// mas nada impede mais do que uma, cada uma com o seu próprio canal).
+// Nunca chamado para conversas 1-para-1 (podem ter E2EE — ver cabeçalho da
+// secção — o servidor não tem acesso ao texto em claro dessas).
+async function postGroupMessageToSlack(roomId, senderName, text) {
+  if (!text) return;
+  for (const acc of Object.values(accounts)) {
+    const channelId = acc.slack?.channels?.[roomId];
+    if (!channelId) continue;
+    try {
+      await slackApiFetch(acc.slack.botToken, '/api/chat.postMessage', {
+        method: 'POST',
+        body: JSON.stringify({ channel: channelId, text: `*${senderName}*: ${text}` })
+      });
+    } catch (err) {
+      console.error('Erro ao espelhar mensagem no Slack:', err.message);
+    }
+  }
+}
+
+app.get('/api/slack/connect', (req, res) => {
+  const token = req.query.token;
+  const phone = sessions[token];
+  if (!phone || !accounts[phone]) return res.status(403).send('Sessão inválida.');
+  if (!isSlackConfigured()) return res.status(503).send('Integração com o Slack não está configurada neste servidor.');
+  const state = crypto.randomBytes(24).toString('hex');
+  pendingSlackAuth[state] = { phone, expiresAt: Date.now() + SLACK_AUTH_STATE_TTL_MS };
+  const params = new URLSearchParams({
+    client_id: process.env.SLACK_CLIENT_ID,
+    scope: 'chat:write,chat:write.public,channels:history,groups:history,users:read',
+    redirect_uri: slackRedirectUri(req),
+    state
+  });
+  res.redirect(`${slackApiBase()}/oauth/v2/authorize?${params.toString()}`);
+});
+
+app.get('/api/slack/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  const pending = state && pendingSlackAuth[state];
+  if (pending) delete pendingSlackAuth[state];
+  if (error || !pending || pending.expiresAt < Date.now()) {
+    return res.redirect('/?slack=error');
+  }
+  try {
+    const params = new URLSearchParams({
+      client_id: process.env.SLACK_CLIENT_ID,
+      client_secret: process.env.SLACK_CLIENT_SECRET,
+      code,
+      redirect_uri: slackRedirectUri(req)
+    });
+    const r = await fetch(`${slackApiBase()}/api/oauth.v2.access`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'resposta inesperada do Slack');
+    const phone = pending.phone;
+    const account = accounts[phone];
+    if (!account) return res.redirect('/?slack=error');
+    account.slack = {
+      botToken: data.access_token,
+      teamId: data.team?.id,
+      teamName: data.team?.name,
+      connectedAt: new Date().toISOString(),
+      channels: account.slack?.channels || {}
+    };
+    if (isDbConnected) await AccountModel.updateOne({ phone }, { slack: account.slack }).catch(e => console.error('Erro Mongo (ligar Slack):', e.message));
+    else saveUsers();
+    res.redirect('/?slack=connected');
+  } catch (err) {
+    console.error('Erro ao trocar código do Slack por token:', err.message);
+    res.redirect('/?slack=error');
+  }
+});
+
+// Webhook da Events API — a Slack chama isto sempre que alguém escreve num
+// canal onde o "bot" desta app está presente (ver scope 'channels:history'/
+// 'groups:history' e o passo de "Event Subscriptions" no README). Tem de
+// responder em poucos segundos, senão a Slack considera que falhou e tenta
+// outra vez (daí o dedupe por event_id acima).
+app.post('/api/slack/events', async (req, res) => {
+  if (!verifySlackSignature(req)) return res.status(401).send('assinatura inválida');
+  const body = req.body || {};
+  if (body.type === 'url_verification') return res.json({ challenge: body.challenge });
+  if (body.type !== 'event_callback') return res.status(200).end();
+  res.status(200).end(); // confirma já recebido — o resto processa-se sem bloquear a resposta
+  try {
+    if (isDuplicateSlackEvent(body.event_id)) return;
+    const event = body.event || {};
+    // Só mensagens novas e escritas por uma pessoa a sério: ignora edições/
+    // apagões (subtype) e mensagens vindas de qualquer bot (incluindo as que
+    // este próprio bot acabou de postar — sem isto, cada mensagem da app
+    // ecoava de volta para a própria app, num ciclo sem fim).
+    if (event.type !== 'message' || event.subtype || event.bot_id) return;
+    const target = findSlackBridgeTarget(body.team_id, event.channel);
+    if (!target) return;
+    const account = accounts[target.phone];
+    const senderName = await getSlackUserName(account.slack.botToken, body.team_id, event.user);
+    const message = {
+      id: 'slack_' + String(event.ts).replace('.', '_'),
+      chatId: target.roomId,
+      sender: `${senderName} (Slack)`,
+      senderPhone: null, // mensagem vinda do Slack, não de nenhuma conta desta app
+      text: event.text || '',
+      time: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
+      fromSlack: true
+    };
+    if (!messagesByRoom[target.roomId]) messagesByRoom[target.roomId] = [];
+    messagesByRoom[target.roomId].push(message);
+    if (messagesByRoom[target.roomId].length > MAX_HISTORY_PER_ROOM) {
+      messagesByRoom[target.roomId] = messagesByRoom[target.roomId].slice(-MAX_HISTORY_PER_ROOM);
+    }
+    if (isDbConnected) {
+      await MessageModel.create({ ...message }).catch(e => console.error('Erro Mongo (mensagem vinda do Slack):', e.message));
+    } else {
+      saveMessagesLocal();
+    }
+    io.to(target.roomId).emit('receive_message', message);
+  } catch (err) {
+    console.error('Erro ao processar evento do Slack:', err.message);
   }
 });
 
@@ -6185,6 +6405,10 @@ io.on('connection', (socket) => {
     // Notificação push (mesmo com a app fechada) — conversas 1-para-1 e grupos.
     const senderName = data.sender || 'Alguém';
     const preview = data.encrypted ? 'Enviou uma mensagem' : (data.fileType?.startsWith('image/') ? '📷 Enviou uma foto' : (data.fileType?.startsWith('video/') ? '🎥 Enviou um vídeo' : (data.fileType?.startsWith('audio/') ? '🎤 Enviou um áudio' : (data.fileData ? '📎 Enviou um ficheiro' : (data.text || '').substring(0, 100)))));
+    // Ponte para o Slack (ver secção "SLACK" perto do topo) — só grupos,
+    // nunca conversas 1-para-1 (essas podem ter E2EE). Fire-and-forget, tal
+    // como as notificações push logo abaixo — nunca atrasa a entrega real.
+    if (group && !data.fromSlack) postGroupMessageToSlack(data.chatId, senderName, preview).catch(e => console.error('Erro na ponte para o Slack:', e.message));
     if (!group && data.toPhone) {
       const recipientMuted = (mutedByPhone[data.toPhone] || []).includes(data.chatId);
       const recipientDnd = !!dndActiveByPhone[data.toPhone];
@@ -7730,6 +7954,66 @@ io.on('connection', (socket) => {
       const base = process.env.GOOGLE_OAUTH_TOKEN_BASE || 'https://oauth2.googleapis.com';
       fetch(`${base}/revoke?token=${encodeURIComponent(refreshToken)}`, { method: 'POST' }).catch(() => {});
     }
+  });
+
+  // ==================== SLACK (ligar/desligar canal por grupo) ====================
+  // Ver a secção "SLACK" mais acima (perto do topo do ficheiro) para o OAuth
+  // e o webhook da Events API — aqui é só a parte de escolher/largar qual
+  // canal do Slack fica ligado a qual grupo, e o estado da ligação da conta.
+  socket.on('slack_get_status', () => {
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!account) return;
+    socket.emit('slack_status', { connected: !!account.slack?.botToken, teamName: account.slack?.teamName || null, channels: account.slack?.channels || {} });
+  });
+
+  // Liga (ou troca) o canal do Slack deste grupo para esta pessoa — precisa
+  // de já ter ligado a conta Slack no perfil. O canal tem de ser o ID do
+  // Slack (ex.: "C0123ABC456", visível em "Ver detalhes do canal" no
+  // Slack), não o nome — e o "bot" desta app tem de já ter sido convidado
+  // para esse canal (/invite @NomeDaApp no Slack), senão não recebe nem
+  // consegue postar mensagens lá, mesmo com o token certo.
+  socket.on('slack_link_channel', async (data) => {
+    const roomId = data?.roomId;
+    const channelId = (data?.channelId || '').trim();
+    const group = groups[roomId];
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!group || !account || !isGroupMember(group, myPhone)) return;
+    if (!account.slack?.botToken) {
+      socket.emit('slack_link_updated', { roomId, error: 'Liga primeiro a tua conta Slack no perfil.' });
+      return;
+    }
+    if (!channelId) {
+      socket.emit('slack_link_updated', { roomId, error: 'Escreve o ID do canal do Slack.' });
+      return;
+    }
+    if (!account.slack.channels) account.slack.channels = {};
+    account.slack.channels[roomId] = channelId;
+    if (isDbConnected) await AccountModel.updateOne({ phone: myPhone }, { slack: account.slack }).catch(e => console.error('Erro Mongo (ligar canal Slack):', e.message));
+    else saveUsers();
+    socket.emit('slack_link_updated', { roomId, channelId });
+  });
+
+  socket.on('slack_unlink_channel', async (data) => {
+    const roomId = data?.roomId;
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!account?.slack?.channels?.[roomId]) return;
+    delete account.slack.channels[roomId];
+    if (isDbConnected) await AccountModel.updateOne({ phone: myPhone }, { slack: account.slack }).catch(e => console.error('Erro Mongo (desligar canal Slack):', e.message));
+    else saveUsers();
+    socket.emit('slack_link_updated', { roomId, channelId: null });
+  });
+
+  socket.on('slack_disconnect', async () => {
+    const myPhone = users[socket.id]?.phone;
+    const account = myPhone ? accounts[myPhone] : null;
+    if (!account?.slack) return;
+    account.slack = null;
+    if (isDbConnected) await AccountModel.updateOne({ phone: myPhone }, { slack: null }).catch(e => console.error('Erro Mongo (desligar Slack):', e.message));
+    else saveUsers();
+    socket.emit('slack_disconnected', {});
   });
 
   // ==================== NOTAS COLABORATIVAS ====================

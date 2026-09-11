@@ -2659,6 +2659,7 @@
                     <button class="btn-small" onclick="closeModal('modalChatMore');openCollabNoteModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📝<span style="font-size:11px;">Notas partilhadas</span></button>
                     <button class="btn-small" id="groupStatsBtn" onclick="closeModal('modalChatMore');openGroupStatsModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📊<span style="font-size:11px;">Estatísticas</span></button>
                     <button class="btn-small" id="groupCalendarBtn" onclick="closeModal('modalChatMore');openGroupCalendarModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📆<span style="font-size:11px;">Calendário</span></button>
+                    <button class="btn-small" id="slackLinkBtn" onclick="closeModal('modalChatMore');openSlackLinkModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">💬<span style="font-size:11px;">Slack</span></button>
                     <button class="btn-small" id="audioRoomBtn" onclick="closeModal('modalChatMore');startAudioRoom()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🎙️<span style="font-size:11px;">Sala de áudio</span></button>
                     <button class="btn-small" onclick="closeModal('modalChatMore');openScheduleCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📅<span style="font-size:11px;">Chamada agendada</span></button>
                     <button class="btn-small" id="securityCodeBtn" onclick="closeModal('modalChatMore');openSecurityCodeModal()" style="display:none;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔐<span style="font-size:11px;">Código de segurança</span></button>
@@ -2715,6 +2716,18 @@
                 </div>
             </div>
         </div>
+        <!-- ============ SLACK (ponte de mensagens do grupo) ============ -->
+        <div class="modal-overlay" id="modalSlackLink">
+            <div class="modal">
+                <h3>💬 Slack</h3>
+                <p class="member-count">Liga este grupo a um canal do Slack — mensagens escritas num aparecem no outro, nos dois sentidos.</p>
+                <div id="slackLinkStatusBox" style="background:var(--bg-secondary);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:12px;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalSlackLink')">Fechar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ============ NOTAS COLABORATIVAS ============ -->
         <div class="modal-overlay" id="modalCollabNote">
             <div class="modal" style="max-width:520px;">
@@ -2911,6 +2924,8 @@
                     <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🔗 Integrações externas</div>
                     <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px;">📆 Google Calendar</label>
                     <div id="googleCalendarProfileBox"></div>
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin:14px 0 6px;">💬 Slack</label>
+                    <div id="slackProfileBox"></div>
                 </div>
                 <div style="text-align:left;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
                     <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🔐 Segurança</div>
@@ -4779,7 +4794,7 @@
     }
 
     async function enterApp(user, token) {
-        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled, pixKey: user.pixKey || null, googleCalendarConnected: !!user.googleCalendarConnected, googleCalendarSyncedRooms: user.googleCalendarSyncedRooms || [] };
+        APP.user = { name: user.name, phone: user.phone, username: user.username || null, isAdmin: !!user.isAdmin, avatar: user.name.charAt(0).toUpperCase(), avatarUrl: user.avatarUrl || null, preferredLang: user.preferredLang || (navigator.language || 'pt').split('-')[0], accentColor: user.accentColor || null, chatWallpaper: user.chatWallpaper || null, totalTimeSpentSec: user.totalTimeSpentSec || 0, birthday: user.birthday || null, email: user.email || '', twoFactorEnabled: !!user.twoFactorEnabled, pixKey: user.pixKey || null, googleCalendarConnected: !!user.googleCalendarConnected, googleCalendarSyncedRooms: user.googleCalendarSyncedRooms || [], slackConnected: !!user.slackConnected, slackTeamName: user.slackTeamName || null, slackLinkedRooms: user.slackLinkedRooms || {} };
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
@@ -4798,6 +4813,7 @@
         document.getElementById('adminBtn').style.display = APP.user.isAdmin ? 'flex' : 'none';
         socket.emit('user_login', { name: APP.user.name, phone: APP.user.phone, token: APP.token });
         socket.emit('google_calendar_get_status', {}); // atualiza APP.user.googleCalendarConnected sem depender do localStorage (ex.: acabado de voltar do OAuth)
+        socket.emit('slack_get_status', {}); // idem, para o Slack
         checkDndActive(); // sincroniza logo o estado do "não incomodar" com o servidor
         loadOfflineQueueFromStorage(); // mensagens por enviar de antes de fechar/recarregar a app (ver "Modo offline")
         setOfflineBannerVisible(!socket.connected);
@@ -4944,6 +4960,13 @@
         if (gcalResult) {
             history.replaceState(null, '', location.pathname);
             APP.pendingGoogleCalendarResult = gcalResult;
+        }
+        // Voltou do OAuth do Slack (ver /api/slack/callback em server.js) —
+        // mesmo raciocínio do Google Calendar acima.
+        const slackResult = new URLSearchParams(location.search).get('slack');
+        if (slackResult) {
+            history.replaceState(null, '', location.pathname);
+            APP.pendingSlackResult = slackResult;
         }
         const token = localStorage.getItem('authToken');
         const userRaw = localStorage.getItem('authUser');
@@ -5556,6 +5579,7 @@
         document.getElementById('hideReadReceiptsCheck').checked = !!APP.user.hideReadReceipts;
         loadDndSettingsIntoProfile();
         renderGoogleCalendarProfileSection();
+        renderSlackProfileSection();
         if (window.PublicKeyCredential) { document.getElementById('webauthnSection').style.display = 'block'; loadWebauthnCredentials(); }
         document.getElementById('modalProfile').classList.add('active');
     }
@@ -5637,6 +5661,48 @@
         APP.user.googleCalendarSyncedRooms = [];
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         renderGoogleCalendarProfileSection();
+    });
+
+    // ==================== SLACK (ligação da conta) ====================
+    // Ver server.js ("SLACK") para o OAuth e a ponte de mensagens em si —
+    // aqui só se pede o estado atual e reflete-se no perfil. Ligar/desligar
+    // o CANAL de cada grupo faz-se dentro do próprio grupo (mais abaixo).
+    function connectSlack() {
+        if (!APP.token) return;
+        location.href = '/api/slack/connect?token=' + encodeURIComponent(APP.token);
+    }
+    function disconnectSlack() {
+        if (!confirm('Desligar o Slack? Os grupos que tinham um canal ligado deixam de espelhar mensagens para lá.')) return;
+        socket.emit('slack_disconnect');
+    }
+    function renderSlackProfileSection() {
+        const box = document.getElementById('slackProfileBox');
+        if (!box || !APP.user) return;
+        box.innerHTML = APP.user.slackConnected
+            ? `<p style="color:#8696a0;font-size:11px;margin:0 0 8px;">✅ Ligado ao workspace "${escapeHtml(APP.user.slackTeamName || '')}". Em cada grupo, abre "💬 Slack" para ligar o canal desse grupo.</p><button class="btn-small btn-danger" onclick="disconnectSlack()">Desligar Slack</button>`
+            : `<p style="color:#8696a0;font-size:11px;margin:0 0 8px;">Liga um canal do Slack a um grupo — mensagens aparecem nos dois lados.</p><button class="btn-small btn-accept" onclick="connectSlack()">🔗 Ligar ao Slack</button>`;
+    }
+    socket.on('slack_status', (data) => {
+        if (!APP.user || !data) return;
+        APP.user.slackConnected = !!data.connected;
+        APP.user.slackTeamName = data.teamName || null;
+        APP.user.slackLinkedRooms = data.channels || {};
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderSlackProfileSection();
+        if (APP.pendingSlackResult) {
+            const result = APP.pendingSlackResult;
+            APP.pendingSlackResult = null;
+            if (result === 'connected') alert('✅ Slack ligado! Agora podes ligar um canal em cada grupo, dentro do menu "⋯ Mais desta conversa" → "💬 Slack".');
+            else alert('⚠️ Não foi possível ligar o Slack. Tenta novamente.');
+        }
+    });
+    socket.on('slack_disconnected', () => {
+        if (!APP.user) return;
+        APP.user.slackConnected = false;
+        APP.user.slackTeamName = null;
+        APP.user.slackLinkedRooms = {};
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderSlackProfileSection();
     });
 
     // ==================== OS MEUS DADOS (exportar / apagar conta) ====================
@@ -9579,6 +9645,7 @@
         document.getElementById('vrRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('groupStatsBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('groupCalendarBtn').style.display = isGroup ? 'flex' : 'none';
+        document.getElementById('slackLinkBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('audioRoomBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('pollBtn').style.display = isGroup ? 'flex' : 'none';
         document.getElementById('rsvpBtn').style.display = isGroup ? 'flex' : 'none';
@@ -12921,6 +12988,51 @@
         localStorage.setItem('authUser', JSON.stringify(APP.user));
         renderGroupCalendarGoogleSyncBox();
         socket.emit('group_event_get', { roomId: APP.currentChatId }); // eventos existentes podem ter ganho um novo link ao Google (sincronização inicial)
+    });
+
+    // ==================== SLACK (ligar o canal deste grupo) ====================
+    function openSlackLinkModal() {
+        if (!APP.currentChatId) return;
+        renderSlackLinkStatusBox();
+        document.getElementById('modalSlackLink').classList.add('active');
+    }
+    function renderSlackLinkStatusBox() {
+        const box = document.getElementById('slackLinkStatusBox');
+        if (!box || !APP.currentChatId) return;
+        if (!APP.user.slackConnected) {
+            box.innerHTML = `<span style="color:var(--text-secondary);">💬 Liga o Slack no teu perfil para poderes ligar um canal a este grupo.</span>`;
+            return;
+        }
+        const linkedChannelId = (APP.user.slackLinkedRooms || {})[APP.currentChatId];
+        if (linkedChannelId) {
+            box.innerHTML = `<p style="margin:0 0 8px;">✅ Ligado ao canal <code>${escapeHtml(linkedChannelId)}</code> do workspace "${escapeHtml(APP.user.slackTeamName || '')}".</p>
+                <button class="btn-small btn-danger" onclick="unlinkSlackChannel()">Desligar canal</button>`;
+        } else {
+            box.innerHTML = `<label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">ID do canal do Slack</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="slackChannelIdInput" placeholder="ex.: C0123ABC456" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--bg-tertiary);background:var(--bg-primary);color:var(--text-primary);">
+                    <button class="btn-small btn-accept" onclick="submitSlackLinkChannel()">Ligar</button>
+                </div>
+                <p style="color:#8696a0;font-size:11px;margin-top:6px;">Encontras o ID em "Ver detalhes do canal" no Slack. O bot da app tem de já ter sido convidado para lá (<code>/invite</code> no canal).</p>`;
+        }
+    }
+    function submitSlackLinkChannel() {
+        const channelId = document.getElementById('slackChannelIdInput').value.trim();
+        if (!channelId) return alert('Escreve o ID do canal do Slack.');
+        socket.emit('slack_link_channel', { roomId: APP.currentChatId, channelId });
+    }
+    function unlinkSlackChannel() {
+        if (!confirm('Desligar este canal do Slack deste grupo?')) return;
+        socket.emit('slack_unlink_channel', { roomId: APP.currentChatId });
+    }
+    socket.on('slack_link_updated', (data) => {
+        if (!data || data.roomId !== APP.currentChatId) return;
+        if (data.error) { alert('⚠️ ' + data.error); renderSlackLinkStatusBox(); return; }
+        const rooms = { ...(APP.user.slackLinkedRooms || {}) };
+        if (data.channelId) rooms[data.roomId] = data.channelId; else delete rooms[data.roomId];
+        APP.user.slackLinkedRooms = rooms;
+        localStorage.setItem('authUser', JSON.stringify(APP.user));
+        renderSlackLinkStatusBox();
     });
     function renderGroupCalendarList() {
         const box = document.getElementById('groupCalendarList');

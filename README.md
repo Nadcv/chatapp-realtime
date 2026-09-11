@@ -1392,3 +1392,23 @@ Primeira de duas integrações externas pedidas (Google Calendar e Slack, uma de
 
 **Nota técnica**: o `redirect_uri` enviado à Google é montado a partir do próprio pedido (`req.protocol`/`req.get('host')`), por isso funciona automaticamente em qualquer domínio — não precisa de mais nenhuma variável de ambiente para isso. Foi preciso ligar `app.set('trust proxy', 1)` no Express para isto sair como `https://` em produção (o Railway, como a maioria dos PaaS, termina o TLS num proxy à frente da app).
 
+## 💬 Integração com o Slack (ponte de mensagens bidirecional por grupo)
+
+Segunda das duas integrações externas pedidas (depois do Google Calendar). Tal como o Calendar, liga-se **uma vez por conta** (perfil → "🔗 Integrações externas" → Slack) e depois **cada pessoa escolhe, grupo a grupo**, se quer ligar um canal do Slack a esse grupo (menu "⋯ Mais desta conversa" → "💬 Slack").
+
+- **Só grupos, nunca conversas 1-para-1** — essas podem ter encriptação ponta-a-ponta (E2EE), e o servidor nunca vê o texto em claro para o poder mandar para o Slack.
+- **Nos dois sentidos**: uma mensagem escrita no grupo é espelhada no canal do Slack ligado (`chat.postMessage`); uma mensagem escrita nesse canal do Slack volta para a conversa do grupo, com o nome de quem escreveu e a etiqueta "(Slack)" — via **Events API** (a Slack chama `/api/slack/events` sempre que alguém escreve num canal onde o "bot" está).
+- **O bot tem de ser convidado para o canal** (`/invite @NomeDaApp` no Slack) — sem isso não recebe nem consegue postar mensagens lá, mesmo com as permissões certas.
+- Sem SDK (`@slack/bolt`/`@slack/web-api`) — chamadas HTTPS diretas com `fetch()`, o mesmo padrão do Google Calendar/Resend/etc.
+
+**Configuração** (grátis, precisa de uma app Slack em https://api.slack.com/apps):
+1. **"Create New App"** → **"From scratch"** → dá um nome e escolhe o teu workspace de teste
+2. **"OAuth & Permissions"** (menu lateral) → em **"Scopes" → "Bot Token Scopes"**, adiciona: `chat:write`, `chat:write.public`, `channels:history`, `groups:history`, `users:read`
+3. Ainda em "OAuth & Permissions", em **"Redirect URLs"**, adiciona `https://<o-teu-domínio-do-Railway>/api/slack/callback` e clica em **"Save URLs"**
+4. **"Event Subscriptions"** (menu lateral) → ativa (toggle) → em **"Request URL"**, escreve `https://<o-teu-domínio-do-Railway>/api/slack/events` (a Slack testa logo — o servidor responde automaticamente ao desafio de verificação) → em **"Subscribe to bot events"**, adiciona `message.channels` e `message.groups` → **"Save Changes"**
+5. **"Basic Information"** (menu lateral) → em "App Credentials", copia o **Client ID**, o **Client Secret** e o **Signing Secret**
+6. No Railway/Render, define `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` e `SLACK_SIGNING_SECRET` com esses valores
+7. Sem estas três variáveis, o botão "Ligar ao Slack" no perfil mostra um aviso claro em vez de rebentar
+
+**Nota de segurança**: cada pedido recebido em `/api/slack/events` é validado com a assinatura HMAC-SHA256 que a própria Slack envia (usando o `SLACK_SIGNING_SECRET`) — um pedido forjado ou com mais de 5 minutos é recusado com 401, nunca chega a entrar na conversa.
+

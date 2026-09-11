@@ -86,7 +86,8 @@ const MOCK_SERVERS = [
   'mock_gutendex_server.js',        // 3024 - Biblioteca (Project Gutenberg)
   'mock_archive_server.js',         // 3025 - Biblioteca (Internet Archive, 2ª fonte)
   'mock_resend_server.js',          // 3026 - envio de email via API HTTPS (Resend), via principal sobre o SMTP direto
-  'mock_google_calendar_server.js'  // 3027 - Google Calendar (OAuth2 + Calendar API, accounts/token/calendar simulados no mesmo mock)
+  'mock_google_calendar_server.js', // 3027 - Google Calendar (OAuth2 + Calendar API, accounts/token/calendar simulados no mesmo mock)
+  'mock_slack_server.js'            // 3028 - Slack (OAuth2 + chat.postMessage/users.info; o webhook Slack->app é chamado a sério no próprio servidor, ver test_slack.js)
 ];
 
 // SMTP falso (sem AUTH/TLS) para os testes de 2FA/redefinição de senha por
@@ -154,7 +155,11 @@ const BASE_ENV = {
   GOOGLE_CLIENT_SECRET: 'mock-google-client-secret',
   GOOGLE_ACCOUNTS_BASE: 'http://localhost:3027',
   GOOGLE_OAUTH_TOKEN_BASE: 'http://localhost:3027',
-  GOOGLE_CALENDAR_API_BASE: 'http://localhost:3027'
+  GOOGLE_CALENDAR_API_BASE: 'http://localhost:3027',
+  SLACK_CLIENT_ID: 'mock-slack-client-id',
+  SLACK_CLIENT_SECRET: 'mock-slack-client-secret',
+  SLACK_SIGNING_SECRET: 'mock-slack-signing-secret',
+  SLACK_BASE: 'http://localhost:3028'
 };
 
 // Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por
