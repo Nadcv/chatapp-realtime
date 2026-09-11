@@ -3180,11 +3180,6 @@ app.get('/api/google-calendar/connect', (req, res) => {
   pendingGoogleAuth[state] = { phone, expiresAt: Date.now() + GOOGLE_AUTH_STATE_TTL_MS };
   const accountsBase = process.env.GOOGLE_ACCOUNTS_BASE || 'https://accounts.google.com';
   const redirectUri = googleRedirectUri(req);
-  // Diagnóstico temporário — para confirmar em produção (via painel de
-  // admin "Logs de erro") o valor exato do redirect_uri enviado, quando a
-  // Google recusa com "redirect_uri_mismatch" e não é óbvio de que lado
-  // está a diferença. Remover depois de confirmado.
-  console.error('[diagnóstico google-calendar] redirect_uri enviado à Google:', redirectUri, '| host recebido:', req.get('host'), '| protocolo detetado:', req.protocol);
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
