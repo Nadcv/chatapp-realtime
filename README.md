@@ -85,9 +85,10 @@ para correr (sem testes nem histórico) e o Space constrói a imagem com o
 moldura onde a câmara e o microfone podem ser bloqueados).
 
 ### Limitações
-- Dados secundários que a app guarda só em ficheiro (mensagens fixadas,
-  estados, histórico de chamadas, lembretes, alertas de preço...) perdem-se
-  quando o Space reinicia — o mesmo que no Render.
+- Com o `MONGO_URI` definido, **nenhum dado se perde** quando o Space
+  reinicia (ver "Dados guardados só em ficheiro também vão para o MongoDB"
+  abaixo). As sessões de login ficam só em memória: depois de um reinício,
+  cada pessoa volta a entrar com a sua senha.
 - O Hugging Face é pensado sobretudo para demonstrações de IA; os termos
   permitem Spaces com Docker, mas se a app crescer muito (muitos utilizadores
   ou tráfego constante) convém passar para um servidor próprio, como a Oracle
@@ -204,11 +205,10 @@ acrescentar `MONGO_URI` em "Environment".
 - **512 MB de memória.** A app usa cerca de 165 MB parada; abrir muitos
   horários de transportes (feeds GTFS grandes) ao mesmo tempo pode chegar perto
   do limite e o Render reinicia o servidor.
-- **O disco apaga-se a cada reinício/deploy.** Contas, mensagens, grupos,
-  comunidades, notas e tarefas ficam no MongoDB e não se perdem. Ficam só em
-  ficheiro local (e perdem-se) os dados secundários: mensagens fixadas, estados,
-  histórico de chamadas, mensagens agendadas, silenciados, arquivados,
-  bloqueados, lembretes, alertas de preço e semelhantes.
+- **O disco apaga-se a cada reinício/deploy**, mas com o `MONGO_URI` definido
+  todos os dados ficam no MongoDB e não se perdem (ver "Dados guardados só em
+  ficheiro também vão para o MongoDB" abaixo). As sessões de login ficam só em
+  memória: depois de um reinício, cada pessoa volta a entrar com a sua senha.
 - **Integrações com OAuth** (Google Calendar, Slack): o servidor deteta o URL
   do Render sozinho, mas é preciso registar esse URL de retorno nas consolas do
   Google e do Slack.
@@ -228,6 +228,31 @@ disco é **recriado do zero a cada novo deploy** — ou seja, sobrevive a reiní
 normais do servidor, mas um novo `git push` apaga o histórico. Para persistência
 garantida entre deploys, o próximo passo é usar um banco de dados de verdade
 (ex: Postgres, que o Railway oferece como plugin) em vez do arquivo local.
+
+### Dados guardados só em ficheiro também vão para o MongoDB
+
+Várias funcionalidades guardam os dados só num ficheiro `.json` local, mesmo
+com o MongoDB ligado: mensagens fixadas, mensagens temporárias, estados,
+histórico de chamadas, mensagens e chamadas agendadas, conversas silenciadas,
+arquivadas e fixadas no topo, bloqueados, listas de transmissão, pastas,
+favoritos de turismo, lista de compras, lembretes, despesas fixas, alertas de
+estrada, alertas de preço e histórico de pesquisas de voos.
+
+Com o `MONGO_URI` definido, cada um destes ficheiros é também guardado inteiro
+no MongoDB (coleção `localstores`, um documento por ficheiro) e reposto no
+disco no arranque, antes de ser lido. Por isso sobrevivem a reinícios e deploys
+em serviços com disco temporário (Hugging Face Spaces, Render). Pormenores:
+- O gancho está todo em `writeJsonFileSafe()` e `connectDatabase()`; o código
+  de cada funcionalidade não mudou.
+- Gravações seguidas do mesmo ficheiro juntam-se numa só ida ao MongoDB, no
+  máximo uma a cada 2 segundos. Ao desligar (SIGTERM/SIGINT, que é o que os
+  serviços enviam num reinício ou deploy), o que estava à espera é gravado antes
+  de o processo sair.
+- Ao ligar o MongoDB pela primeira vez num servidor que já tinha estes
+  ficheiros, eles são enviados para lá automaticamente.
+- Um documento do MongoDB não pode passar de 16 MB. Se um ficheiro passar de
+  15 MB (por exemplo, muitos estados com fotos em base64), fica só no disco e
+  aparece um aviso nos logs.
 
 ### Escrita segura destes ficheiros locais (sem corromper/perder dados)
 
