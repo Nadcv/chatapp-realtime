@@ -46,13 +46,56 @@ O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não
 5. Pegue a URL pública gerada (ex: `https://seu-app.up.railway.app`) e é isso —
    qualquer pessoa acessa dali, de qualquer rede
 
-## Deploy no Render (alternativa, tem camada gratuita)
+## Publicar grátis (Render + MongoDB Atlas)
 
-1. Crie uma conta em https://render.com
-2. "New" → "Web Service" → conecte o repositório do GitHub
-3. Build Command: `npm install`
-4. Start Command: `npm start`
-5. Render também fornece HTTPS automático
+O Railway deixou de ter plano gratuito permanente. A forma de pôr a app no ar
+**sem pagar nada e sem cartão** é o **Render** (servidor, com HTTPS e WebSockets)
+mais o **MongoDB Atlas M0** (base de dados, para os dados não se perderem).
+
+### 1. Base de dados grátis (MongoDB Atlas)
+1. Cria conta em https://www.mongodb.com/cloud/atlas/register
+2. "Create" → escolhe o plano **M0 (Free)**, região na Europa (ex.: Frankfurt)
+3. Em **Database Access**, cria um utilizador e uma senha (evita `@`, `:` e `/` na senha)
+4. Em **Network Access** → "Add IP Address" → **Allow access from anywhere** (`0.0.0.0/0`)
+   — o Render não tem IP fixo no plano grátis
+5. "Connect" → "Drivers" → copia o endereço, algo como
+   `mongodb+srv://UTILIZADOR:SENHA@cluster0.xxxxx.mongodb.net/chatapp?retryWrites=true&w=majority`
+   (substitui `UTILIZADOR`/`SENHA` e acrescenta `chatapp` antes do `?`)
+
+### 2. Servidor grátis (Render)
+1. Cria conta em https://render.com (podes entrar com o GitHub)
+2. "New" → **"Blueprint"** → escolhe este repositório. O ficheiro `render.yaml`
+   já configura tudo (plano grátis, `npm install`, `npm start`, Node 20)
+3. Quando pedir as variáveis, cola o endereço do passo anterior em `MONGO_URI`
+   (e, se quiseres, o teu telemóvel em `ADMIN_PHONE`)
+4. "Apply". Ao fim de alguns minutos tens a app em
+   `https://chatapp-realtime.onrender.com` (ou parecido), já com HTTPS,
+   por isso câmara e microfone funcionam
+5. Cada `git push` para `main` publica uma versão nova automaticamente
+
+Alternativa sem Blueprint: "New" → "Web Service" → repositório → Build Command
+`npm install --omit=dev`, Start Command `npm start`, Instance Type **Free**, e
+acrescentar `MONGO_URI` em "Environment".
+
+### Limitações do plano grátis (importante)
+- **Adormece após 15 minutos sem visitas.** A primeira visita a seguir demora
+  cerca de 1 minuto a acordar; depois fica rápida. Se quiseres que fique sempre
+  acordada, um monitor grátis como o https://uptimerobot.com a abrir o URL a cada
+  10 minutos resolve (um serviço ligado 24h cabe nas 750 horas grátis por mês).
+- **512 MB de memória.** A app usa cerca de 165 MB parada; abrir muitos
+  horários de transportes (feeds GTFS grandes) ao mesmo tempo pode chegar perto
+  do limite e o Render reinicia o servidor.
+- **O disco apaga-se a cada reinício/deploy.** Contas, mensagens, grupos,
+  comunidades, notas e tarefas ficam no MongoDB e não se perdem. Ficam só em
+  ficheiro local (e perdem-se) os dados secundários: mensagens fixadas, estados,
+  histórico de chamadas, mensagens agendadas, silenciados, arquivados,
+  bloqueados, lembretes, alertas de preço e semelhantes.
+- **Integrações com OAuth** (Google Calendar, Slack): o servidor deteta o URL
+  do Render sozinho, mas é preciso registar esse URL de retorno nas consolas do
+  Google e do Slack.
+- As restantes chaves opcionais (GitHub Models, TURN, Resend, etc.)
+  acrescentam-se em "Environment" no painel do Render, como descrito nas
+  secções abaixo.
 
 ## Persistência de mensagens
 
