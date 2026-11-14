@@ -46,6 +46,78 @@ O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não
 5. Pegue a URL pública gerada (ex: `https://seu-app.up.railway.app`) e é isso —
    qualquer pessoa acessa dali, de qualquer rede
 
+## Publicar grátis com mais capacidade (Oracle Cloud Always Free) — recomendado
+
+O plano **Always Free** da Oracle dá um servidor próprio com até **4 núcleos ARM
+e 24 GB de RAM**, sempre ligado (não adormece) e com **disco que não se apaga**
+— os ficheiros locais da app (`users.json`, `messages.json`, etc.) sobrevivem a
+reinícios e atualizações, por isso o MongoDB passa a ser opcional.
+
+Pede um cartão no registo **só para verificar a identidade** (não cobra nada
+enquanto só usares recursos marcados "Always Free-eligible").
+
+### 1. Criar a conta e o servidor
+1. Regista-te em https://signup.cloud.oracle.com. Escolhe uma **Home Region**
+   perto de ti (ex.: Madrid, Frankfurt ou Amesterdão) — não dá para mudar depois
+2. Menu → **Compute → Instances → Create instance**
+   - **Image**: Canonical **Ubuntu 24.04** (ou 22.04)
+   - **Shape**: "Change shape" → **Ampere** → `VM.Standard.A1.Flex`, com
+     **4 OCPU e 24 GB** (aparece "Always Free-eligible")
+   - **Networking**: deixa criar a rede nova, com "Assign a public IPv4 address"
+   - **SSH keys**: "Generate a key pair" e **descarrega a chave privada**
+3. "Create". Se aparecer *"Out of capacity"*, tenta outro "Availability
+   domain", ou menos recursos (ex.: 2 OCPU / 12 GB), ou volta a tentar mais tarde
+   — é comum nas regiões mais procuradas
+4. Anota o **Public IP address** da instância
+
+### 2. Abrir as portas 80 e 443 na Oracle
+Na página da instância → clica na **Subnet** → **Security Lists** → a lista
+"Default" → **Add Ingress Rules**, duas vezes:
+- Source CIDR `0.0.0.0/0`, IP Protocol TCP, Destination Port `80`
+- Source CIDR `0.0.0.0/0`, IP Protocol TCP, Destination Port `443`
+
+(O firewall interno do Ubuntu também bloqueia estas portas — esse o script
+abaixo já trata.)
+
+### 3. Instalar a app (um comando)
+Liga-te ao servidor (no Windows funciona no PowerShell):
+```bash
+ssh -i caminho/para/a-chave.key ubuntu@IP_PUBLICO
+```
+E corre:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Nadcv/chatapp-realtime/main/deploy/oracle/setup.sh | sudo bash
+```
+O script (`deploy/oracle/setup.sh`) instala Node 20, descarrega a app, cria um
+serviço que arranca sozinho e reinicia se falhar, e põe o **Caddy** à frente com
+**HTTPS automático**. No fim mostra o endereço, do tipo
+`https://129-151-1-2.sslip.io` (o [sslip.io](https://sslip.io) transforma o IP
+num nome de domínio grátis, preciso para o HTTPS — e o HTTPS é preciso para a
+câmara e o microfone).
+
+Para um nome mais bonito, cria um subdomínio grátis em https://www.duckdns.org
+apontado ao IP do servidor e corre:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Nadcv/chatapp-realtime/main/deploy/oracle/setup.sh | sudo DOMAIN=o-meu-chat.duckdns.org bash
+```
+
+### Dia a dia
+- **Atualizar para a versão mais recente do `main`**: correr o mesmo comando
+  outra vez (os dados e as variáveis mantêm-se)
+- **Variáveis de ambiente** (chaves de API, `ADMIN_PHONE`, `MONGO_URI`...):
+  `sudo nano /etc/chatapp.env` e depois `sudo systemctl restart chatapp`
+- **Ver os logs**: `sudo journalctl -u chatapp -f`
+- **Cópia de segurança** dos dados locais:
+  `sudo tar czf ~/backup-chatapp.tgz -C /opt/chatapp $(cd /opt/chatapp && ls *.json | grep -v package)`
+- **Atenção — instâncias "paradas":** numa conta só gratuita, a Oracle pode
+  recuperar (desligar) uma instância Always Free que passe 7 dias com uso baixo
+  de CPU, rede e memória (abaixo de ~20%). Uma app de chat com pouco tráfego
+  pode cair nesse critério. A forma oficial de evitar isto é passar a conta para
+  **Pay As You Go** (Billing → Upgrade): os recursos Always Free continuam
+  grátis, mas a partir daí qualquer recurso extra que crie é cobrado — por isso
+  usa só o que tiver "Always Free-eligible" e cria um alerta de orçamento de 1 €
+  em Billing → Budgets
+
 ## Publicar grátis (Render + MongoDB Atlas)
 
 O Railway deixou de ter plano gratuito permanente. A forma de pôr a app no ar
