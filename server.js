@@ -268,17 +268,115 @@ async function loadDataFromMongo() {
   console.log(`🔄 Base de dados carregada: ${dbAccounts.length} conta(s), ${dbGroups.length} grupo(s), ${dbCommunities.length} comunidade(s), ${dbMsgs.length} mensagem(ns), ${dbActivities.length} atividade(s), ${dbTodos.length} lista(s) de tarefas, ${dbNotes.length} nota(s).`);
 }
 
+// ==================== ESPELHO NO MONGODB DOS DADOS "SÓ EM FICHEIRO" ====================
+// Várias funcionalidades (mensagens fixadas, estados, histórico de chamadas,
+// lembretes, alertas de preço, etc.) guardam os dados só num ficheiro .json
+// local. Em serviços cujo disco se apaga a cada reinício/deploy (Hugging Face
+// Spaces, Render), isso perdia-os. Com o MongoDB ligado, cada um destes
+// ficheiros passa também a ser guardado inteiro numa coleção "localstores"
+// (um documento por ficheiro) e é reposto no disco no arranque, ANTES de ser
+// lido — por isso nenhum código destas funcionalidades precisou de mudar: o
+// gancho está todo em writeJsonFileSafe() e connectDatabase().
+const localStoreSchema = new mongoose.Schema({ key: { type: String, unique: true }, data: String, updatedAt: Date });
+const LocalStoreModel = mongoose.model('LocalStore', localStoreSchema);
+const MIRRORED_FILES = new Set([
+  'pins.json', 'disappearing.json', 'statuses.json', 'calllog.json', 'scheduled.json',
+  'muted.json', 'archived.json', 'pinned-chats.json', 'blocked.json', 'broadcasts.json',
+  'folders.json', 'tourism-favorites.json', 'shopping-list.json', 'reminders.json',
+  'recurring-expenses.json', 'scheduled-calls.json', 'roadalerts.json',
+  'price-alerts.json', 'travel-history.json'
+]);
+// Gravações seguidas do mesmo ficheiro (ex.: várias chamadas a terminar) são
+// juntadas numa só ida ao MongoDB, no máximo uma a cada MIRROR_DEBOUNCE_MS.
+const MIRROR_DEBOUNCE_MS = 2000;
+// Um documento do MongoDB não pode passar de 16 MB.
+const MIRROR_MAX_BYTES = 15 * 1024 * 1024;
+const pendingMirrors = new Map(); // nome do ficheiro -> { data, timer }
+const mirrorWriteChain = new Map(); // nome do ficheiro -> promessa da última gravação no Mongo (mantém a ordem)
+function mirrorKeyFor(filePath) {
+  const key = path.basename(filePath);
+  return MIRRORED_FILES.has(key) && path.dirname(filePath) === __dirname ? key : null;
+}
+function scheduleMirror(filePath, data) {
+  if (!isDbConnected) return;
+  const key = mirrorKeyFor(filePath);
+  if (!key) return;
+  const prev = pendingMirrors.get(key);
+  if (prev && prev.timer) clearTimeout(prev.timer);
+  const timer = setTimeout(() => { flushMirror(key); }, MIRROR_DEBOUNCE_MS);
+  if (timer.unref) timer.unref();
+  pendingMirrors.set(key, { data, timer });
+}
+function flushMirror(key) {
+  const entry = pendingMirrors.get(key);
+  if (!entry) return mirrorWriteChain.get(key) || Promise.resolve();
+  pendingMirrors.delete(key);
+  if (entry.timer) clearTimeout(entry.timer);
+  const previous = mirrorWriteChain.get(key) || Promise.resolve();
+  const next = previous.then(async () => {
+    if (Buffer.byteLength(entry.data) > MIRROR_MAX_BYTES) {
+      console.error(`⚠️ ${key} passou de 15 MB — não cabe num documento do MongoDB, fica só no ficheiro local.`);
+      return;
+    }
+    try {
+      await LocalStoreModel.updateOne({ key }, { $set: { data: entry.data, updatedAt: new Date() } }, { upsert: true });
+    } catch (err) { console.error(`Erro ao guardar ${key} no MongoDB:`, err.message); }
+  });
+  mirrorWriteChain.set(key, next);
+  return next;
+}
+function flushAllMirrors() {
+  const keys = new Set([...pendingMirrors.keys(), ...mirrorWriteChain.keys()]);
+  return Promise.all([...keys].map(flushMirror));
+}
+// Repõe no disco a última cópia guardada no MongoDB de cada ficheiro. Um
+// ficheiro que exista no disco mas ainda não no MongoDB (ex.: primeira vez
+// que se liga o MongoDB num servidor que já tinha dados) é enviado para lá.
+async function restoreMirroredFilesFromMongo() {
+  const docs = await LocalStoreModel.find({}).lean();
+  const restored = new Set();
+  docs.forEach((doc) => {
+    if (!MIRRORED_FILES.has(doc.key) || typeof doc.data !== 'string') return;
+    try {
+      fs.writeFileSync(path.join(__dirname, doc.key), doc.data);
+      restored.add(doc.key);
+    } catch (err) { console.error(`Erro ao repor ${doc.key} a partir do MongoDB:`, err.message); }
+  });
+  for (const key of MIRRORED_FILES) {
+    if (restored.has(key)) continue;
+    const filePath = path.join(__dirname, key);
+    if (!fs.existsSync(filePath)) continue;
+    pendingMirrors.set(key, { data: fs.readFileSync(filePath, 'utf-8'), timer: null });
+    await flushMirror(key);
+  }
+  if (restored.size) console.log(`📦 ${restored.size} conjunto(s) de dados repostos a partir do MongoDB.`);
+}
+// Ao desligar (reinício, novo deploy), grava no MongoDB o que ainda estava à
+// espera do intervalo de MIRROR_DEBOUNCE_MS, para não perder os últimos segundos.
+let shuttingDown = false;
+['SIGTERM', 'SIGINT'].forEach((signal) => {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const done = () => process.exit(0);
+    setTimeout(done, 5000).unref();
+    flushAllMirrors().then(done, done);
+  });
+});
+
 // Liga à base de dados ANTES do servidor começar a aceitar pedidos — sem isto,
 // os primeiros registos/mensagens logo a seguir a um reinício podiam ir parar
 // aos ficheiros locais em vez de à base de dados (e depois pareciam ter
 // desaparecido), por causa do tempo que a ligação ao Mongo demora a estabelecer.
 async function connectDatabase() {
   // Estas funcionalidades (fixar mensagem, mensagens temporárias, estados,
-  // histórico de chamadas, agendamento, silenciar) usam sempre ficheiro local,
-  // independentemente do Mongo estar ligado — mantém a implementação simples.
-  loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal();
+  // histórico de chamadas, agendamento, silenciar...) usam sempre ficheiro
+  // local; com o MongoDB ligado, esse ficheiro é antes reposto a partir da
+  // cópia guardada lá (ver "ESPELHO NO MONGODB" acima).
+  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); };
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
+    loadFileOnlyStores();
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadCollabNotesLocal(); loadNotesLocal();
     return;
   }
@@ -287,9 +385,13 @@ async function connectDatabase() {
     isDbConnected = true;
     console.log('📦 Base de dados MongoDB Atlas ligada com sucesso! Persistência total ativa.');
     await loadDataFromMongo();
+    try { await restoreMirroredFilesFromMongo(); }
+    catch (err) { console.error('⚠️ Não foi possível repor os dados guardados no MongoDB (a usar os ficheiros locais):', err.message); }
+    loadFileOnlyStores();
   } catch (err) {
     console.error('⚠️ Não foi possível ligar ao MongoDB (a usar ficheiros locais):', err.message);
     isDbConnected = false;
+    loadFileOnlyStores();
     loadUsersLocal(); loadMessagesLocal(); loadGroupsLocal(); loadCommunitiesLocal(); loadActivitiesLocal(); loadTodosLocal(); loadGroupEventsLocal(); loadCollabNotesLocal(); loadNotesLocal();
   }
 }
@@ -318,6 +420,7 @@ let firstRegisteredPhone = null;
 // de mudar mais nada nos "save*Local()" existentes.
 const pendingJsonWrites = new Map(); // caminho do ficheiro -> promessa da última escrita já agendada
 function writeJsonFileSafe(filePath, data, callback) {
+  scheduleMirror(filePath, data);
   const previous = pendingJsonWrites.get(filePath) || Promise.resolve();
   const next = previous.then(() => new Promise((resolve) => {
     const tmpPath = `${filePath}.tmp${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;

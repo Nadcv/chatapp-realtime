@@ -46,13 +46,175 @@ O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não
 5. Pegue a URL pública gerada (ex: `https://seu-app.up.railway.app`) e é isso —
    qualquer pessoa acessa dali, de qualquer rede
 
-## Deploy no Render (alternativa, tem camada gratuita)
+## Publicar grátis, sem cartão (Hugging Face Spaces + MongoDB Atlas) — recomendado
 
-1. Crie uma conta em https://render.com
-2. "New" → "Web Service" → conecte o repositório do GitHub
-3. Build Command: `npm install`
-4. Start Command: `npm start`
-5. Render também fornece HTTPS automático
+O **Hugging Face Spaces** corre a app num contentor Docker com **2 núcleos e
+16 GB de RAM**, HTTPS automático e WebSockets, **sem pedir cartão nem cobrar
+nada**. A app só adormece ao fim de **48 horas sem visitas** (acorda sozinha na
+visita seguinte, em cerca de 1 minuto).
+
+O disco do Space apaga-se quando reinicia ou é atualizado, por isso usa o
+**MongoDB Atlas M0** (também grátis e sem cartão) para guardar contas,
+mensagens e grupos — ver o passo 1 da secção do Render abaixo para criar a base
+de dados e obter o `MONGO_URI`.
+
+### 1. Criar o Space
+1. Cria conta em https://huggingface.co/join
+2. https://huggingface.co/new-space → nome (ex.: `chatapp`), **SDK: Docker**
+   ("Blank"), hardware **CPU basic · Free**, visibilidade **Public** (num Space
+   privado só entra quem tiver sessão no Hugging Face)
+3. No Space → **Settings → Variables and secrets** → "New secret":
+   `MONGO_URI` com o endereço do MongoDB Atlas (e, se quiseres, `ADMIN_PHONE`
+   e as outras chaves opcionais descritas neste README)
+
+### 2. Ligar o GitHub ao Space (publicação automática)
+1. Hugging Face → **Settings → Access Tokens** → "Create new token", tipo
+   **Write** → copia o token
+2. GitHub → este repositório → **Settings → Secrets and variables → Actions**:
+   - separador **Secrets** → "New repository secret": `HF_TOKEN` = o token
+   - separador **Variables** → "New repository variable": `HF_SPACE` =
+     `o-teu-utilizador/chatapp`
+3. GitHub → **Actions** → "Publicar no Hugging Face" → **Run workflow**
+   (daí em diante corre sozinho a cada push para o `main`)
+
+O workflow (`.github/workflows/deploy-huggingface.yml`) envia só o necessário
+para correr (sem testes nem histórico) e o Space constrói a imagem com o
+`Dockerfile` do repositório. Ao fim de alguns minutos a app fica em
+**`https://o-teu-utilizador-chatapp.hf.space`** — usa este endereço direto
+(e não a página `huggingface.co/spaces/...`, que mostra a app dentro de uma
+moldura onde a câmara e o microfone podem ser bloqueados).
+
+### Limitações
+- Com o `MONGO_URI` definido, **nenhum dado se perde** quando o Space
+  reinicia (ver "Dados guardados só em ficheiro também vão para o MongoDB"
+  abaixo). As sessões de login ficam só em memória: depois de um reinício,
+  cada pessoa volta a entrar com a sua senha.
+- O Hugging Face é pensado sobretudo para demonstrações de IA; os termos
+  permitem Spaces com Docker, mas se a app crescer muito (muitos utilizadores
+  ou tráfego constante) convém passar para um servidor próprio, como a Oracle
+  abaixo.
+
+## Publicar grátis com mais capacidade (Oracle Cloud Always Free)
+
+O plano **Always Free** da Oracle dá um servidor próprio com até **4 núcleos ARM
+e 24 GB de RAM**, sempre ligado (não adormece) e com **disco que não se apaga**
+— os ficheiros locais da app (`users.json`, `messages.json`, etc.) sobrevivem a
+reinícios e atualizações, por isso o MongoDB passa a ser opcional.
+
+Pede um cartão no registo **só para verificar a identidade** (não cobra nada
+enquanto só usares recursos marcados "Always Free-eligible").
+
+### 1. Criar a conta e o servidor
+1. Regista-te em https://signup.cloud.oracle.com. Escolhe uma **Home Region**
+   perto de ti (ex.: Madrid, Frankfurt ou Amesterdão) — não dá para mudar depois
+2. Menu → **Compute → Instances → Create instance**
+   - **Image**: Canonical **Ubuntu 24.04** (ou 22.04)
+   - **Shape**: "Change shape" → **Ampere** → `VM.Standard.A1.Flex`, com
+     **4 OCPU e 24 GB** (aparece "Always Free-eligible")
+   - **Networking**: deixa criar a rede nova, com "Assign a public IPv4 address"
+   - **SSH keys**: "Generate a key pair" e **descarrega a chave privada**
+3. "Create". Se aparecer *"Out of capacity"*, tenta outro "Availability
+   domain", ou menos recursos (ex.: 2 OCPU / 12 GB), ou volta a tentar mais tarde
+   — é comum nas regiões mais procuradas
+4. Anota o **Public IP address** da instância
+
+### 2. Abrir as portas 80 e 443 na Oracle
+Na página da instância → clica na **Subnet** → **Security Lists** → a lista
+"Default" → **Add Ingress Rules**, duas vezes:
+- Source CIDR `0.0.0.0/0`, IP Protocol TCP, Destination Port `80`
+- Source CIDR `0.0.0.0/0`, IP Protocol TCP, Destination Port `443`
+
+(O firewall interno do Ubuntu também bloqueia estas portas — esse o script
+abaixo já trata.)
+
+### 3. Instalar a app (um comando)
+Liga-te ao servidor (no Windows funciona no PowerShell):
+```bash
+ssh -i caminho/para/a-chave.key ubuntu@IP_PUBLICO
+```
+E corre:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Nadcv/chatapp-realtime/main/deploy/oracle/setup.sh | sudo bash
+```
+O script (`deploy/oracle/setup.sh`) instala Node 22, descarrega a app, cria um
+serviço que arranca sozinho e reinicia se falhar, e põe o **Caddy** à frente com
+**HTTPS automático**. No fim mostra o endereço, do tipo
+`https://129-151-1-2.sslip.io` (o [sslip.io](https://sslip.io) transforma o IP
+num nome de domínio grátis, preciso para o HTTPS — e o HTTPS é preciso para a
+câmara e o microfone).
+
+Para um nome mais bonito, cria um subdomínio grátis em https://www.duckdns.org
+apontado ao IP do servidor e corre:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Nadcv/chatapp-realtime/main/deploy/oracle/setup.sh | sudo DOMAIN=o-meu-chat.duckdns.org bash
+```
+
+### Dia a dia
+- **Atualizar para a versão mais recente do `main`**: correr o mesmo comando
+  outra vez (os dados e as variáveis mantêm-se)
+- **Variáveis de ambiente** (chaves de API, `ADMIN_PHONE`, `MONGO_URI`...):
+  `sudo nano /etc/chatapp.env` e depois `sudo systemctl restart chatapp`
+- **Ver os logs**: `sudo journalctl -u chatapp -f`
+- **Cópia de segurança** dos dados locais:
+  `sudo tar czf ~/backup-chatapp.tgz -C /opt/chatapp $(cd /opt/chatapp && ls *.json | grep -v package)`
+- **Atenção — instâncias "paradas":** numa conta só gratuita, a Oracle pode
+  recuperar (desligar) uma instância Always Free que passe 7 dias com uso baixo
+  de CPU, rede e memória (abaixo de ~20%). Uma app de chat com pouco tráfego
+  pode cair nesse critério. A forma oficial de evitar isto é passar a conta para
+  **Pay As You Go** (Billing → Upgrade): os recursos Always Free continuam
+  grátis, mas a partir daí qualquer recurso extra que crie é cobrado — por isso
+  usa só o que tiver "Always Free-eligible" e cria um alerta de orçamento de 1 €
+  em Billing → Budgets
+
+## Publicar grátis (Render + MongoDB Atlas)
+
+O Railway deixou de ter plano gratuito permanente. A forma de pôr a app no ar
+**sem pagar nada e sem cartão** é o **Render** (servidor, com HTTPS e WebSockets)
+mais o **MongoDB Atlas M0** (base de dados, para os dados não se perderem).
+
+### 1. Base de dados grátis (MongoDB Atlas)
+1. Cria conta em https://www.mongodb.com/cloud/atlas/register
+2. "Create" → escolhe o plano **M0 (Free)**, região na Europa (ex.: Frankfurt)
+3. Em **Database Access**, cria um utilizador e uma senha (evita `@`, `:` e `/` na senha)
+4. Em **Network Access** → "Add IP Address" → **Allow access from anywhere** (`0.0.0.0/0`)
+   — o Render não tem IP fixo no plano grátis
+5. "Connect" → "Drivers" → copia o endereço, algo como
+   `mongodb+srv://UTILIZADOR:SENHA@cluster0.xxxxx.mongodb.net/chatapp?retryWrites=true&w=majority`
+   (substitui `UTILIZADOR`/`SENHA` e acrescenta `chatapp` antes do `?`)
+
+### 2. Servidor grátis (Render)
+1. Cria conta em https://render.com (podes entrar com o GitHub)
+2. "New" → **"Blueprint"** → escolhe este repositório. O ficheiro `render.yaml`
+   já configura tudo (plano grátis, `npm install`, `npm start`, Node 22)
+3. Quando pedir as variáveis, cola o endereço do passo anterior em `MONGO_URI`
+   (e, se quiseres, o teu telemóvel em `ADMIN_PHONE`)
+4. "Apply". Ao fim de alguns minutos tens a app em
+   `https://chatapp-realtime.onrender.com` (ou parecido), já com HTTPS,
+   por isso câmara e microfone funcionam
+5. Cada `git push` para `main` publica uma versão nova automaticamente
+
+Alternativa sem Blueprint: "New" → "Web Service" → repositório → Build Command
+`npm install --omit=dev`, Start Command `npm start`, Instance Type **Free**, e
+acrescentar `MONGO_URI` em "Environment".
+
+### Limitações do plano grátis (importante)
+- **Adormece após 15 minutos sem visitas.** A primeira visita a seguir demora
+  cerca de 1 minuto a acordar; depois fica rápida. Se quiseres que fique sempre
+  acordada, um monitor grátis como o https://uptimerobot.com a abrir o URL a cada
+  10 minutos resolve (um serviço ligado 24h cabe nas 750 horas grátis por mês).
+- **512 MB de memória.** A app usa cerca de 165 MB parada; abrir muitos
+  horários de transportes (feeds GTFS grandes) ao mesmo tempo pode chegar perto
+  do limite e o Render reinicia o servidor.
+- **O disco apaga-se a cada reinício/deploy**, mas com o `MONGO_URI` definido
+  todos os dados ficam no MongoDB e não se perdem (ver "Dados guardados só em
+  ficheiro também vão para o MongoDB" abaixo). As sessões de login ficam só em
+  memória: depois de um reinício, cada pessoa volta a entrar com a sua senha.
+- **Integrações com OAuth** (Google Calendar, Slack): o servidor deteta o URL
+  do Render sozinho, mas é preciso registar esse URL de retorno nas consolas do
+  Google e do Slack.
+- As restantes chaves opcionais (GitHub Models, TURN, Resend, etc.)
+  acrescentam-se em "Environment" no painel do Render, como descrito nas
+  secções abaixo.
 
 ## Persistência de mensagens
 
@@ -66,6 +228,31 @@ disco é **recriado do zero a cada novo deploy** — ou seja, sobrevive a reiní
 normais do servidor, mas um novo `git push` apaga o histórico. Para persistência
 garantida entre deploys, o próximo passo é usar um banco de dados de verdade
 (ex: Postgres, que o Railway oferece como plugin) em vez do arquivo local.
+
+### Dados guardados só em ficheiro também vão para o MongoDB
+
+Várias funcionalidades guardam os dados só num ficheiro `.json` local, mesmo
+com o MongoDB ligado: mensagens fixadas, mensagens temporárias, estados,
+histórico de chamadas, mensagens e chamadas agendadas, conversas silenciadas,
+arquivadas e fixadas no topo, bloqueados, listas de transmissão, pastas,
+favoritos de turismo, lista de compras, lembretes, despesas fixas, alertas de
+estrada, alertas de preço e histórico de pesquisas de voos.
+
+Com o `MONGO_URI` definido, cada um destes ficheiros é também guardado inteiro
+no MongoDB (coleção `localstores`, um documento por ficheiro) e reposto no
+disco no arranque, antes de ser lido. Por isso sobrevivem a reinícios e deploys
+em serviços com disco temporário (Hugging Face Spaces, Render). Pormenores:
+- O gancho está todo em `writeJsonFileSafe()` e `connectDatabase()`; o código
+  de cada funcionalidade não mudou.
+- Gravações seguidas do mesmo ficheiro juntam-se numa só ida ao MongoDB, no
+  máximo uma a cada 2 segundos. Ao desligar (SIGTERM/SIGINT, que é o que os
+  serviços enviam num reinício ou deploy), o que estava à espera é gravado antes
+  de o processo sair.
+- Ao ligar o MongoDB pela primeira vez num servidor que já tinha estes
+  ficheiros, eles são enviados para lá automaticamente.
+- Um documento do MongoDB não pode passar de 16 MB. Se um ficheiro passar de
+  15 MB (por exemplo, muitos estados com fotos em base64), fica só no disco e
+  aparece um aviso nos logs.
 
 ### Escrita segura destes ficheiros locais (sem corromper/perder dados)
 

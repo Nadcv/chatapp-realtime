@@ -1,0 +1,24 @@
+# Blueprint do Render: publica a app no plano gratuito com um clique.
+# Render → "New" → "Blueprint" → escolher este repositório.
+# Guia completo: secção "Publicar grátis (Render + MongoDB Atlas)" do README.
+services:
+  - type: web
+    name: chatapp-realtime
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Base de dados (MongoDB Atlas, plano M0 grátis). Sem isto, contas,
+      # mensagens e grupos apagam-se a cada novo deploy ou reinício.
+      - key: MONGO_URI
+        sync: false
+      # Telemóvel exato da conta que deve ser administradora (opcional).
+      - key: ADMIN_PHONE
+        sync: false
