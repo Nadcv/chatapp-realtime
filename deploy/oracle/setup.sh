@@ -21,9 +21,9 @@ echo "==> Pacotes base"
 apt-get update -y
 apt-get install -y curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https iptables-persistent
 
-echo "==> Node.js 20"
-if ! node -v 2>/dev/null | grep -q '^v20\.'; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+echo "==> Node.js 22"
+if ! node -v 2>/dev/null | grep -q '^v22\.'; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
 fi
 

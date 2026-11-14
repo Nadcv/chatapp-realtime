@@ -4,7 +4,7 @@
   "description": "ChatApp em tempo real com Express + Socket.IO (mensagens e sinalização WebRTC)",
   "main": "server.js",
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "scripts": {
     "start": "node server.js",

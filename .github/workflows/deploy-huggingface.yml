@@ -1,0 +1,65 @@
+# Publica a app num Hugging Face Space (Docker) a cada push para o main.
+# Configuração (uma vez), em GitHub → Settings → Secrets and variables → Actions:
+#   - Secret   HF_TOKEN : token do Hugging Face com permissão "Write"
+#   - Variable HF_SPACE : nome do Space, ex.: o-teu-utilizador/chatapp
+# Sem estes dois definidos, o workflow não faz nada.
+name: Publicar no Hugging Face
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-huggingface
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_SPACE: ${{ vars.HF_SPACE }}
+    steps:
+      - name: Verificar configuração
+        id: check
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_SPACE" ]; then
+            echo "HF_TOKEN ou HF_SPACE não definidos — nada a publicar."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip != 'true'
+
+      - name: Preparar e enviar para o Space
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/space"
+          mkdir -p "$OUT"
+          # Só o que a app precisa para correr (sem testes nem histórico git).
+          rsync -a --exclude .git --exclude .github --exclude tests --exclude deploy ./ "$OUT/"
+          # O Space precisa de um README com esta configuração no topo.
+          cat > "$OUT/README.md" <<'MD'
+          ---
+          title: ChatApp
+          emoji: 💬
+          colorFrom: blue
+          colorTo: green
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          ---
+
+          ChatApp em tempo real. Código e documentação: ver o repositório no GitHub.
+          MD
+          sed -i 's/^          //' "$OUT/README.md"
+          cd "$OUT"
+          git init -q -b main
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publicar ${GITHUB_SHA::7}"
+          HF_USER="${HF_SPACE%%/*}"
+          git push --force "https://${HF_USER}:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main

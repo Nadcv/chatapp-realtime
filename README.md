@@ -46,7 +46,54 @@ O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não
 5. Pegue a URL pública gerada (ex: `https://seu-app.up.railway.app`) e é isso —
    qualquer pessoa acessa dali, de qualquer rede
 
-## Publicar grátis com mais capacidade (Oracle Cloud Always Free) — recomendado
+## Publicar grátis, sem cartão (Hugging Face Spaces + MongoDB Atlas) — recomendado
+
+O **Hugging Face Spaces** corre a app num contentor Docker com **2 núcleos e
+16 GB de RAM**, HTTPS automático e WebSockets, **sem pedir cartão nem cobrar
+nada**. A app só adormece ao fim de **48 horas sem visitas** (acorda sozinha na
+visita seguinte, em cerca de 1 minuto).
+
+O disco do Space apaga-se quando reinicia ou é atualizado, por isso usa o
+**MongoDB Atlas M0** (também grátis e sem cartão) para guardar contas,
+mensagens e grupos — ver o passo 1 da secção do Render abaixo para criar a base
+de dados e obter o `MONGO_URI`.
+
+### 1. Criar o Space
+1. Cria conta em https://huggingface.co/join
+2. https://huggingface.co/new-space → nome (ex.: `chatapp`), **SDK: Docker**
+   ("Blank"), hardware **CPU basic · Free**, visibilidade **Public** (num Space
+   privado só entra quem tiver sessão no Hugging Face)
+3. No Space → **Settings → Variables and secrets** → "New secret":
+   `MONGO_URI` com o endereço do MongoDB Atlas (e, se quiseres, `ADMIN_PHONE`
+   e as outras chaves opcionais descritas neste README)
+
+### 2. Ligar o GitHub ao Space (publicação automática)
+1. Hugging Face → **Settings → Access Tokens** → "Create new token", tipo
+   **Write** → copia o token
+2. GitHub → este repositório → **Settings → Secrets and variables → Actions**:
+   - separador **Secrets** → "New repository secret": `HF_TOKEN` = o token
+   - separador **Variables** → "New repository variable": `HF_SPACE` =
+     `o-teu-utilizador/chatapp`
+3. GitHub → **Actions** → "Publicar no Hugging Face" → **Run workflow**
+   (daí em diante corre sozinho a cada push para o `main`)
+
+O workflow (`.github/workflows/deploy-huggingface.yml`) envia só o necessário
+para correr (sem testes nem histórico) e o Space constrói a imagem com o
+`Dockerfile` do repositório. Ao fim de alguns minutos a app fica em
+**`https://o-teu-utilizador-chatapp.hf.space`** — usa este endereço direto
+(e não a página `huggingface.co/spaces/...`, que mostra a app dentro de uma
+moldura onde a câmara e o microfone podem ser bloqueados).
+
+### Limitações
+- Dados secundários que a app guarda só em ficheiro (mensagens fixadas,
+  estados, histórico de chamadas, lembretes, alertas de preço...) perdem-se
+  quando o Space reinicia — o mesmo que no Render.
+- O Hugging Face é pensado sobretudo para demonstrações de IA; os termos
+  permitem Spaces com Docker, mas se a app crescer muito (muitos utilizadores
+  ou tráfego constante) convém passar para um servidor próprio, como a Oracle
+  abaixo.
+
+## Publicar grátis com mais capacidade (Oracle Cloud Always Free)
 
 O plano **Always Free** da Oracle dá um servidor próprio com até **4 núcleos ARM
 e 24 GB de RAM**, sempre ligado (não adormece) e com **disco que não se apaga**
@@ -88,7 +135,7 @@ E corre:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Nadcv/chatapp-realtime/main/deploy/oracle/setup.sh | sudo bash
 ```
-O script (`deploy/oracle/setup.sh`) instala Node 20, descarrega a app, cria um
+O script (`deploy/oracle/setup.sh`) instala Node 22, descarrega a app, cria um
 serviço que arranca sozinho e reinicia se falhar, e põe o **Caddy** à frente com
 **HTTPS automático**. No fim mostra o endereço, do tipo
 `https://129-151-1-2.sslip.io` (o [sslip.io](https://sslip.io) transforma o IP
@@ -137,7 +184,7 @@ mais o **MongoDB Atlas M0** (base de dados, para os dados não se perderem).
 ### 2. Servidor grátis (Render)
 1. Cria conta em https://render.com (podes entrar com o GitHub)
 2. "New" → **"Blueprint"** → escolhe este repositório. O ficheiro `render.yaml`
-   já configura tudo (plano grátis, `npm install`, `npm start`, Node 20)
+   já configura tudo (plano grátis, `npm install`, `npm start`, Node 22)
 3. Quando pedir as variáveis, cola o endereço do passo anterior em `MONGO_URI`
    (e, se quiseres, o teu telemóvel em `ADMIN_PHONE`)
 4. "Apply". Ao fim de alguns minutos tens a app em
