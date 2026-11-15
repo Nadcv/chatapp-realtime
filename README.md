@@ -48,53 +48,11 @@ O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não
 5. Pegue a URL pública gerada (ex: `https://seu-app.up.railway.app`) e é isso —
    qualquer pessoa acessa dali, de qualquer rede
 
-## Publicar grátis, sem cartão (Hugging Face Spaces + MongoDB Atlas) — recomendado
+## Hugging Face Spaces (já não serve no plano grátis)
 
-O **Hugging Face Spaces** corre a app num contentor Docker com **2 núcleos e
-16 GB de RAM**, HTTPS automático e WebSockets, **sem pedir cartão nem cobrar
-nada**. A app só adormece ao fim de **48 horas sem visitas** (acorda sozinha na
-visita seguinte, em cerca de 1 minuto).
-
-O disco do Space apaga-se quando reinicia ou é atualizado, por isso usa o
-**MongoDB Atlas M0** (também grátis e sem cartão) para guardar contas,
-mensagens e grupos — ver o passo 1 da secção do Render abaixo para criar a base
-de dados e obter o `MONGO_URI`.
-
-### 1. Criar o Space
-1. Cria conta em https://huggingface.co/join
-2. https://huggingface.co/new-space → nome (ex.: `chatapp`), **SDK: Docker**
-   ("Blank"), hardware **CPU basic · Free**, visibilidade **Public** (num Space
-   privado só entra quem tiver sessão no Hugging Face)
-3. No Space → **Settings → Variables and secrets** → "New secret":
-   `MONGO_URI` com o endereço do MongoDB Atlas (e, se quiseres, `ADMIN_PHONE`
-   e as outras chaves opcionais descritas neste README)
-
-### 2. Ligar o GitHub ao Space (publicação automática)
-1. Hugging Face → **Settings → Access Tokens** → "Create new token", tipo
-   **Write** → copia o token
-2. GitHub → este repositório → **Settings → Secrets and variables → Actions**:
-   - separador **Secrets** → "New repository secret": `HF_TOKEN` = o token
-   - separador **Variables** → "New repository variable": `HF_SPACE` =
-     `o-teu-utilizador/chatapp`
-3. GitHub → **Actions** → "Publicar no Hugging Face" → **Run workflow**
-   (daí em diante corre sozinho a cada push para o `main`)
-
-O workflow (`.github/workflows/deploy-huggingface.yml`) envia só o necessário
-para correr (sem testes nem histórico) e o Space constrói a imagem com o
-`Dockerfile` do repositório. Ao fim de alguns minutos a app fica em
-**`https://o-teu-utilizador-chatapp.hf.space`** — usa este endereço direto
-(e não a página `huggingface.co/spaces/...`, que mostra a app dentro de uma
-moldura onde a câmara e o microfone podem ser bloqueados).
-
-### Limitações
-- Com o `MONGO_URI` definido, **nenhum dado se perde** quando o Space
-  reinicia (ver "Dados guardados só em ficheiro também vão para o MongoDB"
-  abaixo), e as sessões de login também se mantêm (ver "Sessões de login
-  que sobrevivem a reinícios").
-- O Hugging Face é pensado sobretudo para demonstrações de IA; os termos
-  permitem Spaces com Docker, mas se a app crescer muito (muitos utilizadores
-  ou tráfego constante) convém passar para um servidor próprio, como a Oracle
-  abaixo.
+O Hugging Face passou a exigir a assinatura PRO para Spaces com Docker, por
+isso o workflow de publicação automática para lá foi removido. O `Dockerfile`
+continua no repositório e serve para qualquer outro alojamento com Docker.
 
 ## Publicar grátis com mais capacidade (Oracle Cloud Always Free)
 
@@ -202,8 +160,8 @@ acrescentar `MONGO_URI` em "Environment".
 ### Limitações do plano grátis (importante)
 - **Adormece após 15 minutos sem visitas.** A primeira visita a seguir demora
   cerca de 1 minuto a acordar; depois fica rápida. Se quiseres que fique sempre
-  acordada, um monitor grátis como o https://uptimerobot.com a abrir o URL a cada
-  10 minutos resolve (um serviço ligado 24h cabe nas 750 horas grátis por mês).
+  acordada, usa um monitor grátis (ver "Manter a app sempre acordada" abaixo).
+  Um serviço ligado 24h cabe nas 750 horas grátis por mês.
 - **512 MB de memória.** A app usa cerca de 165 MB parada; abrir muitos
   horários de transportes (feeds GTFS grandes) ao mesmo tempo pode chegar perto
   do limite e o Render reinicia o servidor.
@@ -217,6 +175,28 @@ acrescentar `MONGO_URI` em "Environment".
 - As restantes chaves opcionais (GitHub Models, TURN, Resend, etc.)
   acrescentam-se em "Environment" no painel do Render, como descrito nas
   secções abaixo.
+
+### Manter a app sempre acordada (UptimeRobot, grátis)
+1. Cria conta em https://uptimerobot.com (plano Free, sem cartão).
+2. **+ New monitor** → tipo **HTTP(s)**.
+3. URL: o endereço da app no Render (ex.: `https://chatapp-realtime-xxxx.onrender.com/`).
+4. Intervalo: **5 minutos** → **Create monitor**.
+
+O monitor visita a app de 5 em 5 minutos, por isso ela nunca chega aos 15
+minutos sem visitas e não adormece. Também te avisa por email se a app cair.
+
+### Emails (recuperação de senha e verificação de conta)
+Sem email configurado, o registo cria a conta logo, mas a recuperação de
+senha não funciona. Para ligar (Resend, grátis até 3000 emails/mês):
+1. Cria conta em https://resend.com com o teu email.
+2. **API Keys** → **Create API Key** (permissão "Sending access") → copia a chave.
+3. Render → serviço → **Environment** → acrescenta `RESEND_API_KEY` com essa
+   chave → **Save changes** (o Render reinicia sozinho).
+
+Sem domínio próprio, o Resend envia de `onboarding@resend.dev` e **só para o
+email com que criaste a conta no Resend**. Para enviar a qualquer pessoa,
+verifica um domínio teu no Resend (**Domains**) e define também
+`RESEND_FROM_EMAIL` (ex.: `NADIO <nao-responder@o-teu-dominio.pt>`).
 
 ## Persistência de mensagens
 

@@ -22,3 +22,11 @@ services:
       # Telemóvel exato da conta que deve ser administradora (opcional).
       - key: ADMIN_PHONE
         sync: false
+      # Envio de emails (recuperação de senha, verificação de conta). Opcional.
+      # Chave em resend.com → API Keys. Ver secção "Emails" do README.
+      - key: RESEND_API_KEY
+        sync: false
+      # Remetente com domínio verificado no Resend (opcional; sem isto usa
+      # onboarding@resend.dev, que só envia para o dono da conta Resend).
+      - key: RESEND_FROM_EMAIL
+        sync: false

@@ -4446,13 +4446,13 @@ app.get('/api/drivelisten/radio', async (req, res) => {
 // RSS de vez em quando), fica só sem essa fonte — as outras continuam a
 // funcionar normalmente (ver log do servidor para saber qual falhou).
 const NEWS_FEEDS = [
-  { id: 'publico', name: 'Público', flag: '🇵🇹', category: 'portugal', url: 'https://www.publico.pt/rss' },
+  { id: 'publico', name: 'Público', flag: '🇵🇹', category: 'portugal', url: 'https://www.publico.pt/rss', fallbacks: ['https://feeds.feedburner.com/PublicoRSS', 'https://www.publico.pt/rss/ultimas'] },
   { id: 'observador', name: 'Observador', flag: '🇵🇹', category: 'portugal', url: 'https://observador.pt/feed/' },
   { id: 'rtp', name: 'RTP Notícias', flag: '🇵🇹', category: 'portugal', url: 'https://www.rtp.pt/noticias/rss' },
   { id: 'bbc', name: 'BBC World', flag: '🌍', category: 'mundo', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
-  { id: 'euronews', name: 'Euronews', flag: '🇪🇺', category: 'mundo', url: 'https://pt.euronews.com/rss' },
+  { id: 'euronews', name: 'Euronews', flag: '🇪🇺', category: 'mundo', url: 'https://pt.euronews.com/rss?format=mrss&level=theme&name=news', fallbacks: ['https://pt.euronews.com/rss?level=vertical&name=news', 'https://pt.euronews.com/rss'] },
   { id: 'cnn', name: 'CNN', flag: '🌍', category: 'mundo', url: 'http://rss.cnn.com/rss/edition.rss' },
-  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://www.rtp.pt/africa/rss' },
+  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://www.rtp.pt/noticias/rss/africa', fallbacks: ['https://www.rtp.pt/africa/rss'] },
   { id: 'elpais', name: 'El País', flag: '🇪🇸', category: 'mundo', url: 'https://elpais.com/rss/elpais/portada.xml' },
   { id: 'abc', name: 'ABC', flag: '🇪🇸', category: 'mundo', url: 'https://www.abc.es/rss/feeds/abcPortada.xml' },
   { id: 'lemonde', name: 'Le Monde', flag: '🇫🇷', category: 'mundo', url: 'https://www.lemonde.fr/rss/une.xml' },
@@ -4499,15 +4499,35 @@ function parseRssXml(xml, feed) {
     };
   }).filter(Boolean);
 }
+// Alguns sites mudam o endereço do RSS ou recusam pedidos sem um cabeçalho
+// Accept de RSS (HTTP 406). Cada fonte pode ter endereços alternativos em
+// `fallbacks`: tenta-os por ordem e lembra-se do primeiro que devolver
+// notícias, para nas atualizações seguintes ir direto a esse.
+const NEWS_FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (compatible; NadioNews/1.0; +https://github.com/Nadcv/chatapp-realtime)',
+  'Accept': 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8',
+  'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8'
+};
+const newsWorkingUrl = {}; // feed.id -> último endereço que funcionou
 async function fetchNewsFeed(feed) {
-  try {
-    const r = await fetch(feed.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatAppNews/1.0)' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return parseRssXml(await r.text(), feed);
-  } catch (err) {
-    console.error(`⚠️ Erro ao obter notícias de ${feed.name}:`, err.message);
-    return [];
+  const candidates = [...new Set([newsWorkingUrl[feed.id], feed.url, ...(feed.fallbacks || [])].filter(Boolean))];
+  const errors = [];
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, { headers: NEWS_FETCH_HEADERS, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const items = parseRssXml(await r.text(), feed);
+      if (!items.length) throw new Error('sem notícias no RSS');
+      if (newsWorkingUrl[feed.id] !== url && url !== feed.url) log(`📰 ${feed.name}: a usar o endereço alternativo ${url}`, 'NEWS');
+      newsWorkingUrl[feed.id] = url;
+      return items;
+    } catch (err) {
+      errors.push(`${url} → ${err.message}`);
+    }
   }
+  delete newsWorkingUrl[feed.id];
+  console.error(`⚠️ Erro ao obter notícias de ${feed.name}: ${errors.join(' | ')}`);
+  return [];
 }
 async function refreshNews() {
   const results = await Promise.all(NEWS_FEEDS.map(fetchNewsFeed));
