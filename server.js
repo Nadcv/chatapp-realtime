@@ -4159,6 +4159,9 @@ app.get('/api/music/search', async (req, res) => {
 // integrações opcionais desta app.
 app.get('/api/gifs/search', async (req, res) => {
   if (!process.env.GIPHY_API_KEY) return res.json({ configured: false, results: [] });
+  // A chave da Giphy tem limite de pedidos por hora: só para quem tem sessão.
+  const gifToken = req.headers['x-auth-token'] || req.query.token;
+  if (!gifToken || !sessions[gifToken]) return res.status(401).json({ configured: true, error: 'Sessão inválida.', results: [] });
   const query = (req.query.q || '').trim();
   const kind = req.query.type === 'stickers' ? 'stickers' : 'gifs';
   try {

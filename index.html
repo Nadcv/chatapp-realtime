@@ -12827,8 +12827,12 @@
         const grid = document.getElementById('gifResultsGrid');
         grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);">A carregar...</p>';
         try {
-            const res = await fetch(`/api/gifs/search?q=${encodeURIComponent(query)}&type=${GIF_MODE}`);
+            const res = await fetch(`/api/gifs/search?q=${encodeURIComponent(query)}&type=${GIF_MODE}`, { headers: { 'x-auth-token': APP.token || '' } });
             const data = await res.json();
+            if (res.status === 401) {
+                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:20px;">⚠️ Sessão expirada — volta a entrar na app.</p>';
+                return;
+            }
             if (!data.configured) {
                 grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:20px;">GIFs/Stickers não configurados neste servidor (falta a chave da Giphy — ver README).</p>';
                 return;
