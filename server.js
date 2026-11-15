@@ -4722,6 +4722,10 @@ async function fetchMeteredTurn() {
   return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, ...(Array.isArray(iceServers) ? iceServers : [])] };
 }
 app.get('/api/turn-credentials', async (req, res) => {
+  // O TURN dedicado (Cloudflare/Metered) tem quota paga pela conta da app:
+  // só o damos a quem tem sessão iniciada. Os outros recebem o TURN público.
+  const turnToken = req.headers['x-auth-token'] || req.query.token;
+  if (!turnToken || !sessions[turnToken]) return res.json(TURN_FALLBACK);
   const now = Date.now();
   if (turnCache && (now - turnCacheAt) < 20 * 60 * 1000) return res.json(turnCache);
   try {
