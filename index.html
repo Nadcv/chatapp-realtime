@@ -5548,7 +5548,7 @@
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
                 let finalUrl = dataUrl;
                 try {
-                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: dataUrl }) });
                     const data = await res.json();
                     if (data.success && data.url) finalUrl = data.url;
                 } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
@@ -5871,7 +5871,7 @@
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                 let finalUrl = dataUrl;
                 try {
-                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: dataUrl }) });
                     const data = await res.json();
                     if (data.success && data.url) finalUrl = data.url;
                 } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
@@ -5991,7 +5991,7 @@
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                 let finalUrl = dataUrl;
                 try {
-                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: dataUrl }) });
                     const data = await res.json();
                     if (data.success && data.url) finalUrl = data.url;
                 } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
@@ -6021,7 +6021,7 @@
             onSave: async (dataUrl) => {
                 let finalUrl = dataUrl;
                 try {
-                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+                    const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: dataUrl }) });
                     const data = await res.json();
                     if (data.success && data.url) finalUrl = data.url;
                 } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
@@ -6415,7 +6415,7 @@
         if (attachment) {
             let uploadedUrl = attachment.dataUrl;
             try {
-                const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: attachment.dataUrl }) });
+                const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: attachment.dataUrl }) });
                 const data = await res.json();
                 if (data.success && data.url) uploadedUrl = data.url;
             } catch (e) { /* mantém o dataUrl local se o upload falhar */ }
@@ -12665,7 +12665,7 @@
         // a base de dados com base64 — se não estiver configurado, usa o método antigo.
         let outgoingFileData = dataUrl;
         try {
-            const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileData: dataUrl }) });
+            const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: dataUrl }) });
             const data = await res.json();
             if (data.success && data.url) outgoingFileData = data.url;
         } catch (e) {

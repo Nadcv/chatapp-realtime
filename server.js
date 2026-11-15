@@ -4904,6 +4904,11 @@ app.post('/api/upload', async (req, res) => {
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
     return res.json({ success: false, configured: false }); // o cliente usa o base64 normalmente, sem erro
   }
+  // Só quem tem sessão iniciada pode enviar para o Cloudinary da app (senão
+  // qualquer pessoa na internet podia usar a conta para alojar ficheiros).
+  // Sem sessão, o cliente continua a usar o base64, como antes.
+  const uploadToken = req.headers['x-auth-token'] || req.body?.token;
+  if (!uploadToken || !sessions[uploadToken]) return res.status(401).json({ success: false, error: 'Sessão inválida.' });
   try {
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_API_SECRET}`).digest('hex');
