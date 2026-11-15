@@ -3795,15 +3795,21 @@
     // Guardados em cache por 20 minutos para não pedir de novo a cada chamada.
     async function getIceServers() {
         if (cachedIceServers && (Date.now() - cachedIceServersAt) < 20 * 60 * 1000) return cachedIceServers;
+        // O servidor só dá o TURN dedicado a quem tem sessão iniciada; antes do
+        // login recebe o TURN público e não fica em cache, para voltar a pedir
+        // depois de entrar.
+        let sessionToken = '';
+        try { sessionToken = APP.token || ''; } catch (e) { /* APP ainda não existe */ }
+        let servers;
         try {
-            const r = await fetch('/api/turn-credentials');
+            const r = await fetch('/api/turn-credentials', { headers: sessionToken ? { 'x-auth-token': sessionToken } : {} });
             const data = await r.json();
-            cachedIceServers = (data && data.iceServers && data.iceServers.length) ? data : ICE_SERVERS_FALLBACK;
+            servers = (data && data.iceServers && data.iceServers.length) ? data : ICE_SERVERS_FALLBACK;
         } catch (e) {
-            cachedIceServers = ICE_SERVERS_FALLBACK;
+            servers = ICE_SERVERS_FALLBACK;
         }
-        cachedIceServersAt = Date.now();
-        return cachedIceServers;
+        if (sessionToken) { cachedIceServers = servers; cachedIceServersAt = Date.now(); }
+        return servers;
     }
     // Já começa a pedir assim que o script carrega, para estar pronto quando a
     // primeira chamada acontecer (sem atrasar o "Chamando...").
