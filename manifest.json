@@ -1,7 +1,7 @@
 {
-  "name": "ChatApp Completo",
-  "short_name": "ChatApp",
-  "description": "Mensageiro em tempo real com chamadas, tradutor, IA e mais",
+  "name": "NADIO",
+  "short_name": "NADIO",
+  "description": "O teu mundo. A tua gente. Mensagens, chamadas e comunidades em tempo real.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#111b21",

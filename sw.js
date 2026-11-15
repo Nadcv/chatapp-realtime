@@ -1,5 +1,5 @@
-// Service Worker do ChatApp — instalação como app (PWA) + notificações push.
-const CACHE_NAME = 'chatapp-shell-v1';
+// Service Worker do NADIO — instalação como app (PWA) + notificações push.
+const CACHE_NAME = 'chatapp-shell-v2'; // v2: ícones da marca NADIO
 const SHELL_FILES = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -27,10 +27,10 @@ self.addEventListener('fetch', (event) => {
 
 // ==================== NOTIFICAÇÕES PUSH ====================
 self.addEventListener('push', (event) => {
-  let payload = { title: 'ChatApp', body: 'Tens uma mensagem nova.' };
+  let payload = { title: 'NADIO', body: 'Tens uma mensagem nova.' };
   try { payload = event.data ? event.data.json() : payload; } catch (e) { /* usa o padrão acima */ }
   event.waitUntil(
-    self.registration.showNotification(payload.title || 'ChatApp', {
+    self.registration.showNotification(payload.title || 'NADIO', {
       body: payload.body || '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',

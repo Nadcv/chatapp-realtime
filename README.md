@@ -1,4 +1,6 @@
-# ChatApp em Tempo Real
+# NADIO — O teu mundo. A tua gente.
+
+(Antes chamado "ChatApp em Tempo Real".)
 
 Chat com mensagens instantâneas e chamadas de voz/vídeo (WebRTC), usando
 Express + Socket.IO.
@@ -87,8 +89,8 @@ moldura onde a câmara e o microfone podem ser bloqueados).
 ### Limitações
 - Com o `MONGO_URI` definido, **nenhum dado se perde** quando o Space
   reinicia (ver "Dados guardados só em ficheiro também vão para o MongoDB"
-  abaixo). As sessões de login ficam só em memória: depois de um reinício,
-  cada pessoa volta a entrar com a sua senha.
+  abaixo), e as sessões de login também se mantêm (ver "Sessões de login
+  que sobrevivem a reinícios").
 - O Hugging Face é pensado sobretudo para demonstrações de IA; os termos
   permitem Spaces com Docker, mas se a app crescer muito (muitos utilizadores
   ou tráfego constante) convém passar para um servidor próprio, como a Oracle
@@ -207,8 +209,8 @@ acrescentar `MONGO_URI` em "Environment".
   do limite e o Render reinicia o servidor.
 - **O disco apaga-se a cada reinício/deploy**, mas com o `MONGO_URI` definido
   todos os dados ficam no MongoDB e não se perdem (ver "Dados guardados só em
-  ficheiro também vão para o MongoDB" abaixo). As sessões de login ficam só em
-  memória: depois de um reinício, cada pessoa volta a entrar com a sua senha.
+  ficheiro também vão para o MongoDB" abaixo), e as sessões de login também se
+  mantêm (ver "Sessões de login que sobrevivem a reinícios").
 - **Integrações com OAuth** (Google Calendar, Slack): o servidor deteta o URL
   do Render sozinho, mas é preciso registar esse URL de retorno nas consolas do
   Google e do Slack.
@@ -253,6 +255,23 @@ em serviços com disco temporário (Hugging Face Spaces, Render). Pormenores:
 - Um documento do MongoDB não pode passar de 16 MB. Se um ficheiro passar de
   15 MB (por exemplo, muitos estados com fotos em base64), fica só no disco e
   aparece um aviso nos logs.
+
+### Sessões de login que sobrevivem a reinícios
+
+Antes, as sessões de login ficavam só em memória: cada reinício ou deploy (no
+Render grátis, sempre que a app adormece) obrigava toda a gente a voltar a
+entrar com a senha. Agora cada sessão criada (login, registo, associação por
+QR) é também guardada — na coleção `sessions` do MongoDB se estiver ligado,
+senão no ficheiro `sessions.json` — e reposta no arranque.
+- **Nunca se guarda o token**, só um hash SHA-256 dele. Quem visse a base de
+  dados ou o ficheiro não conseguiria usar isso para entrar numa conta.
+- Depois de um reinício, a sessão volta à memória na primeira vez que o token
+  é usado. O objeto `sessions` continua igual para o resto do código (é um
+  `Proxy` que só acrescenta essa reposição).
+- **Apagar a conta ou redefinir a senha** apaga também as sessões guardadas
+  dessa conta, por isso não voltam no reinício seguinte.
+- As sessões guardadas expiram ao fim de **180 dias**
+  (`SESSION_MAX_AGE_DAYS` no `server.js`); o MongoDB apaga-as sozinho.
 
 ### Escrita segura destes ficheiros locais (sem corromper/perder dados)
 

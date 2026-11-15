@@ -25,7 +25,8 @@ const { chromium } = require('playwright');
   console.log('Tem meta theme-color:', !!themeColor);
 
   const appleTouchIcon = await page.evaluate(() => document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href'));
-  console.log('Tem apple-touch-icon:', appleTouchIcon === '/icon-192.png');
+  const appleTouchIconOk = appleTouchIcon ? (await page.request.get('http://localhost:3000' + appleTouchIcon)).ok() : false;
+  console.log('Tem apple-touch-icon:', appleTouchIcon === '/apple-touch-icon.png' && appleTouchIconOk);
 
   const appleCapable = await page.evaluate(() => document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.getAttribute('content'));
   console.log('Tem apple-mobile-web-app-capable:', appleCapable === 'yes');

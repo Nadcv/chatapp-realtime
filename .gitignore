@@ -31,3 +31,4 @@ travel-history.json
 package-lock.json
 tests/output/
 tests/mocks/*.zip
+sessions.json
