@@ -11132,7 +11132,7 @@
         const transcript = msgs.slice(-60).map(m => `${m.type === 'sent' ? 'Você' : m.sender}: ${m.text}`).join('\n');
         fetch('/api/gemini-chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' },
             body: JSON.stringify({
                 history: [{ role: 'user', text: 'Resume a conversa a seguir em português, de forma breve (5-8 linhas no máximo), destacando decisões, pedidos ou combinações importantes. Não inventes nada que não esteja na conversa.\n\n' + transcript }]
             })
@@ -12711,7 +12711,7 @@
         const history = APP.messages[chatId].slice(-12).map(messageToGeminiHistory).filter(h => h.text || h.fileData);
         fetch('/api/gemini-chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' },
             body: JSON.stringify({ history })
         })
             .then(r => r.json().then(data => ({ ok: r.ok, data })))

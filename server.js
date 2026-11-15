@@ -4802,6 +4802,10 @@ app.post('/api/gemini-chat', async (req, res) => {
   if (!GEMINI_API_KEY) {
     return res.status(500).json({ error: 'Assistente Gemini não configurado: falta GEMINI_API_KEY no servidor.' });
   }
+  // A chave do Gemini tem limites de uso por conta: só quem tem sessão
+  // iniciada pode usar o assistente (senão qualquer pessoa gastava a quota).
+  const geminiToken = req.headers['x-auth-token'] || req.body?.token;
+  if (!geminiToken || !sessions[geminiToken]) return res.status(401).json({ error: 'Sessão inválida. Volta a entrar na app.' });
   if (!Array.isArray(history) || history.length === 0) {
     return res.status(400).json({ error: 'Mensagem vazia.' });
   }
