@@ -1,4 +1,6 @@
-# ChatApp em Tempo Real
+# NADIO — O teu mundo. A tua gente.
+
+(Antes chamado "ChatApp em Tempo Real".)
 
 Chat com mensagens instantâneas e chamadas de voz/vídeo (WebRTC), usando
 Express + Socket.IO.

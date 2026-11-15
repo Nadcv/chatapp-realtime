@@ -102,7 +102,7 @@ async function register(context, name, prefix) {
   let calendarIds = Object.keys(mockCalendars);
   console.log('Ativar a sincronização cria um calendário dedicado na Google:', calendarIds.length === 1);
   const calendarId = calendarIds[0];
-  console.log('O calendário dedicado tem o nome do grupo:', mockCalendars[calendarId]?.summary === `ChatApp: ${groupName}`);
+  console.log('O calendário dedicado tem o nome do grupo:', mockCalendars[calendarId]?.summary === `NADIO: ${groupName}`);
 
   // --- Sentido app -> Google: criar um evento na app espelha-o no Google Calendar. ---
   const futureDate = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);

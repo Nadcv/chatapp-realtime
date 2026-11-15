@@ -19,8 +19,10 @@ const { chromium } = require('playwright');
   // --- Muda para inglês diretamente no ecrã de login (antes de autenticar). ---
   await page.click('button[onclick="setUiLanguage(\'en\')"]');
   await page.waitForTimeout(200);
+  // O nome (NADIO) é igual em todas as línguas — o que muda é a frase por baixo.
   const enTitle = await page.evaluate(() => document.querySelector('h1[data-i18n="appName"]').textContent);
-  console.log('Título muda para inglês:', enTitle === 'ChatApp Complete');
+  const enTagline = await page.evaluate(() => document.querySelector('[data-i18n="appTagline"]').textContent);
+  console.log('Frase muda para inglês (nome mantém-se):', enTitle === 'NADIO' && enTagline === 'Your World. Your People.');
   const enLoginBtn = await page.evaluate(() => document.querySelector('button[onclick="doLogin()"]').textContent);
   console.log('Botão de login muda para inglês:', enLoginBtn === '🚀 Log in');
   const enPhonePlaceholder = await page.evaluate(() => document.getElementById('loginPhone').placeholder);
@@ -32,7 +34,8 @@ const { chromium } = require('playwright');
   await page.click('button[onclick="setUiLanguage(\'es\')"]');
   await page.waitForTimeout(200);
   const esTitle = await page.evaluate(() => document.querySelector('h1[data-i18n="appName"]').textContent);
-  console.log('Título muda para espanhol:', esTitle === 'ChatApp Completo' && await page.evaluate(() => document.querySelector('button[onclick="doLogin()"]').textContent) === '🚀 Entrar');
+  const esTagline = await page.evaluate(() => document.querySelector('[data-i18n="appTagline"]').textContent);
+  console.log('Frase muda para espanhol:', esTitle === 'NADIO' && esTagline === 'Tu mundo. Tu gente.' && await page.evaluate(() => document.querySelector('button[onclick="doLogin()"]').textContent) === '🚀 Entrar');
 
   // --- Volta para português — o texto original é restaurado corretamente. ---
   await page.click('button[onclick="setUiLanguage(\'pt\')"]');

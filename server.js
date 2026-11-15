@@ -862,7 +862,7 @@ app.post('/api/webauthn/register-options', async (req, res) => {
   if (!rpID) return res.status(400).json({ error: 'Pedido inválido.' });
   try {
     const options = await generateRegistrationOptions({
-      rpName: 'ChatApp',
+      rpName: 'NADIO',
       rpID,
       userName: user.username || user.phone,
       userDisplayName: user.name,
@@ -3220,7 +3220,7 @@ function escapeHtmlServer(str) {
 // explicitamente pedido seria surpreendente e invasivo.
 //
 // Em vez de escrever diretamente no calendário principal da pessoa, cria-se
-// um calendário secundário dedicado por grupo ("ChatApp: <nome do grupo>")
+// um calendário secundário dedicado por grupo ("NADIO: <nome do grupo>")
 // — assim nunca se mistura com os compromissos pessoais de ninguém, e dá
 // para desligar sem perder histórico (o calendário fica, só para de
 // receber updates novos).
@@ -3299,7 +3299,7 @@ async function ensureGroupGoogleCalendar(phone, roomId, groupName) {
   if (existing?.calendarId) return existing.calendarId;
   const r = await googleCalendarApiFetch(phone, '/calendar/v3/calendars', {
     method: 'POST',
-    body: JSON.stringify({ summary: `ChatApp: ${groupName || 'Grupo'}` })
+    body: JSON.stringify({ summary: `NADIO: ${groupName || 'Grupo'}` })
   });
   if (!r || !r.ok) { console.error('Erro ao criar calendário do Google para o grupo:', r ? await r.text().catch(() => '') : 'sem token'); return null; }
   const data = await r.json();
@@ -3637,7 +3637,7 @@ function maskEmail(email) {
 async function sendLoginCodeEmail(user, code) {
   return sendAppEmail({
     to: user.email,
-    subject: '🔐 Código de verificação — ChatApp',
+    subject: '🔐 Código de verificação — NADIO',
     text: `O teu código de verificação é: ${code}\n\nVálido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.`,
     html: `<p>O teu código de verificação é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu a tentar entrar, ignora este email — a tua conta continua segura.</p>`
   });
@@ -3665,7 +3665,7 @@ function isValidEmailFormat(email) {
 async function sendRegistrationVerificationEmail(email, code) {
   return sendAppEmail({
     to: email,
-    subject: '✅ Confirma o teu registo — ChatApp',
+    subject: '✅ Confirma o teu registo — NADIO',
     text: `O teu código de confirmação de registo é: ${code}\n\nVálido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.`,
     html: `<p>O teu código de confirmação de registo é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 15 minutos. Se não foste tu a tentar criar esta conta, ignora este email.</p>`
   });
@@ -3681,7 +3681,7 @@ const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000;
 async function sendPasswordResetEmail(user, code) {
   return sendAppEmail({
     to: user.email,
-    subject: '🔑 Redefinir senha — ChatApp',
+    subject: '🔑 Redefinir senha — NADIO',
     text: `Pediste para redefinir a senha da tua conta. O código é: ${code}\n\nVálido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.`,
     html: `<p>Pediste para redefinir a senha da tua conta. O código é:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p><p>Válido por 10 minutos. Se não foste tu, ignora este email — a tua senha continua igual.</p>`
   });
@@ -3769,7 +3769,7 @@ app.post('/api/fires/send-email', async (req, res) => {
   const senderName = escapeHtmlServer(account.name);
   const sent = await sendAppEmail({
     to,
-    subject: '🔥 Aviso de possível incêndio — ChatApp',
+    subject: '🔥 Aviso de possível incêndio — NADIO',
     text: `${account.name} reportou um possível incêndio perto desta localização: ${mapsLink}\n\nCoordenadas: ${lat}, ${lng}`,
     html: `<p>🔥 <strong>${senderName}</strong> reportou um possível incêndio perto desta localização:</p><p><a href="${mapsLink}">${mapsLink}</a></p><p>Coordenadas: ${lat}, ${lng}</p><p style="color:#888;font-size:12px;">Enviado automaticamente pelo ChatApp — não é um alerta oficial dos bombeiros.</p>`
   });

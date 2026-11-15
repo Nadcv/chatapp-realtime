@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-    <title>ChatApp Completo - Mensageiro + IA + Multimídia</title>
+    <title>NADIO — O teu mundo. A tua gente.</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#7c5cff">
-    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="/icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="ChatApp">
+    <meta name="apple-mobile-web-app-title" content="NADIO">
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -101,6 +102,18 @@
         }
         .login-screen {
             overflow-y: auto;
+            /* Em ecrãs baixos (telemóvel) o conteúdo é mais alto que o ecrã: com
+               "center" simples o topo (logótipo) ficava cortado e os elementos
+               espremidos. "safe center" centra quando cabe e começa no topo
+               quando não cabe; navegadores antigos ignoram e mantêm "center". */
+            justify-content: safe center;
+            /* A largura deixa de depender do texto mais comprido (antes era a
+               frase por baixo do nome que "esticava" o formulário). */
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .login-screen > * {
+            flex-shrink: 0;
         }
         .login-row {
             display: flex;
@@ -261,17 +274,20 @@
             font-weight: bold;
             font-size: 14px;
         }
+        .login-avatar-dot { color: #c9bcff; }
         .login-avatar {
             width: 100px;
             height: 100px;
-            border-radius: 50%;
-            background: var(--green);
+            border-radius: 28px;
+            background: radial-gradient(circle at 30% 25%, #9b7dff 0%, #7c5cff 45%, #5b3fe0 100%);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 48px;
+            font-size: 44px;
+            font-weight: 800;
+            letter-spacing: -1px;
             color: #fff;
-            box-shadow: 0 8px 30px rgba(0, 168, 132, 0.3);
+            box-shadow: 0 8px 30px rgba(124, 92, 255, 0.35);
         }
         .login-screen h1 {
             color: var(--text-primary);
@@ -1321,14 +1337,14 @@
 <body>
 <div class="app-container" id="appContainer">
     <div class="login-screen" id="loginScreen">
-        <div class="login-avatar">💬</div>
+        <div class="login-avatar" aria-label="NADIO">N<span class="login-avatar-dot">.</span></div>
         <div style="display:flex;gap:6px;justify-content:center;margin-bottom:2px;">
             <button type="button" class="btn-small" onclick="setUiLanguage('pt')" style="padding:4px 10px;">🇵🇹 PT</button>
             <button type="button" class="btn-small" onclick="setUiLanguage('en')" style="padding:4px 10px;">🇺🇸 EN</button>
             <button type="button" class="btn-small" onclick="setUiLanguage('es')" style="padding:4px 10px;">🇪🇸 ES</button>
         </div>
-        <h1 data-i18n="appName">ChatApp Completo</h1>
-        <p style="color:#8696a0;text-align:center;" data-i18n="appTagline">Grupos com até 500 pessoas • Videochamadas • Conferências • IA • Música • Filmes • Quadro Branco</p>
+        <h1 data-i18n="appName">NADIO</h1>
+        <p style="color:#8696a0;text-align:center;" data-i18n="appTagline">O teu mundo. A tua gente.</p>
 
         <!-- Formulário de ENTRAR -->
         <div id="loginFormBox" style="width:100%;display:flex;flex-direction:column;gap:14px;">
@@ -1604,7 +1620,7 @@
         <div class="modal-overlay" id="modalDevicePairing">
             <div class="modal" style="text-align:center;">
                 <h3>🔗 Associar novo dispositivo</h3>
-                <p style="color:var(--text-secondary);font-size:13px;">No novo dispositivo, abre a câmara e aponta para este código — vai abrir o ChatApp já com a sessão iniciada, sem precisar de escrever a senha.</p>
+                <p style="color:var(--text-secondary);font-size:13px;">No novo dispositivo, abre a câmara e aponta para este código — vai abrir o NADIO já com a sessão iniciada, sem precisar de escrever a senha.</p>
                 <div id="devicePairingContent" style="margin:14px 0;min-height:260px;display:flex;align-items:center;justify-content:center;"></div>
                 <div class="modal-actions">
                     <button class="btn-small" onclick="closeDevicePairingModal()">Fechar</button>
@@ -2474,7 +2490,7 @@
         <div class="modal-overlay" id="modalCustomize">
             <div class="modal" style="max-height:85vh;overflow-y:auto;">
                 <h3>🎨 Personalizar aparência</h3>
-                <p style="color:var(--text-secondary);font-size:13px;">A tua escolha fica guardada na tua conta — abre o ChatApp noutro telemóvel ou computador e a cor e o fundo seguem-te.</p>
+                <p style="color:var(--text-secondary);font-size:13px;">A tua escolha fica guardada na tua conta — abre o NADIO noutro telemóvel ou computador e a cor e o fundo seguem-te.</p>
 
                 <div style="font-weight:600;font-size:14px;margin:16px 0 4px;">Cor de destaque</div>
                 <p style="color:var(--text-secondary);font-size:13px;margin:0 0 8px;">Muda ao vivo os botões, as bolhas de mensagem enviadas e outros detalhes em toda a app.</p>
@@ -3807,8 +3823,8 @@
     // funcionalidade (Transportes, Turismo, etc.), que continuam em português.
     const UI_STRINGS = {
         pt: {
-            appName: 'ChatApp Completo',
-            appTagline: 'Grupos com até 500 pessoas • Videochamadas • Conferências • IA • Música • Filmes • Quadro Branco',
+            appName: 'NADIO',
+            appTagline: 'O teu mundo. A tua gente.',
             phonePlaceholder: 'Número de telemóvel',
             passwordPlaceholder: 'Senha',
             loginSubmitBtn: '🚀 Entrar',
@@ -3839,8 +3855,8 @@
             profileUiLangHint: 'Muda os botões e menus da aplicação (não as mensagens — para isso usa "A língua que eu falo", acima).',
         },
         en: {
-            appName: 'ChatApp Complete',
-            appTagline: 'Groups with up to 500 people • Video calls • Conferences • AI • Music • Movies • Whiteboard',
+            appName: 'NADIO',
+            appTagline: 'Your World. Your People.',
             phonePlaceholder: 'Phone number',
             passwordPlaceholder: 'Password',
             loginSubmitBtn: '🚀 Log in',
@@ -3871,8 +3887,8 @@
             profileUiLangHint: 'Changes the app\'s buttons and menus (not messages — use "The language I speak" above for that).',
         },
         es: {
-            appName: 'ChatApp Completo',
-            appTagline: 'Grupos con hasta 500 personas • Videollamadas • Conferencias • IA • Música • Películas • Pizarra',
+            appName: 'NADIO',
+            appTagline: 'Tu mundo. Tu gente.',
             phonePlaceholder: 'Número de teléfono',
             passwordPlaceholder: 'Contraseña',
             loginSubmitBtn: '🚀 Entrar',
