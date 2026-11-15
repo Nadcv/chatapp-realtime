@@ -509,7 +509,76 @@ function isAdminPhone(phone) {
   return phone === firstRegisteredPhone;
 }
 
-const sessions = {};
+// ==================== SESSÕES QUE SOBREVIVEM A REINÍCIOS ====================
+// "sessions" (token -> telefone) continua a ser um objeto normal em memória e
+// todo o código que o usa ficou igual. A única diferença: cada sessão criada
+// também é guardada (no MongoDB se estiver ligado, senão em sessions.json) e
+// reposta quando o servidor arranca — antes, cada reinício/deploy obrigava
+// toda a gente a voltar a fazer login.
+// Nunca se guarda o token em si, só um hash SHA-256 dele: quem visse a base de
+// dados ou o ficheiro não conseguiria usar isso para entrar numa conta. Como
+// o token é aleatório (24 bytes), o hash simples basta (não precisa de sal).
+// Depois de um reinício, a sessão volta a entrar em "sessions" na primeira vez
+// que o seu token é usado (ver o Proxy abaixo).
+const SESSION_MAX_AGE_DAYS = 180; // ao fim disto, pede login outra vez
+const sessionSchema = new mongoose.Schema({
+  tokenHash: { type: String, unique: true },
+  phone: String,
+  createdAt: { type: Date, default: Date.now, expires: SESSION_MAX_AGE_DAYS * 24 * 60 * 60 }
+});
+const SessionModel = mongoose.model('Session', sessionSchema);
+const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
+let storedSessions = {}; // hash do token -> { phone, createdAt (ms) }
+function hashSessionToken(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
+function isStoredSessionExpired(entry) { return !entry || Date.now() - (entry.createdAt || 0) > SESSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000; }
+function saveSessionsLocal() {
+  writeJsonFileSafe(SESSIONS_FILE, JSON.stringify(storedSessions), (err) => { if (err) console.error('Erro ao salvar sessões:', err.message); });
+}
+async function loadStoredSessions() {
+  storedSessions = {};
+  try {
+    if (isDbConnected) {
+      const docs = await SessionModel.find({}).lean();
+      docs.forEach((d) => { storedSessions[d.tokenHash] = { phone: d.phone, createdAt: new Date(d.createdAt).getTime() }; });
+    } else if (fs.existsSync(SESSIONS_FILE)) {
+      storedSessions = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) || {};
+    }
+  } catch (err) { console.error('Erro ao carregar sessões guardadas:', err.message); }
+  Object.keys(storedSessions).forEach((h) => { if (isStoredSessionExpired(storedSessions[h])) delete storedSessions[h]; });
+  const count = Object.keys(storedSessions).length;
+  if (count) console.log(`🔑 ${count} sessão(ões) de login repostas.`);
+}
+// Chamado sempre que uma sessão nova é criada (login, registo, QR).
+function persistSession(token, phone) {
+  const tokenHash = hashSessionToken(token);
+  const createdAt = Date.now();
+  storedSessions[tokenHash] = { phone, createdAt };
+  if (isDbConnected) {
+    SessionModel.create({ tokenHash, phone, createdAt: new Date(createdAt) }).catch((e) => console.error('Erro Mongo (sessão):', e.message));
+  } else {
+    saveSessionsLocal();
+  }
+}
+// Chamado onde o código já invalidava todas as sessões de uma conta (apagar
+// a conta, redefinir a senha) — para não voltarem no próximo reinício.
+function forgetStoredSessionsOfPhone(phone) {
+  Object.keys(storedSessions).forEach((h) => { if (storedSessions[h].phone === phone) delete storedSessions[h]; });
+  if (isDbConnected) {
+    SessionModel.deleteMany({ phone }).catch((e) => console.error('Erro Mongo (sessões):', e.message));
+  } else {
+    saveSessionsLocal();
+  }
+}
+const sessionsInMemory = {};
+const sessions = new Proxy(sessionsInMemory, {
+  get(target, prop, receiver) {
+    if (typeof prop === 'string' && !Object.prototype.hasOwnProperty.call(target, prop) && prop.length >= 32) {
+      const entry = storedSessions[hashSessionToken(prop)];
+      if (entry && !isStoredSessionExpired(entry) && accounts[entry.phone]) target[prop] = entry.phone;
+    }
+    return Reflect.get(target, prop, receiver);
+  }
+});
 function makeToken() { return crypto.randomBytes(24).toString('hex'); }
 
 function publicUser(u) {
@@ -605,6 +674,7 @@ async function createAccountFromPendingRegistration(p) {
   }
   const token = makeToken();
   sessions[token] = p.phone;
+  persistSession(token, p.phone);
   log(`🆕 Novo cadastro: ${p.name} (@${p.username})${p.isAdmin ? ' — registado como ADMINISTRADOR' : ''}`, 'AUTH');
   return { user, token };
 }
@@ -1082,6 +1152,7 @@ async function performAccountDeletion(phone) {
   delete pendingLoginCodes[phone];
   scheduledMessages = (scheduledMessages || []).filter((s) => s.senderPhone !== phone);
   Object.keys(sessions).forEach((t) => { if (sessions[t] === phone) delete sessions[t]; });
+  forgetStoredSessionsOfPhone(phone);
   const activeSockets = phoneToSockets[phone];
   if (activeSockets) {
     activeSockets.forEach((sid) => {
@@ -1216,6 +1287,7 @@ app.post('/api/device-pairing/redeem', async (req, res) => {
   pairing.completedDeviceName = cleanDeviceName;
   const token = makeToken();
   sessions[token] = pairing.phone;
+  persistSession(token, pairing.phone);
   log(`🔗 Novo dispositivo associado por QR: ${cleanDeviceName} (${user.name})`, 'AUTH');
   res.json({ success: true, user: publicUser(user), token });
 });
@@ -3649,6 +3721,7 @@ app.post('/api/password-reset/confirm', async (req, res) => {
   // se alguém tinha acesso indevido (era precisamente por isso que a pessoa
   // veio redefinir), perde-o já em vez de continuar ligado.
   Object.keys(sessions).forEach((t) => { if (sessions[t] === phone) delete sessions[t]; });
+  forgetStoredSessionsOfPhone(phone);
   const activeSockets = phoneToSockets[phone];
   if (activeSockets) {
     activeSockets.forEach((sid) => {
@@ -3680,6 +3753,7 @@ async function completeLogin(user, existingDevice, deviceId, deviceName, res) {
   }
   const token = makeToken();
   sessions[token] = user.phone;
+  persistSession(token, user.phone);
   log(`✅ Login: ${user.name} (${user.phone})`, 'AUTH');
   res.json({ success: true, user: publicUser(user), token });
 }
@@ -8228,6 +8302,7 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 connectDatabase().then(async () => {
+  await loadStoredSessions();
   await initPush();
 
   const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
