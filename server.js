@@ -2130,7 +2130,8 @@ async function resolveStcpGtfsUrl() {
   return process.env.STCP_GTFS_URL || STCP_GTFS_URL_DEFAULT;
 }
 async function getStcpRealtimeArrivals(stopId) {
-  const resp = await fetch(`https://stcp.pt/api/stops/${encodeURIComponent(stopId)}/realtime`, {
+  const stcpApiBase = process.env.STCP_API_BASE || 'https://stcp.pt/api'; // os testes apontam isto para um endereço sem resposta
+  const resp = await fetch(`${stcpApiBase}/stops/${encodeURIComponent(stopId)}/realtime`, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' }
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

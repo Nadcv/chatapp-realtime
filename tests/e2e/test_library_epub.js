@@ -111,8 +111,11 @@ const { chromium } = require('playwright');
   await page.click('button:has-text("Ver lista de livros gratuitos")');
   await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
 
-  // Clica no primeiro livro — o mock não serve um EPUB real, por isso deve
-  // mostrar o aviso amigável em vez de crashar ou ficar preso a "carregar".
+  // Clica no primeiro livro com o ficheiro inacessível — deve mostrar o aviso
+  // amigável em vez de crashar ou ficar preso a "carregar". O pedido do
+  // ficheiro é intercetado (502), para o resultado ser o mesmo com ou sem
+  // internet (no GitHub Actions o Gutenberg real responde).
+  await page.route('**/api/library/*/file**', (route) => route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'Ficheiro inacessível (teste).' }) }));
   await page.click('#libraryBookList > div:first-child');
   const listHidden = await page.waitForFunction(() => document.getElementById('libraryListView').style.display === 'none', { timeout: 3000 }).then(() => true).catch(() => false);
   console.log('Clicar num livro esconde a lista e mostra o leitor:', listHidden);
@@ -120,6 +123,7 @@ const { chromium } = require('playwright');
   await page.waitForFunction(() => document.getElementById('libraryReaderContent').textContent.includes('Não foi possível abrir'), { timeout: 8000 }).catch(() => {});
   const friendlyError = await page.evaluate(() => document.getElementById('libraryReaderContent').textContent.includes('Não foi possível abrir'));
   console.log('Um "EPUB" inválido/inacessível mostra um aviso amigável (não crasha a app):', friendlyError);
+  await page.unroute('**/api/library/*/file**');
 
   // Os botões "Anterior"/"Seguinte" não podem crashar antes de haver livro
   // nenhum aberto (rendition ainda null) — testado com a página encaminhamento
