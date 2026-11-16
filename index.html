@@ -1355,6 +1355,16 @@
         .landing-card h3{font-size:16px;margin:0 0 4px}
         .landing-card p{font-size:13px;color:#d6ccff;margin:0;line-height:1.4}
         .landing-foot{font-size:13px;color:#b9adff;margin-top:8px}
+
+        /* ==================== VISITA GUIADA (primeira entrada) ==================== */
+        .tour-spot{position:fixed;z-index:400;border-radius:14px;box-shadow:0 0 0 9999px rgba(8,5,25,.72),0 0 0 3px #9b7dff;transition:all .25s ease;pointer-events:none}
+        .tour-tip{position:fixed;z-index:401;width:min(320px,calc(100vw - 24px));background:#fff;color:#24145c;border-radius:16px;padding:16px;box-shadow:0 14px 40px rgba(0,0,0,.45);font-size:14px;line-height:1.45}
+        .tour-tip h4{margin:0 0 6px;font-size:17px}
+        .tour-tip .tour-actions{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px}
+        .tour-tip button{border:0;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
+        .tour-tip .tour-next{background:#7c5cff;color:#fff}
+        .tour-tip .tour-skip{background:transparent;color:#6b5ca8}
+        .tour-tip .tour-count{font-size:12px;color:#8a7cc4}
     </style>
 </head>
 <body>
@@ -1372,8 +1382,8 @@
         <h2 data-i18n="landTitle">O teu mundo. A tua gente.</h2>
         <p class="landing-sub" data-i18n="landSub">Mensagens, chamadas de vídeo, IA e dezenas de ferramentas — numa só app, grátis e sem anúncios.</p>
         <div class="landing-ctas">
-            <button type="button" class="primary" id="landingCreateBtn" onclick="closeLanding('register')" data-i18n="landCreate">✨ Criar conta grátis</button>
-            <button type="button" class="secondary" id="landingLoginBtn" onclick="closeLanding('login')" data-i18n="landLogin">Já tenho conta — Entrar</button>
+            <button type="button" class="primary" id="landingCreateBtn" onclick="closeLanding('register')" data-i18n="landCreate">✨ Começar — é grátis</button>
+            <button type="button" class="secondary" id="landingLoginBtn" onclick="closeLanding('login')" data-i18n="landLogin">Já tenho uma conta</button>
         </div>
         <div class="landing-grid">
             <div class="landing-card"><b>💬</b><div><h3 data-i18n="f1t">Mensagens e grupos</h3><p data-i18n="f1d"></p></div></div>
@@ -2635,6 +2645,7 @@
                 <h3>⋯ Mais funcionalidades</h3>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openCalcScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧮<span style="font-size:11px;">Calculadora</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');startTour()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧭<span style="font-size:11px;">Visita guiada</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openCurrencyScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏦<span style="font-size:11px;">Câmbio</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openNavScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧭<span style="font-size:11px;">Navegação</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openFiresScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔥<span style="font-size:11px;">Incêndios</span></button>
@@ -3929,10 +3940,23 @@
         pt: {
             appName: 'NADIO',
             appTagline: 'O teu mundo. A tua gente.',
+            tourNext: 'Seguinte',
+            tourDone: 'Começar! 🚀',
+            tourSkip: 'Saltar',
+            tour1t: '👋 Bem-vindo à NADIO!',
+            tour1d: 'Vamos ver em 30 segundos onde está tudo. As tuas conversas aparecem aqui — pesquisa qualquer uma neste campo.',
+            tour2t: '📇 Contactos e grupos',
+            tour2d: 'Cria grupos e comunidades, faz chamadas, procura pessoas pelo @ e convida amigos.',
+            tour3t: '⋯ Dezenas de ferramentas',
+            tour3d: 'Transportes ao vivo, meteorologia, câmbio, mapas, lembretes, SOS e muito mais.',
+            tour4t: '🎬 TV, notícias e música',
+            tour4d: 'Vê TV em direto, notícias, onde ver filmes e ouve música.',
+            tour5t: '👤 O teu perfil',
+            tour5d: 'Muda a foto, o nome de utilizador (@), a língua e a segurança da conta. A visita guiada fica em ⋯ se a quiseres rever.',
             landTitle: 'O teu mundo. A tua gente.',
             landSub: 'Mensagens, chamadas de vídeo, IA e dezenas de ferramentas — numa só app, grátis e sem anúncios.',
-            landCreate: '✨ Criar conta grátis',
-            landLogin: 'Já tenho conta — Entrar',
+            landCreate: '✨ Começar — é grátis',
+            landLogin: 'Já tenho uma conta',
             f1t: 'Mensagens e grupos',
             f1d: 'Em tempo real, com encriptação, reações e tradução automática.',
             f2t: 'Chamadas de voz e vídeo',
@@ -3978,10 +4002,23 @@
         en: {
             appName: 'NADIO',
             appTagline: 'Your World. Your People.',
+            tourNext: 'Next',
+            tourDone: "Let's go! 🚀",
+            tourSkip: 'Skip',
+            tour1t: '👋 Welcome to NADIO!',
+            tour1d: "Let's see where everything is in 30 seconds. Your chats show up here — search any of them in this field.",
+            tour2t: '📇 Contacts & groups',
+            tour2d: 'Create groups and communities, make calls, find people by @ and invite friends.',
+            tour3t: '⋯ Dozens of tools',
+            tour3d: 'Live transport, weather, currency, maps, reminders, SOS and much more.',
+            tour4t: '🎬 TV, news & music',
+            tour4d: 'Watch live TV and news, find where to watch movies and listen to music.',
+            tour5t: '👤 Your profile',
+            tour5d: 'Change your photo, username (@), language and account security. The tour lives in ⋯ if you want to see it again.',
             landTitle: 'Your World. Your People.',
             landSub: 'Messages, video calls, AI and dozens of tools — in one free app, with no ads.',
-            landCreate: '✨ Create a free account',
-            landLogin: 'I have an account — Log in',
+            landCreate: '✨ Get started — it’s free',
+            landLogin: 'I already have an account',
             f1t: 'Messages & groups',
             f1d: 'Real time, encrypted, with reactions and auto-translation.',
             f2t: 'Voice & video calls',
@@ -4027,10 +4064,23 @@
         es: {
             appName: 'NADIO',
             appTagline: 'Tu mundo. Tu gente.',
+            tourNext: 'Siguiente',
+            tourDone: '¡Empezar! 🚀',
+            tourSkip: 'Saltar',
+            tour1t: '👋 ¡Bienvenido a NADIO!',
+            tour1d: 'Veamos en 30 segundos dónde está todo. Tus chats aparecen aquí — busca cualquiera en este campo.',
+            tour2t: '📇 Contactos y grupos',
+            tour2d: 'Crea grupos y comunidades, haz llamadas, busca personas por @ e invita a amigos.',
+            tour3t: '⋯ Decenas de herramientas',
+            tour3d: 'Transporte en vivo, el tiempo, divisas, mapas, recordatorios, SOS y mucho más.',
+            tour4t: '🎬 TV, noticias y música',
+            tour4d: 'Mira TV en directo y noticias, descubre dónde ver películas y escucha música.',
+            tour5t: '👤 Tu perfil',
+            tour5d: 'Cambia la foto, el nombre de usuario (@), el idioma y la seguridad. La visita guiada está en ⋯ si quieres verla otra vez.',
             landTitle: 'Tu mundo. Tu gente.',
             landSub: 'Mensajes, videollamadas, IA y decenas de herramientas — en una sola app, gratis y sin anuncios.',
-            landCreate: '✨ Crear cuenta gratis',
-            landLogin: 'Ya tengo cuenta — Entrar',
+            landCreate: '✨ Empezar — es gratis',
+            landLogin: 'Ya tengo una cuenta',
             f1t: 'Mensajes y grupos',
             f1d: 'En tiempo real, cifrados, con reacciones y traducción automática.',
             f2t: 'Llamadas de voz y vídeo',
@@ -4497,6 +4547,69 @@
         else if (/Firefox\//.test(ua)) browser = 'Firefox';
         else if (/Safari\//.test(ua)) browser = 'Safari';
         return browser ? `${browser} · ${os}` : os;
+    }
+
+    // ==================== VISITA GUIADA (primeira entrada) ====================
+    // Na primeira vez que uma conta entra neste aparelho, 5 balões mostram onde
+    // estão as coisas principais. Fica marcada como vista por conta
+    // (localStorage 'tourDone:<telefone>'); pode rever-se em ⋯ → Visita guiada.
+    // Em browsers automatizados não arranca sozinha (os outros testes não
+    // contam com ela); test_tour.js força-a com window.__forceTour.
+    const TOUR_STEPS = [
+        { sel: '#chatSearchInput', t: 'tour1t', d: 'tour1d' },
+        { sel: 'button[onclick="openContactsFeaturesModal()"]', t: 'tour2t', d: 'tour2d' },
+        { sel: 'button[onclick="openMoreFeaturesModal()"]', t: 'tour3t', d: 'tour3d' },
+        { sel: '#mediaBtn', t: 'tour4t', d: 'tour4d' },
+        { sel: '#headerAvatar', t: 'tour5t', d: 'tour5d' }
+    ];
+    let tourIndex = -1;
+    function maybeStartTour() {
+        try {
+            if (!APP.user?.phone || localStorage.getItem('tourDone:' + APP.user.phone)) return;
+            if (navigator.webdriver && !window.__forceTour) return;
+        } catch (e) { return; }
+        setTimeout(startTour, 1200);
+    }
+    function startTour() {
+        endTour(false);
+        tourIndex = 0;
+        const spot = document.createElement('div'); spot.className = 'tour-spot'; spot.id = 'tourSpot';
+        const tip = document.createElement('div'); tip.className = 'tour-tip'; tip.id = 'tourTip';
+        document.body.append(spot, tip);
+        window.addEventListener('resize', renderTourStep);
+        renderTourStep();
+    }
+    function renderTourStep() {
+        const step = TOUR_STEPS[tourIndex];
+        const spot = document.getElementById('tourSpot'), tip = document.getElementById('tourTip');
+        if (!step || !spot || !tip) return;
+        const target = document.querySelector(step.sel);
+        if (target && target.scrollIntoView) target.scrollIntoView({ block: 'nearest', inline: 'center' });
+        const r = target && target.offsetParent !== null ? target.getBoundingClientRect() : { left: innerWidth / 2 - 40, top: 80, width: 80, height: 40, bottom: 120 };
+        const pad = 6;
+        Object.assign(spot.style, { left: (r.left - pad) + 'px', top: (r.top - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
+        const last = tourIndex === TOUR_STEPS.length - 1;
+        tip.innerHTML = `<h4>${escapeHtml(t(step.t))}</h4><div>${escapeHtml(t(step.d))}</div>
+            <div class="tour-actions"><button class="tour-skip" onclick="endTour(true)">${escapeHtml(t('tourSkip'))}</button>
+            <span class="tour-count">${tourIndex + 1}/${TOUR_STEPS.length}</span>
+            <button class="tour-next" onclick="nextTourStep()">${escapeHtml(t(last ? 'tourDone' : 'tourNext'))}</button></div>`;
+        const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+        let top = r.bottom + 14;
+        if (top + tipH > innerHeight - 10) top = Math.max(10, r.top - tipH - 14);
+        const left = Math.min(Math.max(12, r.left + r.width / 2 - tipW / 2), innerWidth - tipW - 12);
+        Object.assign(tip.style, { top: top + 'px', left: left + 'px' });
+    }
+    function nextTourStep() {
+        tourIndex++;
+        if (tourIndex >= TOUR_STEPS.length) return endTour(true);
+        renderTourStep();
+    }
+    function endTour(markDone) {
+        document.getElementById('tourSpot')?.remove();
+        document.getElementById('tourTip')?.remove();
+        window.removeEventListener('resize', renderTourStep);
+        if (markDone && APP.user?.phone) { try { localStorage.setItem('tourDone:' + APP.user.phone, '1'); } catch (e) {} }
+        tourIndex = -1;
     }
 
     // ==================== PÁGINA DE APRESENTAÇÃO ====================
@@ -5014,6 +5127,7 @@
         loadOfflineQueueFromStorage(); // mensagens por enviar de antes de fechar/recarregar a app (ver "Modo offline")
         setOfflineBannerVisible(!socket.connected);
         initApp();
+        if (!hasPinSet()) maybeStartTour(); // visita guiada na primeira entrada desta conta neste aparelho
         // Importante: espera a chave de encriptação ficar pronta ANTES de pedir o
         // histórico das conversas — caso contrário, mensagens podiam chegar
         // enquanto a chave ainda não existia e apareciam como "não foi possível

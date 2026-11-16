@@ -17,11 +17,11 @@ const { chromium } = require('playwright');
   console.log('Mostra o nome, a frase e as funcionalidades:', text.includes('NADIO') && text.includes('O teu mundo. A tua gente.') && text.includes('Chamadas de voz e vídeo'));
 
   await page.click('#landingScreen button:has-text("EN")');
-  console.log('Botão EN traduz a página:', (await page.textContent('#landingCreateBtn')).includes('Create a free account'));
+  console.log('Botão EN traduz a página:', (await page.textContent('#landingCreateBtn')).includes('Get started'));
   await page.click('#landingScreen button:has-text("PT")');
 
   await page.click('#landingCreateBtn');
-  console.log('"Criar conta grátis" fecha a página e abre o registo:', !(await page.isVisible('#landingScreen')) && await page.isVisible('#registerFormBox'));
+  console.log('"Começar" fecha a página e abre o registo:', !(await page.isVisible('#landingScreen')) && await page.isVisible('#registerFormBox'));
 
   await page.reload(); await page.waitForTimeout(300);
   await page.click('#landingLoginBtn');
