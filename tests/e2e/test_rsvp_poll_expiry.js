@@ -56,22 +56,22 @@ async function register(context, name, prefix) {
   await a.page.click('#modalCreatePoll button:has-text("Criar")');
   await a.page.waitForTimeout(600);
 
-  const aRsvpMsg = await a.page.evaluate(() => {
-    const chat = APP.chats.find(c => c.type === 'group');
+  const aRsvpMsg = await a.page.evaluate((name) => {
+    const chat = APP.chats.find(c => c.type === 'group' && c.name === name);
     return APP.messages[chat.id].find(m => m.poll?.question === 'Festa de sábado');
-  });
+  }, groupName);
   console.log('RSVP event created as a real poll message with 3 options:', aRsvpMsg && aRsvpMsg.poll.options.length === 3);
   console.log('RSVP poll has no expiry by default:', aRsvpMsg && aRsvpMsg.poll.expiresAt === null);
 
   await b.page.waitForTimeout(500);
-  const bSeesRsvp = await b.page.evaluate(() => {
-    const chat = APP.chats.find(c => c.type === 'group');
+  const bSeesRsvp = await b.page.evaluate((name) => {
+    const chat = APP.chats.find(c => c.type === 'group' && c.name === name);
     return (APP.messages[chat.id] || []).some(m => m.poll?.question === 'Festa de sábado');
-  });
+  }, groupName);
   console.log('B receives the RSVP poll in the group:', bSeesRsvp);
 
   // B votes "Vou" (index 0).
-  const groupChatId = await a.page.evaluate(() => APP.chats.find(c => c.type === 'group').id);
+  const groupChatId = await a.page.evaluate((name) => APP.chats.find(c => c.type === 'group' && c.name === name).id, groupName);
   await b.page.evaluate((chatId) => { APP.currentChatId = chatId; renderMessages(); }, groupChatId);
   await b.page.waitForTimeout(200);
   const bMsgId = await b.page.evaluate((chatId) => APP.messages[chatId].find(m => m.poll?.question === 'Festa de sábado').id, groupChatId);

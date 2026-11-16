@@ -276,6 +276,9 @@ function runOneTest(file) {
 async function runBatch(files, envOverrides, label) {
   if (!files.length) return [];
   console.log(`\n=== Lote: ${label} (${files.length} ficheiro(s), servidor com CP_GTFS_URL=${envOverrides.CP_GTFS_URL || BASE_ENV.CP_GTFS_URL}) ===`);
+  // As fixtures GTFS têm partidas "daqui a uns minutos": geradas de novo antes
+  // de cada lote, senão um lote que comece 40 minutos depois já as vê no passado.
+  runBuildScripts();
   let serverProc = startMainServer(envOverrides);
   await waitForHttp(`http://localhost:${SERVER_PORT}/`, 20000);
 
@@ -303,6 +306,7 @@ async function runBatch(files, envOverrides, label) {
     spawned.splice(spawned.indexOf(serverProc), 1);
     await new Promise((r) => setTimeout(r, 500));
     wipeLocalDataFiles();
+    runBuildScripts();
     serverProc = startMainServer(envOverrides);
     await waitForHttp(`http://localhost:${SERVER_PORT}/`, 20000);
     for (const prev of failing) {
