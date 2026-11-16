@@ -1365,6 +1365,30 @@
         .tour-tip .tour-next{background:#7c5cff;color:#fff}
         .tour-tip .tour-skip{background:transparent;color:#6b5ca8}
         .tour-tip .tour-count{font-size:12px;color:#8a7cc4}
+
+        /* ==================== ESTATÍSTICAS (painel do administrador) ==================== */
+        .stats-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px}
+        .stats-kpi{background:var(--bg-tertiary);border-radius:12px;padding:10px 12px}
+        .stats-kpi .v{font-size:24px;font-weight:800;color:var(--text-primary)}
+        .stats-kpi .l{font-size:12px;color:var(--text-secondary)}
+        .stats-chart{margin-bottom:16px}
+        .stats-chart h4{margin:0 0 6px;font-size:14px;color:var(--text-primary)}
+        .stats-chart .meta{font-size:12px;color:var(--text-secondary);margin-left:6px;font-weight:400}
+        .stats-bars{position:relative;display:flex;align-items:flex-end;gap:2px;height:110px;border-bottom:1px solid var(--border-color,rgba(134,150,160,.35));padding-top:4px}
+        .stats-bar{flex:1;display:flex;align-items:flex-end;height:100%;cursor:default}
+        .stats-bar i{display:block;width:100%;background:#7c5cff;border-radius:4px 4px 0 0;min-height:0}
+        .stats-bar:hover i,.stats-bar:focus i{background:#9b7dff}
+        .stats-bar.zero i{height:2px !important;background:var(--text-secondary);opacity:.35}
+        .stats-axis{display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-top:3px}
+        .stats-tip{position:fixed;z-index:500;background:var(--bg-primary,#111);color:var(--text-primary);border:1px solid rgba(134,150,160,.4);border-radius:8px;padding:5px 8px;font-size:12px;pointer-events:none;white-space:nowrap}
+        .stats-feat{display:grid;grid-template-columns:120px 1fr 44px;align-items:center;gap:8px;font-size:13px;margin:5px 0;color:var(--text-primary)}
+        .stats-feat .track{height:12px}
+        .stats-feat .track i{display:block;height:100%;background:#7c5cff;border-radius:0 4px 4px 0}
+        .stats-feat .n{text-align:right;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+        .stats-range.active{background:#7c5cff;color:#fff}
+        .stats-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+        .stats-table th,.stats-table td{padding:3px 6px;text-align:right;border-bottom:1px solid rgba(134,150,160,.2);color:var(--text-primary)}
+        .stats-table th:first-child,.stats-table td:first-child{text-align:left}
     </style>
 </head>
 <body>
@@ -2533,9 +2557,24 @@
                 <p id="adminUsersOnlineCount" style="color:#8696a0;font-size:12px;margin-top:-8px;font-weight:600;"></p>
                 <div id="adminUsersBody" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;"></div>
                 <div class="modal-actions">
+                    <button class="btn-small" onclick="openAdminStatsModal()">📊 Estatísticas</button>
                     <button class="btn-small" id="adminReportsBtn" onclick="openAdminReportsModal()">🚩 Denúncias</button>
                     <button class="btn-small" onclick="openAdminLogsModal()">🪵 Ver logs de erro</button>
                     <button class="btn-small" onclick="closeModal('modalAdmin')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalAdminStats">
+            <div class="modal" style="max-width:640px;">
+                <h3>📊 Estatísticas</h3>
+                <div style="display:flex;gap:6px;margin:4px 0 10px;" role="group" aria-label="Período">
+                    <button class="btn-small stats-range" data-days="7" onclick="loadAdminStats(7)">7 dias</button>
+                    <button class="btn-small stats-range" data-days="14" onclick="loadAdminStats(14)">14 dias</button>
+                    <button class="btn-small stats-range" data-days="30" onclick="loadAdminStats(30)">30 dias</button>
+                </div>
+                <div id="adminStatsBody" style="max-height:62vh;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="closeModal('modalAdminStats')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -9608,6 +9647,86 @@
             body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
         }
     }
+    // ==================== ESTATÍSTICAS (painel do administrador) ====================
+    // Uma cor só (cada gráfico tem uma série, o título diz qual), barras finas
+    // com 2px de intervalo e ponta arredondada, valor em tooltip ao passar o
+    // dedo/rato, e uma tabela com todos os números para quem preferir.
+    const STATS_FEATURE_LABELS = {
+        transport: '🚌 Transportes', news: '📰 Notícias', 'gemini-chat': '🤖 Assistente IA', transcribe: '🎙️ Transcrever áudio', 'smart-replies': '💡 Respostas sugeridas',
+        gifs: '🎞️ GIFs', weather: '🌦️ Meteorologia', exchange: '🏦 Câmbio', currency: '🏦 Câmbio', library: '📚 Biblioteca', tv: '📺 TV', watch: '🍿 Onde assistir',
+        music: '🎧 Música', space: '🛰️ Espaço', fires: '🔥 Incêndios', tourism: '🗺️ Turismo', events: '🎭 Eventos', flights: '✈️ Voos', translate: '🌐 Tradução',
+        'link-preview': '🔗 Pré-visualização de links', geocode: '🔎 Mapa', 'generate-image': '🎨 Imagens IA', trains: '🚆 Comboios', metro: '🚇 Metro', nav: '🧭 Navegação', culture: '🎭 Eventos', drivelisten: '🚗 Conduzir e ouvir', 'price-alerts': '🔔 Alertas de preço', 'travel-stats': '🧳 Viagens', 'google-calendar': '📆 Google Calendar', slack: '💬 Slack'
+    };
+    function statsLabel(name) { return STATS_FEATURE_LABELS[name] || name; }
+    function statsFmtDay(iso) { const [y, m, d] = iso.split('-'); return `${d}/${m}`; }
+    function statsBarChart(title, series, field, unit) {
+        const max = Math.max(1, ...series.map(d => d[field]));
+        const total = series.reduce((a, d) => a + d[field], 0);
+        const bars = series.map(d => {
+            const v = d[field];
+            const h = Math.round((v / max) * 100);
+            return `<div class="stats-bar${v ? '' : ' zero'}" tabindex="0" data-tip="${statsFmtDay(d.day)}: ${v} ${unit}" aria-label="${statsFmtDay(d.day)}: ${v} ${unit}"><i style="height:${h}%"></i></div>`;
+        }).join('');
+        return `<div class="stats-chart"><h4>${title}<span class="meta">total ${total} · máx. ${max === 1 && !total ? 0 : max}/dia</span></h4>
+            <div class="stats-bars">${bars}</div>
+            <div class="stats-axis"><span>${statsFmtDay(series[0].day)}</span><span>${statsFmtDay(series[series.length - 1].day)}</span></div></div>`;
+    }
+    function openAdminStatsModal() {
+        if (!APP.user?.isAdmin) return;
+        document.getElementById('modalAdminStats').classList.add('active');
+        loadAdminStats(APP.adminStatsDays || 14);
+    }
+    async function loadAdminStats(days) {
+        APP.adminStatsDays = days;
+        document.querySelectorAll('.stats-range').forEach(b => b.classList.toggle('active', Number(b.dataset.days) === days));
+        const body = document.getElementById('adminStatsBody');
+        body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">A carregar...</p>';
+        try {
+            const res = await fetch('/api/admin/stats?days=' + days, { headers: { 'x-auth-token': APP.token } });
+            const data = await res.json();
+            if (!res.ok) { body.innerHTML = `<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">${escapeHtml(data.error || 'Erro ao carregar.')}</p>`; return; }
+            const T = data.totals;
+            const kpi = (v, l) => `<div class="stats-kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+            const maxF = Math.max(1, ...data.topFeatures.map(f => f.count));
+            body.innerHTML = `
+                <div class="stats-kpis">
+                    ${kpi(T.users, 'contas no total')}${kpi(T.online, 'online agora')}${kpi(T.activeToday, 'ativos hoje')}
+                    ${kpi(T.active7d, 'ativos nos últimos 7 dias')}${kpi(T.registrationsPeriod, `registos em ${days} dias`)}${kpi(T.messagesPeriod, `mensagens em ${days} dias`)}
+                </div>
+                ${statsBarChart('🆕 Registos por dia', data.series, 'registrations', 'registos')}
+                ${statsBarChart('👥 Pessoas ativas por dia', data.series, 'active', 'pessoas')}
+                ${statsBarChart('💬 Mensagens por dia', data.series, 'messages', 'mensagens')}
+                ${statsBarChart('📞 Chamadas por dia', data.series, 'calls', 'chamadas')}
+                <div class="stats-chart"><h4>⭐ Funcionalidades mais usadas<span class="meta">pedidos em ${days} dias</span></h4>
+                    ${data.topFeatures.length ? data.topFeatures.map(f => `<div class="stats-feat"><span>${escapeHtml(statsLabel(f.name))}</span><div class="track"><i style="width:${Math.max(2, Math.round(f.count / maxF * 100))}%"></i></div><span class="n">${f.count}</span></div>`).join('') : '<p style="color:#8696a0;font-size:13px;">Ainda sem dados — aparecem à medida que as pessoas usam a app.</p>'}
+                </div>
+                <details><summary style="cursor:pointer;color:var(--text-secondary);font-size:13px;">📋 Ver todos os números (tabela)</summary>
+                    <table class="stats-table"><thead><tr><th>Dia</th><th>Registos</th><th>Ativos</th><th>Mensagens</th><th>Chamadas</th></tr></thead>
+                    <tbody>${data.series.slice().reverse().map(d => `<tr><td>${statsFmtDay(d.day)}</td><td>${d.registrations}</td><td>${d.active}</td><td>${d.messages}</td><td>${d.calls}</td></tr>`).join('')}</tbody></table>
+                </details>`;
+        } catch (err) {
+            body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
+        }
+    }
+    // Tooltip das barras (rato, toque e teclado).
+    (function () {
+        let tip = null;
+        const show = (el) => {
+            if (!tip) { tip = document.createElement('div'); tip.className = 'stats-tip'; document.body.appendChild(tip); }
+            tip.textContent = el.dataset.tip;
+            const r = el.getBoundingClientRect();
+            tip.style.display = 'block';
+            tip.style.left = Math.min(innerWidth - tip.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - tip.offsetWidth / 2)) + 'px';
+            tip.style.top = Math.max(8, r.top - tip.offsetHeight - 6) + 'px';
+        };
+        const hide = () => { if (tip) tip.style.display = 'none'; };
+        ['mouseover', 'focusin', 'touchstart'].forEach(ev => document.addEventListener(ev, (e) => {
+            const el = e.target.closest && e.target.closest('.stats-bar');
+            if (el) show(el); else if (ev !== 'touchstart') hide();
+        }, { passive: true }));
+        ['mouseout', 'focusout'].forEach(ev => document.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest('.stats-bar')) hide(); }));
+    })();
+
     // Denúncias feitas pelos utilizadores (ver "DENÚNCIAS" no server.js).
     async function openAdminReportsModal() {
         if (!APP.user?.isAdmin) return;

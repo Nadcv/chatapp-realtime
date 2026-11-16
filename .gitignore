@@ -33,3 +33,4 @@ tests/output/
 tests/mocks/*.zip
 sessions.json
 reports.json
+stats.json
