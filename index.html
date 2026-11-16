@@ -1629,6 +1629,7 @@
                     <button onclick="cancelReply()" style="background:none;border:none;color:var(--text-secondary);font-size:16px;cursor:pointer;">✖️</button>
                 </div>
                 <div class="chat-input-area" style="position:relative;">
+                    <div id="smartRepliesBar" style="display:none;position:absolute;bottom:100%;left:0;right:0;padding:6px 10px;gap:6px;overflow-x:auto;white-space:nowrap;background:linear-gradient(to top,var(--bg-secondary),transparent);"></div>
                     <div id="mentionAutocomplete" style="display:none;position:absolute;bottom:52px;left:56px;right:56px;max-height:160px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--bg-tertiary);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:20;"></div>
                     <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="toggleEmojiPicker('messageInput')">😊</button>
                     <button class="btn-icon" style="width:28px;height:28px;font-size:13px;flex:0 0 auto;" onclick="openGifPickerModal()" title="GIFs e Stickers">🎞️</button>
@@ -12681,6 +12682,93 @@
         }
     }
 
+    // ==================== IA NAS CONVERSAS ====================
+    // 📝 Transcrever (mensagens de voz) e 💡 Sugerir respostas. Só correm quando
+    // a pessoa carrega no botão: as conversas são encriptadas de ponta a ponta,
+    // e estes pedidos mandam o áudio / as últimas mensagens ao Gemini (Google).
+    function findMessageById(id) {
+        for (const chatId of Object.keys(APP.messages || {})) {
+            const m = (APP.messages[chatId] || []).find(x => x.id === id);
+            if (m) return m;
+        }
+        return null;
+    }
+    async function transcribeAudioMessage(msgId, btn) {
+        const msg = findMessageById(msgId);
+        if (!msg || !msg.fileData) return;
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ A transcrever…'; }
+        try {
+            const res = await fetch('/api/transcribe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ fileData: msg.fileData, fileType: msg.fileType }) });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Não foi possível transcrever.');
+            msg.transcript = data.text;
+            renderMessages();
+        } catch (err) {
+            if (btn) { btn.disabled = false; btn.textContent = '📝 Transcrever'; }
+            alert('⚠️ ' + err.message);
+        }
+    }
+    function smartReplyLastMessage() {
+        const chat = APP.chats.find(c => c.id === APP.currentChatId);
+        if (!chat || chat.type === 'ai') return null;
+        const msgs = (APP.messages[APP.currentChatId] || []).filter(m => !m.deleted && !m.system);
+        const last = msgs[msgs.length - 1];
+        if (!last || last.type !== 'received' || !(last.text || '').trim() || last.poll) return null;
+        return { last, msgs };
+    }
+    function updateSmartRepliesBar() {
+        const bar = document.getElementById('smartRepliesBar');
+        if (!bar) return;
+        const info = smartReplyLastMessage();
+        if (!info || APP.smartRepliesDisabled) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+        APP.smartReplyCache = APP.smartReplyCache || {};
+        const cached = APP.smartReplyCache[info.last.id];
+        if (cached === 'hidden') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+        const chip = (label, onclick, extra = '') => `<button class="btn-small smart-reply-chip" onclick="${onclick}" style="display:inline-block;margin-right:6px;border-radius:16px;padding:5px 12px;font-size:13px;${extra}">${label}</button>`;
+        if (Array.isArray(cached)) {
+            bar.innerHTML = cached.map((r, i) => chip(escapeHtml(r), `useSmartReply(${i})`)).join('') + chip('✕', 'hideSmartReplies()', 'opacity:.7;');
+        } else if (cached === 'loading') {
+            bar.innerHTML = chip('⏳ A pensar…', '', 'opacity:.8;');
+        } else {
+            bar.innerHTML = chip('💡 Sugerir respostas', 'requestSmartReplies()');
+        }
+        bar.style.display = 'block';
+    }
+    async function requestSmartReplies() {
+        const info = smartReplyLastMessage();
+        if (!info) return;
+        const id = info.last.id;
+        APP.smartReplyCache[id] = 'loading';
+        updateSmartRepliesBar();
+        try {
+            const messages = info.msgs.slice(-8).map(m => ({ from: m.type === 'sent' ? 'me' : 'them', text: m.text || '' })).filter(m => m.text);
+            const res = await fetch('/api/smart-replies', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token || '' }, body: JSON.stringify({ messages, lang: APP.uiLang }) });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 501) APP.smartRepliesDisabled = true; // Gemini não configurado neste servidor
+            if (!res.ok) throw new Error(data.error || 'Não foi possível sugerir respostas.');
+            APP.smartReplyCache[id] = data.replies;
+        } catch (err) {
+            delete APP.smartReplyCache[id];
+            alert('⚠️ ' + err.message);
+        }
+        updateSmartRepliesBar();
+    }
+    function useSmartReply(i) {
+        const info = smartReplyLastMessage();
+        const replies = info && APP.smartReplyCache?.[info.last.id];
+        if (!Array.isArray(replies) || !replies[i]) return;
+        const input = document.getElementById('messageInput');
+        input.value = replies[i];
+        input.focus();
+        hideSmartReplies();
+    }
+    function hideSmartReplies() {
+        const info = smartReplyLastMessage();
+        if (info) APP.smartReplyCache[info.last.id] = 'hidden';
+        const bar = document.getElementById('smartRepliesBar');
+        if (bar) { bar.style.display = 'none'; bar.innerHTML = ''; }
+    }
+
     function renderMessages() {
         const msgDiv = document.getElementById('chatMessages');
         renderTopicChipsBar();
@@ -12752,6 +12840,7 @@
         msgDiv.innerHTML = html;
         msgDiv.scrollTop = msgDiv.scrollHeight;
         renderCallChatMessages();
+        updateSmartRepliesBar();
     }
 
     // ==================== CANAIS/TÓPICOS DENTRO DE UM GRUPO ====================
@@ -13279,7 +13368,9 @@
             return `<video controls src="${msg.fileData}" style="max-width:100%;border-radius:8px;margin-top:4px;"></video>`;
         }
         if (type.startsWith('audio/')) {
-            const transcriptHtml = msg.transcript ? `<div style="font-size:11px;opacity:0.75;font-style:italic;margin-top:3px;max-width:220px;">📝 "${msg.transcript}"</div>` : '';
+            const transcriptHtml = msg.transcript
+                ? `<div class="msg-transcript" style="font-size:11px;opacity:0.75;font-style:italic;margin-top:3px;max-width:220px;">📝 "${escapeHtml(msg.transcript)}"</div>`
+                : `<button class="transcribe-btn" onclick="transcribeAudioMessage('${msg.id}', this)" title="Transcrever com IA" style="background:var(--bg-tertiary);border:none;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;color:inherit;margin-top:4px;">📝 Transcrever</button>`;
             return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
                 <audio controls id="audio_${msg.id}" src="${msg.fileData}" style="max-width:200px;"></audio>
                 <button onclick="cycleAudioSpeed('audio_${msg.id}', this)" title="Velocidade de reprodução" style="background:var(--bg-tertiary);border:none;border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;color:inherit;flex:0 0 auto;">1x</button>

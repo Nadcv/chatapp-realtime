@@ -5014,6 +5014,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 // volte a partir sempre que a Google desativa um modelo específico (foi o
 // que aconteceu com o 'gemini-2.0-flash', usado antes).
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+// Os testes apontam isto para um Gemini falso local (tests/mocks/mock_gemini_server.js).
+const GEMINI_API_BASE = process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com';
 
 // Converte fileData (data:URL em base64, ou um link http(s) já enviado antes
 // para o Cloudinary) no formato inline_data que o Gemini espera. Ficheiros
@@ -5071,7 +5073,7 @@ app.post('/api/gemini-chat', async (req, res) => {
       if (!parts.length) continue;
       contents.push({ role: m.role === 'user' ? 'user' : 'model', parts });
     }
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `${GEMINI_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     const body = JSON.stringify({
       contents,
       systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat. Consegue analisar fotos, vídeos e documentos que lhe enviarem. Responda em português, de forma clara e útil.' }] }
@@ -5102,6 +5104,74 @@ app.post('/api/gemini-chat', async (req, res) => {
   }
 });
 
+// ==================== IA NAS CONVERSAS: TRANSCREVER ÁUDIOS E RESPOSTAS SUGERIDAS ====================
+// Ambos só correm quando a pessoa carrega no botão (📝 Transcrever / 💡 Sugerir
+// respostas) — as mensagens são encriptadas de ponta a ponta, por isso nunca
+// se envia nada ao Gemini sem a pessoa pedir. Precisam de sessão iniciada.
+async function callGeminiOnce(contents, systemText, extra = {}) {
+  const url = `${GEMINI_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const body = JSON.stringify({ contents, systemInstruction: { parts: [{ text: systemText }] }, ...extra });
+  let r, data;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(45000) });
+    data = await r.json().catch(() => ({}));
+    if (r.ok || r.status !== 503 || attempt === 1) break;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  if (!r.ok) {
+    const err = new Error(data?.error?.message || ('HTTP ' + r.status));
+    err.status = r.status;
+    throw err;
+  }
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join('\n').trim() || '';
+}
+function geminiErrorResponse(res, err, what) {
+  console.error(`Erro Gemini (${what}):`, err.message);
+  if (err.status === 429) return res.status(429).json({ error: 'O Gemini atingiu o limite gratuito de pedidos por agora — tenta daqui a um bocado.' });
+  return res.status(502).json({ error: 'Não foi possível falar com o Gemini agora. Tenta novamente.' });
+}
+function requireSessionPhone(req, res) {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = token && sessions[token];
+  if (!phone) { res.status(401).json({ error: 'Sessão inválida. Volta a entrar na app.' }); return null; }
+  return phone;
+}
+app.post('/api/transcribe', rateLimit({ name: 'transcribe', windowMs: 15 * 60 * 1000, max: 40, message: 'Demasiadas transcrições seguidas.' }), async (req, res) => {
+  if (!requireSessionPhone(req, res)) return;
+  if (!GEMINI_API_KEY) return res.status(501).json({ error: 'A transcrição precisa do assistente Gemini configurado no servidor (GEMINI_API_KEY).' });
+  const { fileData, fileType } = req.body || {};
+  const inline = await toGeminiInlineData(fileData, fileType);
+  if (!inline || !/^audio\/|^video\/webm/.test(inline.mime_type)) return res.status(400).json({ error: 'Áudio inválido ou demasiado grande.' });
+  try {
+    const text = await callGeminiOnce(
+      [{ role: 'user', parts: [{ text: 'Transcreve este áudio.' }, { inline_data: inline }] }],
+      'Transcreves mensagens de voz de uma app de chat. Responde APENAS com a transcrição exata, na língua original, com pontuação. Se não houver fala percetível, responde exatamente: [sem fala percetível]'
+    );
+    res.json({ text: text.slice(0, 4000) || '[sem fala percetível]' });
+  } catch (err) { geminiErrorResponse(res, err, 'transcrição'); }
+});
+app.post('/api/smart-replies', rateLimit({ name: 'smart-replies', windowMs: 15 * 60 * 1000, max: 60, message: 'Demasiados pedidos de sugestões.' }), async (req, res) => {
+  if (!requireSessionPhone(req, res)) return;
+  if (!GEMINI_API_KEY) return res.status(501).json({ error: 'As respostas sugeridas precisam do assistente Gemini configurado no servidor (GEMINI_API_KEY).' });
+  const msgs = Array.isArray(req.body?.messages) ? req.body.messages.slice(-8) : [];
+  const clean = msgs.map((m) => ({ from: m.from === 'me' ? 'Eu' : 'Outra pessoa', text: String(m.text || '').slice(0, 500) })).filter((m) => m.text.trim());
+  if (!clean.length) return res.status(400).json({ error: 'Sem mensagens para sugerir respostas.' });
+  const lang = ['pt', 'en', 'es'].includes(req.body?.lang) ? req.body.lang : 'pt';
+  try {
+    const raw = await callGeminiOnce(
+      [{ role: 'user', parts: [{ text: 'Conversa (a última mensagem é da outra pessoa):\n' + clean.map((m) => `${m.from}: ${m.text}`).join('\n') }] }],
+      `Sugeres respostas curtas para "Eu" numa app de chat. Devolve APENAS um array JSON com exatamente 3 respostas diferentes (máx. 60 caracteres cada), naturais e simpáticas, na língua da conversa (se não der para saber, usa ${lang === 'en' ? 'inglês' : lang === 'es' ? 'espanhol' : 'português europeu'}). Sem explicações.`,
+      { generationConfig: { responseMimeType: 'application/json', temperature: 0.8 } }
+    );
+    let replies = [];
+    try { replies = JSON.parse(raw.replace(/^```(?:json)?|```$/g, '').trim()); } catch (e) { replies = raw.split('\n'); }
+    replies = (Array.isArray(replies) ? replies : []).map((r) => String(typeof r === 'object' && r ? (r.text || r.reply || '') : r).replace(/^[-*\d.\s"]+|"$/g, '').trim().slice(0, 80)).filter(Boolean);
+    replies = [...new Set(replies)].slice(0, 3);
+    if (!replies.length) return res.status(502).json({ error: 'O Gemini não devolveu sugestões.' });
+    res.json({ replies });
+  } catch (err) { geminiErrorResponse(res, err, 'respostas sugeridas'); }
+});
+
 // Versão "de bastidores" do mesmo resumo já feito por summarizeChat() no
 // cliente (que chama /api/gemini-chat) — usada pelo resumo diário automático
 // (ver mais abaixo), que corre dentro do próprio servidor sem passar por
@@ -5111,7 +5181,7 @@ app.post('/api/gemini-chat', async (req, res) => {
 async function generateGeminiSummary(transcript) {
   if (!GEMINI_API_KEY) return null;
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `${GEMINI_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     const body = JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: 'Resume a conversa a seguir em português, de forma breve (5-8 linhas no máximo), destacando decisões, pedidos ou combinações importantes. Não inventes nada que não esteja na conversa.\n\n' + transcript }] }],
       systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat.' }] }
