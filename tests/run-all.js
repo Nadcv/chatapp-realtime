@@ -276,7 +276,7 @@ function runOneTest(file) {
 async function runBatch(files, envOverrides, label) {
   if (!files.length) return [];
   console.log(`\n=== Lote: ${label} (${files.length} ficheiro(s), servidor com CP_GTFS_URL=${envOverrides.CP_GTFS_URL || BASE_ENV.CP_GTFS_URL}) ===`);
-  const serverProc = startMainServer(envOverrides);
+  let serverProc = startMainServer(envOverrides);
   await waitForHttp(`http://localhost:${SERVER_PORT}/`, 20000);
 
   const results = [];
@@ -296,6 +296,15 @@ async function runBatch(files, envOverrides, label) {
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
     const failing = results.filter((r) => r.crashed || r.failed > 0);
     if (!failing.length) break;
+    // Alguns testes só falham por causa do estado acumulado no servidor pelos
+    // outros (centenas de contas/grupos criados em paralelo): as repetições
+    // correm num servidor acabado de arrancar, com os dados locais limpos.
+    try { process.kill(serverProc.pid, 'SIGKILL'); } catch (e) {}
+    spawned.splice(spawned.indexOf(serverProc), 1);
+    await new Promise((r) => setTimeout(r, 500));
+    wipeLocalDataFiles();
+    serverProc = startMainServer(envOverrides);
+    await waitForHttp(`http://localhost:${SERVER_PORT}/`, 20000);
     for (const prev of failing) {
       process.stdout.write(`  🔁 a repetir sozinho ${prev.file} (tentativa ${attempt})...\n`);
       const r = await runOneTest(prev.file);
