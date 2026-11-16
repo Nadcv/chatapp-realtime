@@ -1,0 +1,62 @@
+# Cópia de segurança semanal do MongoDB Atlas (o plano grátis M0 não faz backups).
+#
+# O repositório é PÚBLICO, por isso a cópia é CIFRADA (AES-256, gpg) antes de
+# ser guardada: sem a senha BACKUP_PASSPHRASE ninguém a consegue abrir.
+# Fica guardada 90 dias em Actions → "Cópia de segurança do MongoDB" → artefacto.
+#
+# Configuração (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+#   MONGO_URI          – o mesmo valor que está no Render
+#   BACKUP_PASSPHRASE  – uma senha longa inventada por ti (guarda-a bem: sem ela a cópia não abre)
+# Sem estes dois segredos, o workflow não faz nada.
+# Como restaurar: secção "Cópias de segurança do MongoDB" do README.
+name: Cópia de segurança do MongoDB
+
+on:
+  schedule:
+    - cron: '17 3 * * 0' # domingos às 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Verificar segredos
+        id: check
+        run: |
+          if [ -z "$MONGO_URI" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "MONGO_URI ou BACKUP_PASSPHRASE não configurados — nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Exportar a base de dados (mongodump)
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          docker run --rm -e MONGO_URI mongo:7 sh -c 'mongodump --uri="$MONGO_URI" --archive --gzip' > dump.archive.gz
+          SIZE=$(stat -c %s dump.archive.gz)
+          echo "Tamanho da cópia: $SIZE bytes"
+          if [ "$SIZE" -lt 100 ]; then echo "A cópia está vazia ou falhou."; exit 1; fi
+
+      - name: Cifrar a cópia
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          NAME="mongodb-$(date -u +%Y-%m-%d).archive.gz.gpg"
+          gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output "$NAME" dump.archive.gz <<< "$BACKUP_PASSPHRASE"
+          shred -u dump.archive.gz
+          echo "BACKUP_FILE=$NAME" >> "$GITHUB_ENV"
+
+      - name: Guardar a cópia cifrada (90 dias)
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_FILE }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 90
+          compression-level: 0

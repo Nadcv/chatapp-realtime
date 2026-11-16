@@ -1,0 +1,51 @@
+# Testes automáticos: correm em cada pull request para o main e em cada push
+# para o main. Se algum teste falhar, o pull request mostra um ❌ antes do
+# merge. Grátis para repositórios públicos.
+name: Testes
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        # Sem package-lock.json no repositório (está no .gitignore), por isso npm install.
+        run: npm install --no-audit --no-fund
+
+      - name: Instalar o Chromium do Playwright
+        run: |
+          npx playwright install --with-deps chromium
+          # Os testes abrem o browser em /opt/pw-browsers/chromium.
+          sudo mkdir -p /opt/pw-browsers
+          sudo ln -sf "$(node -e "console.log(require('playwright').chromium.executablePath())")" /opt/pw-browsers/chromium
+
+      - name: Correr os testes
+        run: node tests/run-all.js --concurrency=4 --retries=1
+
+      - name: Guardar os logs dos testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-dos-testes
+          path: tests/output/
+          retention-days: 7

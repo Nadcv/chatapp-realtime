@@ -35,7 +35,72 @@ app.set('trust proxy', 1);
 // reserializada do JSON já interpretado (podem não ser idênticos). Não muda
 // nada no comportamento normal do parser para todas as outras rotas.
 app.use(express.json({ limit: '20mb', verify: (req, res, buf) => { req.rawBody = buf; } })); // permite anexos (fotos/áudio) em base64 até ~15MB reais
+// Compressão gzip/brotli das respostas: o index.html tem ~1 MB e passa a
+// viajar com ~230 KB, o que faz a app abrir bem mais depressa em dados móveis.
+// Se o pacote não estiver instalado, a app funciona na mesma, só sem compressão.
+try { app.use(require('compression')()); } catch (e) { console.warn('⚠️ Pacote "compression" não instalado — respostas sem compressão.'); }
 app.use(express.static(__dirname)); // serve o index.html e demais arquivos estáticos
+
+// ==================== LIMITE DE TENTATIVAS (contra adivinhar senhas e spam) ====================
+// Sem dependências: contadores em memória por IP e/ou por telefone, numa
+// janela de tempo. Ao passar o limite responde 429 com "Retry-After".
+// - countFailuresOnly: só conta pedidos que terminam com erro (>= 400), para
+//   quem acerta à primeira nunca ser travado.
+// - Pedidos de localhost (testes e desenvolvimento) não são limitados por IP,
+//   a não ser com RATE_LIMIT_INCLUDE_LOCALHOST=1. Atrás do proxy do Render
+//   ('trust proxy' acima) o req.ip é o IP real de quem faz o pedido.
+const rateLimitBuckets = new Map(); // chave -> { count, resetAt }
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of rateLimitBuckets) if (b.resetAt <= now) rateLimitBuckets.delete(k);
+}, 5 * 60 * 1000).unref();
+function isLoopbackIp(ip) {
+  return !ip || ip === '::1' || ip.startsWith('127.') || ip === '::ffff:127.0.0.1';
+}
+function formatWait(ms) {
+  const min = Math.ceil(ms / 60000);
+  return min <= 1 ? '1 minuto' : `${min} minutos`;
+}
+function rateLimit({ name, windowMs, max, by = 'ip', countFailuresOnly = false, message }) {
+  return (req, res, next) => {
+    const keys = [];
+    if ((by === 'ip' || by === 'both') && (process.env.RATE_LIMIT_INCLUDE_LOCALHOST === '1' || !isLoopbackIp(req.ip))) keys.push(`${name}:ip:${req.ip}`);
+    const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim() : '';
+    if ((by === 'phone' || by === 'both') && phone) keys.push(`${name}:phone:${phone}`);
+    if (!keys.length) return next();
+    const now = Date.now();
+    for (const k of keys) {
+      const b = rateLimitBuckets.get(k);
+      if (b && b.resetAt > now && b.count >= max) {
+        const wait = b.resetAt - now;
+        res.set('Retry-After', String(Math.ceil(wait / 1000)));
+        log(`🚫 Limite de tentativas atingido (${name}) para ${k.split(':').slice(1).join(':')}`, 'SECURITY');
+        return res.status(429).json({ error: (message || 'Demasiadas tentativas.') + ` Tenta novamente daqui a ${formatWait(wait)}.` });
+      }
+    }
+    const count = () => {
+      const t = Date.now();
+      for (const k of keys) {
+        const b = rateLimitBuckets.get(k);
+        if (!b || b.resetAt <= t) rateLimitBuckets.set(k, { count: 1, resetAt: t + windowMs });
+        else b.count++;
+      }
+    };
+    if (countFailuresOnly) res.on('finish', () => { if (res.statusCode >= 400) count(); });
+    else count();
+    next();
+  };
+}
+const MIN = 60 * 1000;
+const tooManyLogins = 'Demasiadas tentativas de entrada falhadas.';
+app.post('/api/login', rateLimit({ name: 'login-ip', windowMs: 15 * MIN, max: 30, countFailuresOnly: true, message: tooManyLogins }));
+app.post('/api/login', rateLimit({ name: 'login-phone', windowMs: 15 * MIN, max: 10, by: 'phone', countFailuresOnly: true, message: tooManyLogins }));
+app.post('/api/register', rateLimit({ name: 'register', windowMs: 60 * MIN, max: 15, message: 'Demasiados registos a partir desta ligação.' }));
+app.post('/api/password-reset/request', rateLimit({ name: 'reset-request', windowMs: 60 * MIN, max: 10, message: 'Demasiados pedidos de recuperação de senha.' }));
+app.post('/api/password-reset/request', rateLimit({ name: 'reset-request-phone', windowMs: 60 * MIN, max: 5, by: 'phone', message: 'Demasiados pedidos de recuperação de senha para este número.' }));
+for (const route of ['/api/register/verify-email', '/api/login/verify-code', '/api/password-reset/confirm', '/api/webauthn/login-verify', '/api/device-pairing/redeem']) {
+  app.post(route, rateLimit({ name: 'codes' + route, windowMs: 15 * MIN, max: 30, countFailuresOnly: true, message: 'Demasiadas tentativas falhadas.' }));
+}
 
 // ==================== LOGS RECENTES (para o admin ver erros em produção) ====================
 // Até aqui, diagnosticar um problema em produção dependia inteiramente de o
@@ -55,7 +120,11 @@ console.error = (...args) => {
   const message = args.map((a) => (a instanceof Error ? (a.stack || a.message) : (typeof a === 'string' ? a : JSON.stringify(a)))).join(' ');
   RECENT_ERROR_LOGS.push({ time: new Date().toISOString(), message });
   if (RECENT_ERROR_LOGS.length > MAX_RECENT_ERROR_LOGS) RECENT_ERROR_LOGS.shift();
+  PENDING_ERROR_ALERTS.push({ time: new Date().toISOString(), message });
+  if (PENDING_ERROR_ALERTS.length > 500) PENDING_ERROR_ALERTS.shift();
 };
+// Erros ainda não enviados no aviso por email (ver "AVISO DE ERROS POR EMAIL").
+const PENDING_ERROR_ALERTS = [];
 
 // ==================== BASE DE DADOS (MongoDB Atlas / Persistência Total) ====================
 // Configuração para guardar permanentemente contas, grupos e mensagens na nuvem,
@@ -284,7 +353,7 @@ const MIRRORED_FILES = new Set([
   'muted.json', 'archived.json', 'pinned-chats.json', 'blocked.json', 'broadcasts.json',
   'folders.json', 'tourism-favorites.json', 'shopping-list.json', 'reminders.json',
   'recurring-expenses.json', 'scheduled-calls.json', 'roadalerts.json',
-  'price-alerts.json', 'travel-history.json'
+  'price-alerts.json', 'travel-history.json', 'reports.json'
 ]);
 // Gravações seguidas do mesmo ficheiro (ex.: várias chamadas a terminar) são
 // juntadas numa só ida ao MongoDB, no máximo uma a cada MIRROR_DEBOUNCE_MS.
@@ -373,7 +442,7 @@ async function connectDatabase() {
   // histórico de chamadas, agendamento, silenciar...) usam sempre ficheiro
   // local; com o MongoDB ligado, esse ficheiro é antes reposto a partir da
   // cópia guardada lá (ver "ESPELHO NO MONGODB" acima).
-  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); };
+  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); };
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadFileOnlyStores();
@@ -1370,6 +1439,38 @@ app.get('/api/admin/logs', (req, res) => {
   const phone = sessions[token];
   if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
   res.json({ logs: RECENT_ERROR_LOGS.slice().reverse() });
+});
+
+// Convite por link (/?convite=<nome de utilizador>): o ecrã de entrada mostra
+// "<Nome> convidou-te". Só devolve o nome visível — nunca o telefone.
+app.get('/api/invite/:username', rateLimit({ name: 'invite-lookup', windowMs: 15 * 60 * 1000, max: 60 }), (req, res) => {
+  const username = String(req.params.username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  const acc = username && accounts[usernameIndex[username]];
+  if (!acc) return res.json({ found: false });
+  res.json({ found: true, name: acc.name, username: acc.username });
+});
+
+// Denúncias (ver "DENÚNCIAS" mais abaixo) — só para o administrador.
+app.get('/api/admin/reports', (req, res) => {
+  const token = req.query.token || req.headers['x-admin-token'] || req.headers['x-auth-token'];
+  const phone = sessions[token];
+  if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
+  const reports = userReports.slice().reverse().map((r) => ({ ...r, targetExists: !!accounts[r.targetPhone], reportsAgainstTarget: userReports.filter((x) => x.targetPhone === r.targetPhone).length }));
+  res.json({ reports, open: userReports.filter((r) => r.status === 'aberta').length });
+});
+app.post('/api/admin/reports/resolve', (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = sessions[token];
+  if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
+  const { id, status } = req.body || {};
+  if (!['resolvida', 'rejeitada', 'aberta'].includes(status)) return res.status(400).json({ error: 'Estado inválido.' });
+  const report = userReports.find((r) => r.id === id);
+  if (!report) return res.status(404).json({ error: 'Denúncia não encontrada.' });
+  report.status = status;
+  report.resolvedAt = status === 'aberta' ? null : new Date().toISOString();
+  report.resolvedBy = status === 'aberta' ? null : (accounts[phone]?.name || phone);
+  saveReportsLocal();
+  res.json({ ok: true, report });
 });
 
 app.post('/api/publish-key', async (req, res) => {
@@ -3204,6 +3305,61 @@ async function sendAppEmail({ to, subject, text, html }) {
 function isEmailConfigured() {
   return !!process.env.RESEND_API_KEY || !!getMailTransporter();
 }
+
+// ==================== AVISO DE ERROS POR EMAIL ====================
+// Em vez de só saberes de um erro quando alguém se queixa, o servidor manda
+// ao administrador um email com o resumo dos erros (no máximo um email a cada
+// ERROR_ALERT_INTERVAL_HOURS horas, 6 por omissão). Usa o mesmo envio de email
+// da app (Resend/SMTP). Destinatário: ALERT_EMAIL, ou o email da conta de
+// administrador. ERROR_ALERTS=off desliga.
+// Erros "esperados" e frequentes (ex.: um site de notícias em baixo) não
+// contam, para o aviso não virar spam.
+const ERROR_ALERT_IGNORE = [/Erro ao obter notícias/, /Limite de tentativas/];
+let lastErrorAlertAt = 0;
+function errorAlertRecipient() {
+  if (process.env.ALERT_EMAIL) return process.env.ALERT_EMAIL;
+  const admin = Object.values(accounts).find((a) => a.email && isAdminPhone(a.phone));
+  return admin ? admin.email : null;
+}
+async function sendErrorAlertIfDue() {
+  if (process.env.ERROR_ALERTS === 'off' || !isEmailConfigured()) return;
+  const intervalMs = (Number(process.env.ERROR_ALERT_INTERVAL_HOURS) || 6) * 60 * 60 * 1000;
+  if (Date.now() - lastErrorAlertAt < intervalMs) return;
+  const relevant = PENDING_ERROR_ALERTS.splice(0).filter((e) => !ERROR_ALERT_IGNORE.some((re) => re.test(e.message)));
+  if (!relevant.length) return;
+  const to = errorAlertRecipient();
+  if (!to) return;
+  // Agrupa mensagens iguais (as primeiras 160 letras) e conta quantas vezes aconteceram.
+  const groups = new Map();
+  for (const e of relevant) {
+    const key = e.message.split('\n')[0].slice(0, 160);
+    const g = groups.get(key) || { count: 0, first: e.time, last: e.time, sample: e.message.slice(0, 1500) };
+    g.count++; g.last = e.time; groups.set(key, g);
+  }
+  const sorted = [...groups.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 15);
+  const text = `A NADIO registou ${relevant.length} erro(s) desde o último aviso:\n\n` +
+    sorted.map(([k, g]) => `• ${g.count}× — ${k}\n  (primeiro: ${g.first}, último: ${g.last})`).join('\n\n') +
+    '\n\nDetalhes completos no Painel de administração → Logs de erros.';
+  const html = `<p>A <b>NADIO</b> registou <b>${relevant.length}</b> erro(s) desde o último aviso:</p><ul>` +
+    sorted.map(([k, g]) => `<li><b>${g.count}×</b> — ${escapeHtmlServer(k)}<br><small>primeiro: ${g.first} · último: ${g.last}</small><pre style="white-space:pre-wrap;font-size:11px;color:#555">${escapeHtmlServer(g.sample)}</pre></li>`).join('') +
+    '</ul><p>Detalhes completos no Painel de administração → Logs de erros.</p>';
+  lastErrorAlertAt = Date.now();
+  const ok = await sendAppEmail({ to, subject: `⚠️ ${relevant.length} erro(s) na app — NADIO`, text, html });
+  if (ok) log(`📧 Aviso de erros enviado (${relevant.length} erro(s))`, 'ALERT');
+}
+// ERROR_ALERT_CHECK_SECONDS só existe para os testes poderem verificar o aviso depressa.
+setInterval(() => { sendErrorAlertIfDue().catch(() => {}); }, (Number(process.env.ERROR_ALERT_CHECK_SECONDS) || 600) * 1000).unref();
+
+// Erros que acontecem no telemóvel/browser de quem usa a app (o cliente manda-os
+// para aqui) — passam a aparecer nos logs de erros e no aviso por email.
+app.post('/api/client-error', rateLimit({ name: 'client-error', windowMs: 15 * 60 * 1000, max: 20 }), (req, res) => {
+  const b = req.body || {};
+  const clip = (v, n) => String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').slice(0, n);
+  const token = req.headers['x-auth-token'];
+  const who = token && sessions[token] ? 'conta com sessão' : 'sem sessão';
+  console.error(`[cliente] ${clip(b.message, 300)} — ${clip(b.source, 200)}:${clip(b.line, 10)}:${clip(b.column, 10)} (${who}, ${clip(req.headers['user-agent'], 120)})${b.stack ? '\n' + String(b.stack).slice(0, 1500) : ''}`);
+  res.json({ ok: true });
+});
 function escapeHtmlServer(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -5508,6 +5664,21 @@ function saveBlockedLocal() {
   writeJsonFileSafe(BLOCKED_FILE, JSON.stringify(blockedByPhone), (err) => { if (err) console.error('Erro ao salvar bloqueados:', err.message); });
 }
 
+// ==================== DENÚNCIAS (para o administrador moderar) ====================
+// Guardadas em reports.json, que também vai para o MongoDB (ver MIRRORED_FILES),
+// por isso não se perdem nos reinícios. O administrador vê-as no painel.
+const REPORTS_FILE = path.join(__dirname, 'reports.json');
+const MAX_REPORTS_KEPT = 1000;
+let userReports = []; // [{ id, time, reporterPhone, reporterName, targetPhone, targetName, reason, status, resolvedAt, resolvedBy }]
+function loadReportsLocal() {
+  try { if (fs.existsSync(REPORTS_FILE)) userReports = JSON.parse(fs.readFileSync(REPORTS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar denúncias:', err.message); }
+}
+function saveReportsLocal() {
+  if (userReports.length > MAX_REPORTS_KEPT) userReports = userReports.slice(-MAX_REPORTS_KEPT);
+  writeJsonFileSafe(REPORTS_FILE, JSON.stringify(userReports), (err) => { if (err) console.error('Erro ao salvar denúncias:', err.message); });
+}
+
 // ==================== LISTAS DE TRANSMISSÃO ====================
 // Cada lista pertence só a quem a criou (guardada por telefone). Enviar para
 // uma lista não cria nenhuma "sala" nova — o cliente reaproveita o envio
@@ -7403,8 +7574,29 @@ io.on('connection', (socket) => {
     if (!blockedByPhone[myPhone]) blockedByPhone[myPhone] = [];
     if (!blockedByPhone[myPhone].includes(targetPhone)) blockedByPhone[myPhone].push(targetPhone);
     saveBlockedLocal();
-    fs.appendFile(path.join(__dirname, 'reports.log'), `${new Date().toISOString()} | ${myPhone} denunciou ${targetPhone} | motivo: ${(reason || '(sem motivo)').substring(0, 300)}\n`, () => {});
     socket.emit('blocked_list', blockedByPhone[myPhone]);
+    // No máximo 20 denúncias por pessoa em 24 horas (o bloqueio acima acontece sempre).
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    if (userReports.filter((r) => r.reporterPhone === myPhone && Date.parse(r.time) > dayAgo).length >= 20) return;
+    const report = {
+      id: crypto.randomBytes(8).toString('hex'),
+      time: new Date().toISOString(),
+      reporterPhone: myPhone, reporterName: accounts[myPhone]?.name || myPhone,
+      targetPhone, targetName: accounts[targetPhone]?.name || targetPhone,
+      reason: String(reason || '').trim().substring(0, 300) || '(sem motivo)',
+      status: 'aberta'
+    };
+    userReports.push(report);
+    saveReportsLocal();
+    log(`🚩 ${report.reporterName} denunciou ${report.targetName}`, 'MODERATION');
+    const to = errorAlertRecipient();
+    if (to && isEmailConfigured()) {
+      sendAppEmail({
+        to, subject: `🚩 Nova denúncia: ${report.targetName} — NADIO`,
+        text: `${report.reporterName} (${report.reporterPhone}) denunciou ${report.targetName} (${report.targetPhone}).\n\nMotivo: ${report.reason}\n\nVê e resolve no Painel de administração → Denúncias.`,
+        html: `<p><b>${escapeHtmlServer(report.reporterName)}</b> (${escapeHtmlServer(report.reporterPhone)}) denunciou <b>${escapeHtmlServer(report.targetName)}</b> (${escapeHtmlServer(report.targetPhone)}).</p><p>Motivo: ${escapeHtmlServer(report.reason)}</p><p>Vê e resolve no Painel de administração → Denúncias.</p>`
+      }).catch(() => {});
+    }
   });
 
   // ==================== LISTAS DE TRANSMISSÃO ====================

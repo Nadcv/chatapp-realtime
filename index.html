@@ -1345,6 +1345,7 @@
         </div>
         <h1 data-i18n="appName">NADIO</h1>
         <p style="color:#8696a0;text-align:center;" data-i18n="appTagline">O teu mundo. A tua gente.</p>
+        <div id="inviteBanner" style="display:none;background:rgba(124,92,255,0.15);border:1px solid rgba(124,92,255,0.5);color:var(--text-primary);border-radius:12px;padding:10px 14px;text-align:center;font-size:14px;max-width:380px;margin:4px auto 0;"></div>
 
         <!-- Formulário de ENTRAR -->
         <div id="loginFormBox" style="width:100%;display:flex;flex-direction:column;gap:14px;">
@@ -2471,8 +2472,20 @@
                 <p id="adminUsersOnlineCount" style="color:#8696a0;font-size:12px;margin-top:-8px;font-weight:600;"></p>
                 <div id="adminUsersBody" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;"></div>
                 <div class="modal-actions">
+                    <button class="btn-small" id="adminReportsBtn" onclick="openAdminReportsModal()">🚩 Denúncias</button>
                     <button class="btn-small" onclick="openAdminLogsModal()">🪵 Ver logs de erro</button>
                     <button class="btn-small" onclick="closeModal('modalAdmin')">Fechar</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modalAdminReports">
+            <div class="modal">
+                <h3>🚩 Denúncias</h3>
+                <p style="color:#8696a0;font-size:13px;">Quem denuncia também bloqueia a pessoa. Marca cada denúncia como resolvida ou rejeitada; se for grave, podes apagar a conta denunciada.</p>
+                <div id="adminReportsBody" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;"></div>
+                <div class="modal-actions">
+                    <button class="btn-small" onclick="openAdminReportsModal()">🔄 Atualizar</button>
+                    <button class="btn-small" onclick="closeModal('modalAdminReports')">Fechar</button>
                 </div>
             </div>
         </div>
@@ -2623,6 +2636,7 @@
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openBroadcastScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📢<span style="font-size:11px;">Lista de transmissão</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openNewCallModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📞<span style="font-size:11px;">Nova chamada</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openSearchUserModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🔍<span style="font-size:11px;">Utilizadores cadastrados</span></button>
+                    <button class="btn-small" onclick="closeModal('modalContactsFeatures');inviteFriends()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📨<span style="font-size:11px;">Convidar amigos</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openCallLogScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">📋<span style="font-size:11px;">Histórico de chamadas</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openArchivedScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🗄️<span style="font-size:11px;">Conversas arquivadas</span></button>
                     <button class="btn-small" onclick="closeModal('modalContactsFeatures');openBlockedUsersModal()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🚫<span style="font-size:11px;">Contas bloqueadas</span></button>
@@ -3770,6 +3784,39 @@
 </div>
 
 <script>
+    // ==================== AVISO DE ERROS (envia para o servidor) ====================
+    // Erros de JavaScript neste aparelho são enviados ao servidor (/api/client-error),
+    // para o administrador os ver nos logs e no aviso por email. No máximo 10 por
+    // visita e sem repetir o mesmo erro, para não gastar dados.
+    (function () {
+        const sent = new Set();
+        let count = 0;
+        function report(message, source, line, column, stack) {
+            try {
+                const key = message + '|' + source + '|' + line;
+                if (count >= 10 || sent.has(key)) return;
+                sent.add(key); count++;
+                let token = '';
+                try { token = localStorage.getItem('authToken') || ''; } catch (e) {}
+                fetch('/api/client-error', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+                    body: JSON.stringify({ message: String(message || ''), source: String(source || ''), line, column, stack: stack ? String(stack) : '' }),
+                    keepalive: true
+                }).catch(() => {});
+            } catch (e) { /* nunca deixar o próprio aviso partir a app */ }
+        }
+        window.addEventListener('error', (ev) => {
+            if (!ev.message) return; // erros a carregar imagens/scripts externos não têm mensagem
+            report(ev.message, ev.filename, ev.lineno, ev.colno, ev.error && ev.error.stack);
+        });
+        window.addEventListener('unhandledrejection', (ev) => {
+            const r = ev.reason;
+            report('Promise rejeitada: ' + (r && r.message ? r.message : String(r)), location.pathname, 0, 0, r && r.stack);
+        });
+    })();
+</script>
+<script>
     const socket = io();
     let peerConnection = null;
     let pendingIceCandidates = []; // candidatos ICE (1-para-1) chegados antes de existir peerConnection/remoteDescription
@@ -4281,6 +4328,7 @@
         APP.onlineContacts = list || [];
         rebuildChatsFromServer();
         checkBirthdaysToday();
+        handlePendingInvite();
     });
 
     // ==================== ANIVERSÁRIOS ====================
@@ -9168,6 +9216,15 @@
     }
 
     socket.on('search_user_result', (data) => {
+        if (APP.pendingInviteUsername && data.query && data.query.toLowerCase() === APP.pendingInviteUsername) {
+            APP.pendingInviteUsername = null;
+            if (data.found) {
+                const banner = document.getElementById('inviteBanner');
+                if (banner) banner.style.display = 'none';
+                startChatWithFoundUser(data.user.phone);
+            }
+            return;
+        }
         const box = document.getElementById('searchUserResult');
         if (!box) return;
         if (!data.found) {
@@ -9185,6 +9242,68 @@
             </div>
             <button class="btn btn-primary" style="margin-top:12px;" onclick="startChatWithFoundUser('${u.phone}')">💬 Iniciar conversa</button>`;
     });
+
+    // ==================== CONVIDAR AMIGOS POR LINK ====================
+    // O link é https://<app>/?convite=<o teu nome de utilizador>. Quem o abre vê
+    // "<Nome> convidou-te" no ecrã de entrada e, depois de entrar ou criar
+    // conta, a conversa contigo abre-se sozinha.
+    function inviteLink() {
+        return `${location.origin}/?convite=${encodeURIComponent(APP.user.username)}`;
+    }
+    async function inviteFriends() {
+        if (!APP.user?.username) {
+            alert('Para convidar amigos precisas primeiro de um nome de utilizador (@). Define-o no teu perfil (👤 → 🔖 Nome de utilizador).');
+            return;
+        }
+        const url = inviteLink();
+        const text = `Junta-te a mim na NADIO — O teu mundo. A tua gente. 💜`;
+        if (navigator.share) {
+            try { await navigator.share({ title: 'NADIO', text, url }); return; }
+            catch (e) { if (e && e.name === 'AbortError') return; }
+        }
+        try {
+            await navigator.clipboard.writeText(`${text}\n${url}`);
+            alert(`Link de convite copiado! Cola-o numa mensagem para os teus amigos:\n\n${url}`);
+        } catch (e) {
+            prompt('Copia este link de convite e envia-o aos teus amigos:', url);
+        }
+    }
+    // Lê ?convite= do endereço (uma vez), guarda-o e limpa o endereço.
+    (function readInviteFromUrl() {
+        try {
+            const params = new URLSearchParams(location.search);
+            const inviter = (params.get('convite') || '').trim().toLowerCase();
+            if (!inviter) return;
+            localStorage.setItem('pendingInvite', inviter);
+            params.delete('convite');
+            history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
+        } catch (e) {}
+    })();
+    (async function showInviteBanner() {
+        let inviter = '';
+        try { inviter = localStorage.getItem('pendingInvite') || ''; } catch (e) {}
+        if (!inviter) return;
+        try {
+            const data = await fetch('/api/invite/' + encodeURIComponent(inviter)).then(r => r.json());
+            if (!data.found) { localStorage.removeItem('pendingInvite'); return; }
+            const banner = document.getElementById('inviteBanner');
+            if (banner) {
+                banner.textContent = `💌 ${data.name} convidou-te para a NADIO! Cria a tua conta (ou entra) e a conversa com ${data.name} abre-se sozinha.`;
+                banner.style.display = 'block';
+            }
+        } catch (e) {}
+    })();
+    // Chamado quando a lista de contactos chega (sessão já ligada ao servidor).
+    function handlePendingInvite() {
+        let inviter = '';
+        try { inviter = localStorage.getItem('pendingInvite') || ''; } catch (e) {}
+        if (!inviter || APP.inviteHandled) return;
+        APP.inviteHandled = true;
+        localStorage.removeItem('pendingInvite');
+        if (APP.user?.username && APP.user.username.toLowerCase() === inviter) return; // abriu o próprio link
+        APP.pendingInviteUsername = inviter;
+        socket.emit('search_user', { username: inviter });
+    }
 
     function startChatWithFoundUser(phone) {
         socket.emit('add_contact', { phone });
@@ -9210,6 +9329,9 @@
             if (!res.ok) { body.innerHTML = `<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">${escapeHtml(data.error || 'Erro ao carregar.')}</p>`; return; }
             const onlineCount = (data.users || []).filter(u => u.online).length;
             document.getElementById('adminUsersOnlineCount').textContent = `${data.users?.length || 0} cadastrado(s) · ${onlineCount} online agora`;
+            fetch('/api/admin/reports', { headers: { 'x-auth-token': APP.token } }).then(r => r.json()).then(d => {
+                document.getElementById('adminReportsBtn').textContent = d.open ? `🚩 Denúncias (${d.open})` : '🚩 Denúncias';
+            }).catch(() => {});
             body.innerHTML = (data.users || []).map(u => `
                 <div style="background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;font-size:13px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -9243,6 +9365,46 @@
                 </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Sem erros registados.</p>';
         } catch (err) {
             body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
+        }
+    }
+    // Denúncias feitas pelos utilizadores (ver "DENÚNCIAS" no server.js).
+    async function openAdminReportsModal() {
+        if (!APP.user?.isAdmin) return;
+        const body = document.getElementById('adminReportsBody');
+        body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">A carregar...</p>';
+        document.getElementById('modalAdminReports').classList.add('active');
+        try {
+            const res = await fetch('/api/admin/reports', { headers: { 'x-auth-token': APP.token } });
+            const data = await res.json();
+            if (!res.ok) { body.innerHTML = `<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">${escapeHtml(data.error || 'Erro ao carregar.')}</p>`; return; }
+            const statusLabel = { aberta: '🟠 Aberta', resolvida: '✅ Resolvida', rejeitada: '⚪ Rejeitada' };
+            body.innerHTML = (data.reports || []).map(r => `
+                <div class="admin-report" data-report-id="${escapeHtml(r.id)}" style="background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;font-size:13px;${r.status === 'aberta' ? '' : 'opacity:0.65;'}">
+                    <div style="display:flex;justify-content:space-between;gap:8px;"><strong>${escapeHtml(r.targetName)}</strong><span class="admin-report-status">${statusLabel[r.status] || escapeHtml(r.status)}</span></div>
+                    <div style="opacity:0.8;">${escapeHtml(r.targetPhone)} · ${r.reportsAgainstTarget} denúncia(s) contra esta pessoa${r.targetExists ? '' : ' · conta já apagada'}</div>
+                    <div style="margin:4px 0;white-space:pre-wrap;word-break:break-word;">“${escapeHtml(r.reason)}”</div>
+                    <div style="opacity:0.7;font-size:12px;">Denunciado por ${escapeHtml(r.reporterName)} · ${escapeHtml(new Date(r.time).toLocaleString('pt-PT'))}${r.resolvedBy ? ` · tratada por ${escapeHtml(r.resolvedBy)}` : ''}</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+                        ${r.status === 'aberta'
+                            ? `<button class="btn-small" style="padding:3px 8px;font-size:11px;" onclick="adminResolveReport('${escapeHtml(r.id)}','resolvida')">✅ Resolvida</button>
+                               <button class="btn-small" style="padding:3px 8px;font-size:11px;" onclick="adminResolveReport('${escapeHtml(r.id)}','rejeitada')">⚪ Rejeitar</button>`
+                            : `<button class="btn-small" style="padding:3px 8px;font-size:11px;" onclick="adminResolveReport('${escapeHtml(r.id)}','aberta')">↩️ Reabrir</button>`}
+                        ${r.targetExists ? `<button class="btn-small" style="background:#e74c3c;color:#fff;padding:3px 8px;font-size:11px;" onclick="adminDeleteAccount('${escapeHtml(r.targetPhone)}', '${escapeHtml(r.targetName).replace(/'/g, "\\'")}')">🗑️ Apagar conta</button>` : ''}
+                    </div>
+                </div>`).join('') || '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Sem denúncias. 🎉</p>';
+            document.getElementById('adminReportsBtn').textContent = data.open ? `🚩 Denúncias (${data.open})` : '🚩 Denúncias';
+        } catch (err) {
+            body.innerHTML = '<p style="color:#8696a0;text-align:center;padding:16px;font-size:13px;">Não foi possível ligar ao servidor.</p>';
+        }
+    }
+    async function adminResolveReport(id, status) {
+        try {
+            const res = await fetch('/api/admin/reports/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': APP.token }, body: JSON.stringify({ id, status }) });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || 'Erro ao atualizar a denúncia.'); return; }
+            openAdminReportsModal();
+        } catch (err) {
+            alert('Não foi possível ligar ao servidor.');
         }
     }
     // Apagar em nome de outra pessoa: pensado para quem esqueceu a senha e
