@@ -32,3 +32,4 @@ package-lock.json
 tests/output/
 tests/mocks/*.zip
 sessions.json
+reports.json

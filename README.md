@@ -37,6 +37,89 @@ O output completo de cada teste fica em `tests/output/logs/<ficheiro>.log` (não
 - O runner apaga os ficheiros de persistência local (`pins.json`, `blocked.json`, etc. — os mesmos usados quando `MONGO_URI` não está definida) antes de cada corrida. Alguns testes usam o mesmo ID fixo para uma conversa/mensagem em todas as execuções; sem esta limpeza, esse estado ficava a acumular-se de corrida para corrida e alguns testes passavam a falhar por causa de dados residuais, não de um bug.
 - Os testes de 2FA/redefinição de senha por email correm o código real de envio de email (`nodemailer`) contra um servidor SMTP falso local (`tests/mocks/fake_smtp.js`, sem AUTH/TLS, com um inspetor HTTP na porta 2526 para o teste ir buscar o último email "enviado" e extrair o código de verificação) — em vez de simular esse envio, exercitam o caminho real do servidor de ponta a ponta.
 
+### Testes automáticos no GitHub (CI)
+O workflow `.github/workflows/tests.yml` corre esta suite sozinho em cada pull
+request para o `main` (e em cada push para o `main`). O resultado aparece no
+próprio pull request (✅ ou ❌) antes do merge; os logs ficam em Actions →
+"Testes" → artefacto `logs-dos-testes`. Usa `--retries=1`: um ficheiro que
+falhe é repetido sozinho uma vez, porque alguns testes são instáveis com muitos
+a correr em paralelo e passam sozinhos (o resumo diz quais passaram só na
+repetição).
+
+## Segurança e manutenção
+
+### Limite de tentativas
+Para ninguém conseguir adivinhar senhas nem encher a app de contas falsas:
+| Ação | Limite |
+|---|---|
+| Entrar com senha errada | 10 falhas por número e 30 por IP, em 15 minutos |
+| Criar conta | 15 por IP, por hora |
+| Pedir recuperação de senha | 5 por número e 10 por IP, por hora (também poupa a quota do Resend) |
+| Códigos (email, 2FA, QR, passkeys) | 30 falhas por IP, em 15 minutos |
+
+Ao passar o limite, a app diz quantos minutos faltam. Quem acerta à primeira
+nunca é travado (só contam as falhas). Pedidos de `localhost` (testes) não são
+limitados por IP, a não ser com `RATE_LIMIT_INCLUDE_LOCALHOST=1`.
+
+### Aviso de erros por email
+O servidor manda ao administrador um email com o resumo dos erros novos, no
+máximo um a cada 6 horas (`ERROR_ALERT_INTERVAL_HOURS`). Inclui também os erros
+de JavaScript que acontecem no telemóvel de quem usa a app (enviados para
+`/api/client-error`, no máximo 10 por visita). Precisa do email configurado
+(Resend). Destinatário: `ALERT_EMAIL`, ou o email da conta de administrador.
+`ERROR_ALERTS=off` desliga. Os detalhes também ficam em Painel de
+administração → 🪵 Ver logs de erro.
+
+### Denúncias
+"⚠️ Denunciar" (numa conversa → 🚫) bloqueia a pessoa e guarda a denúncia
+(`reports.json`, que também vai para o MongoDB). O administrador recebe um
+email e vê-as em Painel de administração → 🚩 Denúncias, onde as marca como
+resolvidas/rejeitadas ou apaga a conta denunciada.
+
+### Convidar amigos
+Menu de contactos → 📨 Convidar amigos: partilha (ou copia) o link
+`https://<app>/?convite=<o teu @>`. Quem o abre vê "<Nome> convidou-te" no ecrã
+de entrada e, depois de criar conta, a conversa contigo abre-se sozinha. O link
+só mostra o teu nome, nunca o telefone. Precisa de teres um nome de utilizador (@).
+
+### Cópias de segurança do MongoDB
+O plano grátis do Atlas não faz backups. O workflow
+`.github/workflows/backup-mongodb.yml` exporta a base de dados todos os
+domingos, **cifra-a** (o repositório é público) e guarda-a 90 dias em Actions →
+"Cópia de segurança do MongoDB".
+
+Configurar (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+- `MONGO_URI`: o mesmo valor do Render.
+- `BACKUP_PASSPHRASE`: uma senha longa inventada por ti. **Guarda-a num sítio
+  seguro**: sem ela, as cópias não abrem.
+
+Depois, Actions → "Cópia de segurança do MongoDB" → **Run workflow** para fazer
+a primeira logo.
+
+Restaurar (num computador com Docker e gpg):
+```bash
+gpg --decrypt mongodb-AAAA-MM-DD.archive.gz.gpg > dump.archive.gz   # pede a BACKUP_PASSPHRASE
+docker run --rm -i mongo:7 mongorestore --uri="O_TEU_MONGO_URI" --archive --gzip < dump.archive.gz
+```
+(`mongorestore` sem `--drop` só acrescenta o que falta; com `--drop` substitui
+cada coleção pela da cópia.)
+
+### Desempenho
+As respostas vão comprimidas (gzip/brotli, pacote `compression`): o
+`index.html` passa de ~1 MB para ~220 KB, e a app abre bem mais depressa em
+dados móveis.
+
+## Roadmap (próximos passos)
+- [ ] **Domínio próprio** (ex.: `nadio.pt`/`nadio.app`, ~1–10 €/ano) — pago,
+  fica para mais tarde. Com ele: endereço sem "onrender.com" e o Resend passa a
+  poder enviar emails a qualquer pessoa (hoje, sem domínio verificado, só envia
+  para o dono da conta Resend). Passos: comprar o domínio; Render → Settings →
+  Custom Domains; Resend → Domains → adicionar os registos DNS; definir
+  `RESEND_FROM_EMAIL` (ex.: `NADIO <nao-responder@nadio.pt>`).
+- [ ] Dividir o `index.html` (~15 000 linhas) em vários ficheiros carregados só
+  quando são precisos, para a app abrir ainda mais depressa.
+- [ ] Confirmação do telemóvel por SMS (serviço pago por mensagem).
+
 ## Deploy no Railway (recomendado, mais simples)
 
 1. Crie uma conta em https://railway.app

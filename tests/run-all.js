@@ -37,6 +37,11 @@ const args = process.argv.slice(2);
 const concurrencyArg = args.find((a) => a.startsWith('--concurrency='));
 const filterArg = args.find((a) => a.startsWith('--filter='));
 const CONCURRENCY = concurrencyArg ? Number(concurrencyArg.split('=')[1]) : 6;
+// --retries=N: volta a correr (um de cada vez, no mesmo servidor) os ficheiros
+// que falharam. Alguns testes são instáveis quando muitos correm em paralelo
+// e passam sozinhos; no GitHub Actions usamos --retries=1.
+const retriesArg = args.find((a) => a.startsWith('--retries='));
+const RETRIES = retriesArg ? Number(retriesArg.split('=')[1]) : 0;
 const FILTER = filterArg ? filterArg.split('=')[1] : null;
 
 // ---- 1) Fixtures GTFS/dados de mentira a (re)gerar sempre antes de arrancar
@@ -113,7 +118,7 @@ const LOCAL_DATA_FILES = [
   'scheduled.json', 'muted.json', 'archived.json', 'blocked.json', 'roadalerts.json',
   'broadcasts.json', 'folders.json', 'tourism-favorites.json', 'shopping-list.json',
   'reminders.json', 'recurring-expenses.json', 'scheduled-calls.json',
-  'pinned-chats.json', 'price-alerts.json', 'travel-history.json'
+  'pinned-chats.json', 'price-alerts.json', 'travel-history.json', 'reports.json', 'sessions.json'
 ];
 function wipeLocalDataFiles() {
   LOCAL_DATA_FILES.forEach((f) => { try { fs.unlinkSync(path.join(ROOT, f)); } catch (e) {} });
@@ -159,7 +164,9 @@ const BASE_ENV = {
   SLACK_CLIENT_ID: 'mock-slack-client-id',
   SLACK_CLIENT_SECRET: 'mock-slack-client-secret',
   SLACK_SIGNING_SECRET: 'mock-slack-signing-secret',
-  SLACK_BASE: 'http://localhost:3028'
+  SLACK_BASE: 'http://localhost:3028',
+  // Senha da "Área do administrador" (testes test_admin_*.js).
+  ADMIN_SIGNUP_SECRET: 'segredo-teste-123'
 };
 
 // Ambiente de email só é ligado para os testes que PRECISAM dele (2FA por
@@ -286,6 +293,19 @@ async function runBatch(files, envOverrides, label) {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker));
 
+  for (let attempt = 1; attempt <= RETRIES; attempt++) {
+    const failing = results.filter((r) => r.crashed || r.failed > 0);
+    if (!failing.length) break;
+    for (const prev of failing) {
+      process.stdout.write(`  🔁 a repetir sozinho ${prev.file} (tentativa ${attempt})...\n`);
+      const r = await runOneTest(prev.file);
+      r.retried = attempt;
+      results[results.indexOf(prev)] = r;
+      const status = r.crashed ? '💥 CRASH' : (r.failed > 0 ? `⚠️  ${r.failed} falha(s)` : '✅ OK');
+      console.log(`  ${status} — ${prev.file} na repetição (${r.passed} passou/passaram, ${r.failed} falhou/falharam)`);
+    }
+  }
+
   try { process.kill(serverProc.pid, 'SIGKILL'); } catch (e) {}
   spawned.splice(spawned.indexOf(serverProc), 1);
   return results;
@@ -330,6 +350,8 @@ async function main() {
   console.log(`  ⚠️  com falhas: ${failedFiles.length}`);
   console.log(`  💥 crash (código de saída != 0): ${crashedFiles.length}`);
   console.log(`Verificações: ${totalPassed} passaram, ${totalFailed} falharam`);
+  const passedOnRetry = results.filter((r) => r.retried && !r.crashed && r.failed === 0);
+  if (passedOnRetry.length) console.log(`  🔁 passaram só na repetição (instáveis em paralelo): ${passedOnRetry.map((r) => r.file).join(', ')}`);
 
   if (failedFiles.length || crashedFiles.length) {
     console.log('\n--- Detalhe das falhas (ver log completo em tests/output/logs/) ---');

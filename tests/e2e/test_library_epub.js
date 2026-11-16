@@ -158,7 +158,7 @@ const { chromium } = require('playwright');
   // Upload de um ficheiro que não é um EPUB válido — mesmo caminho de erro,
   // mas por um percurso de código diferente (leitura de ficheiro local em
   // vez do fetch do Gutendex), prova que o wiring do upload também funciona.
-  const filePath = '/tmp/claude-0/-home-user-chatapp-realtime/905ed831-e796-5cad-a515-875787df2ff2/scratchpad/fake_not_epub.txt';
+  const filePath = require('path').join(require('os').tmpdir(), 'fake_not_epub.txt');
   require('fs').writeFileSync(filePath, 'isto não é um ficheiro epub');
   await page.setInputFiles('#libraryFileInput', filePath);
   await page.waitForFunction(() => document.getElementById('libraryListView').style.display === 'none', { timeout: 3000 }).catch(() => {});
