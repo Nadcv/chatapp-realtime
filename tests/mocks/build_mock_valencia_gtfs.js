@@ -1,7 +1,8 @@
+const { gtfsTime } = require('./gtfs_time'); // horas depois da meia-noite como 24:xx (ver gtfs_time.js)
 const AdmZip = require('adm-zip');
 
 function fmt(d) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(d);
+  return gtfsTime(d, 'Europe/Madrid');
 }
 const now = new Date();
 const soon = new Date(now.getTime() + 5 * 60000);

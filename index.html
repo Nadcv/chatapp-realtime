@@ -1397,9 +1397,9 @@
 <div class="landing hidden" id="landingScreen" role="dialog" aria-label="NADIO">
     <div class="landing-inner">
         <div class="landing-langs">
-            <button type="button" onclick="setUiLanguage('pt')">🇵🇹 PT</button>
-            <button type="button" onclick="setUiLanguage('en')">🇺🇸 EN</button>
-            <button type="button" onclick="setUiLanguage('es')">🇪🇸 ES</button>
+            <button type="button" onclick="setLandingLanguage('pt')">🇵🇹 PT</button>
+            <button type="button" onclick="setLandingLanguage('en')">🇺🇸 EN</button>
+            <button type="button" onclick="setLandingLanguage('es')">🇪🇸 ES</button>
         </div>
         <div class="landing-logo">N<span>.</span></div>
         <h1>NADIO</h1>
@@ -4669,6 +4669,9 @@
         } catch (e) {}
         el.classList.toggle('hidden', !show);
     }
+    // Botões de língua da apresentação (função à parte para não duplicar os
+    // seletores dos botões de língua do ecrã de entrada).
+    function setLandingLanguage(lang) { setUiLanguage(lang); }
     function closeLanding(which) {
         document.getElementById('landingScreen').classList.add('hidden');
         showAuthForm(which === 'register' ? 'register' : 'login');

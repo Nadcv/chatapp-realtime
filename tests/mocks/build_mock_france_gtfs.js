@@ -1,10 +1,11 @@
+const { gtfsTime } = require('./gtfs_time'); // horas depois da meia-noite como 24:xx (ver gtfs_time.js)
 const AdmZip = require('adm-zip');
 
 // O servidor compara os horários GTFS com a hora local de França (Europe/Paris,
 // mesma zona horária que Espanha) — por isso formatamos aqui também nesse fuso,
 // para o mock ficar coerente com o que o servidor vai calcular como "agora".
 function fmt(d) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(d);
+  return gtfsTime(d, 'Europe/Paris');
 }
 
 const now = new Date();
