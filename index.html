@@ -1332,9 +1332,60 @@
         .pin-dots-shake {
             animation: pinShake 0.4s;
         }
+
+        /* ==================== PÁGINA DE APRESENTAÇÃO (antes de entrar) ==================== */
+        .landing{position:fixed;inset:0;z-index:300;overflow-y:auto;color:#fff;
+            background:radial-gradient(circle at 15% 5%,#9b7dff 0%,transparent 45%),radial-gradient(circle at 90% 95%,#5b3fe0 0%,transparent 50%),linear-gradient(160deg,#2a1866 0%,#140b33 55%,#0b0720 100%);}
+        .landing.hidden{display:none}
+        .landing-inner{max-width:960px;margin:0 auto;padding:28px 20px 40px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:18px}
+        .landing-langs{align-self:flex-end;display:flex;gap:6px}
+        .landing-langs button{background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:16px;padding:5px 10px;font-size:12px;cursor:pointer}
+        .landing-logo{width:96px;height:96px;border-radius:28px;background:radial-gradient(circle at 30% 25%,#9b7dff,#7c5cff 55%,#5b3fe0);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:58px;box-shadow:0 16px 48px rgba(124,92,255,.55);margin-top:6px}
+        .landing-logo span{color:#c9bcff}
+        .landing h1{font-size:clamp(40px,9vw,64px);font-weight:800;letter-spacing:2px;margin:0}
+        .landing h2{font-size:clamp(20px,4.5vw,28px);font-weight:700;color:#e3dbff;margin:0}
+        .landing-sub{font-size:16px;color:#cfc4ff;max-width:560px;line-height:1.5;margin:0}
+        .landing-ctas{display:flex;flex-direction:column;gap:10px;width:100%;max-width:360px;margin-top:6px}
+        .landing-ctas button{border:0;border-radius:14px;padding:15px;font-size:17px;font-weight:700;cursor:pointer}
+        .landing-ctas .primary{background:#fff;color:#4b2fd0;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+        .landing-ctas .secondary{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25)}
+        .landing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;width:100%;margin-top:14px}
+        .landing-card{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:18px;padding:16px;text-align:left;display:flex;gap:12px;align-items:flex-start}
+        .landing-card b{font-size:28px;line-height:1}
+        .landing-card h3{font-size:16px;margin:0 0 4px}
+        .landing-card p{font-size:13px;color:#d6ccff;margin:0;line-height:1.4}
+        .landing-foot{font-size:13px;color:#b9adff;margin-top:8px}
     </style>
 </head>
 <body>
+
+<!-- Página de apresentação: o que quem abre o link vê antes de entrar (ver initLanding()). -->
+<div class="landing hidden" id="landingScreen" role="dialog" aria-label="NADIO">
+    <div class="landing-inner">
+        <div class="landing-langs">
+            <button type="button" onclick="setUiLanguage('pt')">🇵🇹 PT</button>
+            <button type="button" onclick="setUiLanguage('en')">🇺🇸 EN</button>
+            <button type="button" onclick="setUiLanguage('es')">🇪🇸 ES</button>
+        </div>
+        <div class="landing-logo">N<span>.</span></div>
+        <h1>NADIO</h1>
+        <h2 data-i18n="landTitle">O teu mundo. A tua gente.</h2>
+        <p class="landing-sub" data-i18n="landSub">Mensagens, chamadas de vídeo, IA e dezenas de ferramentas — numa só app, grátis e sem anúncios.</p>
+        <div class="landing-ctas">
+            <button type="button" class="primary" id="landingCreateBtn" onclick="closeLanding('register')" data-i18n="landCreate">✨ Criar conta grátis</button>
+            <button type="button" class="secondary" id="landingLoginBtn" onclick="closeLanding('login')" data-i18n="landLogin">Já tenho conta — Entrar</button>
+        </div>
+        <div class="landing-grid">
+            <div class="landing-card"><b>💬</b><div><h3 data-i18n="f1t">Mensagens e grupos</h3><p data-i18n="f1d"></p></div></div>
+            <div class="landing-card"><b>📞</b><div><h3 data-i18n="f2t">Chamadas de voz e vídeo</h3><p data-i18n="f2d"></p></div></div>
+            <div class="landing-card"><b>🤖</b><div><h3 data-i18n="f3t">Assistente de IA</h3><p data-i18n="f3d"></p></div></div>
+            <div class="landing-card"><b>🚌</b><div><h3 data-i18n="f4t">Transportes, notícias, TV</h3><p data-i18n="f4d"></p></div></div>
+            <div class="landing-card"><b>📊</b><div><h3 data-i18n="f5t">Sondagens e eventos</h3><p data-i18n="f5d"></p></div></div>
+            <div class="landing-card"><b>🔐</b><div><h3 data-i18n="f6t">Segurança</h3><p data-i18n="f6d"></p></div></div>
+        </div>
+        <p class="landing-foot" data-i18n="landFoot">Funciona no telemóvel e no computador.</p>
+    </div>
+</div>
 <div class="app-container" id="appContainer">
     <div class="login-screen" id="loginScreen">
         <div class="login-avatar" aria-label="NADIO">N<span class="login-avatar-dot">.</span></div>
@@ -3878,6 +3929,23 @@
         pt: {
             appName: 'NADIO',
             appTagline: 'O teu mundo. A tua gente.',
+            landTitle: 'O teu mundo. A tua gente.',
+            landSub: 'Mensagens, chamadas de vídeo, IA e dezenas de ferramentas — numa só app, grátis e sem anúncios.',
+            landCreate: '✨ Criar conta grátis',
+            landLogin: 'Já tenho conta — Entrar',
+            f1t: 'Mensagens e grupos',
+            f1d: 'Em tempo real, com encriptação, reações e tradução automática.',
+            f2t: 'Chamadas de voz e vídeo',
+            f2d: 'Grátis, a dois ou em conferência.',
+            f3t: 'Assistente de IA',
+            f3d: 'Pergunta, resume conversas e transcreve áudios.',
+            f4t: 'Transportes, notícias, TV',
+            f4d: 'Horários ao vivo, meteorologia, câmbio, música e muito mais.',
+            f5t: 'Sondagens e eventos',
+            f5d: 'Combina saídas com amigos num toque.',
+            f6t: 'Segurança',
+            f6d: 'Bloqueio por PIN, SOS e denúncias.',
+            landFoot: 'Funciona no telemóvel e no computador. Instala-a no ecrã principal como uma app.',
             phonePlaceholder: 'Número de telemóvel',
             passwordPlaceholder: 'Senha',
             loginSubmitBtn: '🚀 Entrar',
@@ -3910,6 +3978,23 @@
         en: {
             appName: 'NADIO',
             appTagline: 'Your World. Your People.',
+            landTitle: 'Your World. Your People.',
+            landSub: 'Messages, video calls, AI and dozens of tools — in one free app, with no ads.',
+            landCreate: '✨ Create a free account',
+            landLogin: 'I have an account — Log in',
+            f1t: 'Messages & groups',
+            f1d: 'Real time, encrypted, with reactions and auto-translation.',
+            f2t: 'Voice & video calls',
+            f2d: 'Free, one-to-one or conference.',
+            f3t: 'AI assistant',
+            f3d: 'Ask anything, summarize chats and transcribe voice notes.',
+            f4t: 'Transport, news, TV',
+            f4d: 'Live timetables, weather, currency, music and more.',
+            f5t: 'Polls & events',
+            f5d: 'Plan outings with friends in one tap.',
+            f6t: 'Safety',
+            f6d: 'PIN lock, SOS and reporting.',
+            landFoot: 'Works on phone and computer. Add it to your home screen like an app.',
             phonePlaceholder: 'Phone number',
             passwordPlaceholder: 'Password',
             loginSubmitBtn: '🚀 Log in',
@@ -3942,6 +4027,23 @@
         es: {
             appName: 'NADIO',
             appTagline: 'Tu mundo. Tu gente.',
+            landTitle: 'Tu mundo. Tu gente.',
+            landSub: 'Mensajes, videollamadas, IA y decenas de herramientas — en una sola app, gratis y sin anuncios.',
+            landCreate: '✨ Crear cuenta gratis',
+            landLogin: 'Ya tengo cuenta — Entrar',
+            f1t: 'Mensajes y grupos',
+            f1d: 'En tiempo real, cifrados, con reacciones y traducción automática.',
+            f2t: 'Llamadas de voz y vídeo',
+            f2d: 'Gratis, a dos o en conferencia.',
+            f3t: 'Asistente de IA',
+            f3d: 'Pregunta, resume chats y transcribe audios.',
+            f4t: 'Transporte, noticias, TV',
+            f4d: 'Horarios en vivo, el tiempo, divisas, música y más.',
+            f5t: 'Encuestas y eventos',
+            f5d: 'Organiza planes con amigos en un toque.',
+            f6t: 'Seguridad',
+            f6d: 'Bloqueo con PIN, SOS y denuncias.',
+            landFoot: 'Funciona en el móvil y en el ordenador. Añádela a tu pantalla de inicio como una app.',
             phonePlaceholder: 'Número de teléfono',
             passwordPlaceholder: 'Contraseña',
             loginSubmitBtn: '🚀 Entrar',
@@ -4395,6 +4497,28 @@
         else if (/Firefox\//.test(ua)) browser = 'Firefox';
         else if (/Safari\//.test(ua)) browser = 'Safari';
         return browser ? `${browser} · ${os}` : os;
+    }
+
+    // ==================== PÁGINA DE APRESENTAÇÃO ====================
+    // Aparece a quem abre a app sem sessão iniciada e nunca entrou neste
+    // aparelho. Não aparece: com sessão, depois do primeiro login neste
+    // aparelho (localStorage 'hasLoggedInBefore'), com um link de convite
+    // (esse vai direto ao registo com o aviso "X convidou-te") nem em browsers
+    // automatizados (navigator.webdriver — a suite de testes abre o ecrã de
+    // entrada diretamente; test_landing.js força-a com window.__forceLanding).
+    function initLanding() {
+        const el = document.getElementById('landingScreen');
+        if (!el) return;
+        let show = false;
+        try {
+            show = !localStorage.getItem('authToken') && !localStorage.getItem('hasLoggedInBefore') && !localStorage.getItem('pendingInvite')
+                && (!navigator.webdriver || window.__forceLanding);
+        } catch (e) {}
+        el.classList.toggle('hidden', !show);
+    }
+    function closeLanding(which) {
+        document.getElementById('landingScreen').classList.add('hidden');
+        showAuthForm(which === 'register' ? 'register' : 'login');
     }
 
     function showAuthForm(which) {
@@ -4868,6 +4992,8 @@
         APP.token = token;
         localStorage.setItem('authToken', token);
         localStorage.setItem('authUser', JSON.stringify(APP.user));
+        localStorage.setItem('hasLoggedInBefore', '1');
+        document.getElementById('landingScreen')?.classList.add('hidden');
         // A conta pode ter uma cor/fundo guardados de outro aparelho — aplica-os
         // agora, para a personalização acompanhar a pessoa em qualquer login.
         if (APP.user.accentColor) applyAccentColor(APP.user.accentColor);
@@ -5048,6 +5174,7 @@
         // — só faz sentido quando este aparelho ainda não tem sessão nenhuma.
         const pairingToken = new URLSearchParams(location.search).get('pair');
         if (pairingToken) redeemDevicePairing(pairingToken);
+        else initLanding();
     }, 0);
 
     // Troca o código do QR por uma sessão válida nesta conta, sem precisar de
