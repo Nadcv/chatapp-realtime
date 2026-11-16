@@ -16,6 +16,7 @@ const post = (url, body) => fetch(B + url, { method: 'POST', headers: { 'Content
   const root = path.join(__dirname, '..', '..');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ratelimit-'));
   for (const f of ['server.js', 'package.json', 'index.html']) fs.copyFileSync(path.join(root, f), path.join(dir, f));
+  for (const d of ['js', 'css']) if (fs.existsSync(path.join(root, d))) fs.cpSync(path.join(root, d), path.join(dir, d), { recursive: true });
   fs.symlinkSync(path.join(root, 'node_modules'), path.join(dir, 'node_modules'));
   const env = { ...process.env, PORT: String(PORT), RATE_LIMIT_INCLUDE_LOCALHOST: '1', MONGO_URI: '' };
   delete env.RESEND_API_KEY; delete env.EMAIL_USER;
