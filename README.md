@@ -109,6 +109,28 @@ As respostas vão comprimidas (gzip/brotli, pacote `compression`): o
 `index.html` passa de ~1 MB para ~220 KB, e a app abre bem mais depressa em
 dados móveis.
 
+### Página de apresentação e visita guiada
+- Quem abre a app pela primeira vez neste aparelho, sem sessão, vê uma página
+  de apresentação (PT/EN/ES) com as funcionalidades e os botões "Começar — é
+  grátis" e "Já tenho uma conta". Não aparece com um link de convite, nem depois
+  do primeiro login neste aparelho.
+- Na primeira entrada de cada conta, 5 balões mostram onde estão as coisas
+  principais. Pode rever-se em ⋯ → 🧭 Visita guiada.
+
+### Estatísticas (painel de administração → 📊 Estatísticas)
+Registos, pessoas ativas, mensagens e chamadas por dia (7/14/30 dias), totais e
+funcionalidades mais usadas. Guarda só contagens (`stats.json`, que também vai
+para o MongoDB), 90 dias.
+
+### IA nas conversas (precisa de `GEMINI_API_KEY`)
+- **📝 Transcrever** em cada mensagem de voz: mostra o texto do áudio.
+- **💡 Sugerir respostas** por cima da caixa de texto, quando a última mensagem é
+  da outra pessoa: 3 respostas curtas; tocar numa põe-na na caixa para enviar
+  ou editar.
+- Ambos só correm quando se carrega no botão: as conversas são encriptadas de
+  ponta a ponta e estes pedidos enviam o áudio / as últimas mensagens ao Gemini
+  (Google). Precisam de sessão iniciada e têm limite de pedidos.
+
 ## Roadmap (próximos passos)
 - [ ] **Domínio próprio** (ex.: `nadio.pt`/`nadio.app`, ~1–10 €/ano) — pago,
   fica para mais tarde. Com ele: endereço sem "onrender.com" e o Resend passa a
@@ -116,8 +138,10 @@ dados móveis.
   para o dono da conta Resend). Passos: comprar o domínio; Render → Settings →
   Custom Domains; Resend → Domains → adicionar os registos DNS; definir
   `RESEND_FROM_EMAIL` (ex.: `NADIO <nao-responder@nadio.pt>`).
-- [ ] Dividir o `index.html` (~15 000 linhas) em vários ficheiros carregados só
-  quando são precisos, para a app abrir ainda mais depressa.
+- [x] Estilos e código fora do `index.html` (`css/app.css`, `js/app.js`).
+- [ ] Partir o `js/app.js` (~13 500 linhas) em módulos carregados só quando são
+  precisos (ex.: transportes, jogos, biblioteca) — exige rever a ordem em que o
+  código corre ao arrancar, por isso fica para um passo próprio.
 - [ ] Confirmação do telemóvel por SMS (serviço pago por mensagem).
 
 ## Deploy no Railway (recomendado, mais simples)
@@ -377,7 +401,10 @@ Para uso ainda maior, dá para migrar para o teu próprio servidor **coturn** (o
 
 - `server.js` — servidor Express + Socket.IO (mensagens em tempo real,
   sinalização WebRTC e proxy do tradutor)
-- `index.html` — frontend completo (interface, lógica do chat, chamadas)
+- `index.html` — estrutura da página (ecrãs, janelas, botões)
+- `css/app.css` — estilos
+- `js/app.js` — lógica da app (chat, chamadas, todas as funcionalidades);
+  `js/error-reporter.js` — envia os erros do browser ao servidor
 - `package.json` — dependências
 
 ## Novidades desta versão

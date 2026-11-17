@@ -1,3 +1,4 @@
+const { gtfsTime } = require('./gtfs_time'); // horas depois da meia-noite como 24:xx (ver gtfs_time.js)
 const AdmZip = require('adm-zip');
 
 // Dados sintéticos (não os reais da GUIMABUS) — precisamos de uma partida
@@ -7,7 +8,7 @@ const AdmZip = require('adm-zip');
 // o que tornava este teste inerentemente instável. Mantém nomes de paragens
 // reais de Guimarães para o teste continuar a ler como "dados a sério".
 function fmt(d) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Lisbon', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(d);
+  return gtfsTime(d, 'Europe/Lisbon');
 }
 const now = new Date();
 const soon = new Date(now.getTime() + 5 * 60000);

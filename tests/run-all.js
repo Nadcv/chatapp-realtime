@@ -118,7 +118,7 @@ const LOCAL_DATA_FILES = [
   'scheduled.json', 'muted.json', 'archived.json', 'blocked.json', 'roadalerts.json',
   'broadcasts.json', 'folders.json', 'tourism-favorites.json', 'shopping-list.json',
   'reminders.json', 'recurring-expenses.json', 'scheduled-calls.json',
-  'pinned-chats.json', 'price-alerts.json', 'travel-history.json', 'reports.json', 'sessions.json'
+  'pinned-chats.json', 'price-alerts.json', 'travel-history.json', 'reports.json', 'sessions.json', 'stats.json'
 ];
 function wipeLocalDataFiles() {
   LOCAL_DATA_FILES.forEach((f) => { try { fs.unlinkSync(path.join(ROOT, f)); } catch (e) {} });
@@ -165,6 +165,9 @@ const BASE_ENV = {
   SLACK_CLIENT_SECRET: 'mock-slack-client-secret',
   SLACK_SIGNING_SECRET: 'mock-slack-signing-secret',
   SLACK_BASE: 'http://localhost:3028',
+  // Tempo real da STCP: endereço sem resposta, para o teste do erro amigável
+  // dar o mesmo resultado com ou sem internet (no GitHub Actions há internet).
+  STCP_API_BASE: 'http://127.0.0.1:9',
   // Senha da "Área do administrador" (testes test_admin_*.js).
   ADMIN_SIGNUP_SECRET: 'segredo-teste-123'
 };

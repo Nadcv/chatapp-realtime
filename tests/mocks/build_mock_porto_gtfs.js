@@ -1,3 +1,4 @@
+const { gtfsTime } = require('./gtfs_time'); // horas depois da meia-noite como 24:xx (ver gtfs_time.js)
 const AdmZip = require('adm-zip');
 
 function build(agencyName, stopPrefix, outFile) {
@@ -13,7 +14,7 @@ function build(agencyName, stopPrefix, outFile) {
   // O servidor compara os horários GTFS com a hora de Lisboa (nowInTimeZone), não com o
   // fuso do processo — por isso o mock tem de formatar "soon" da mesma forma, ou fica
   // até 1h desalinhado (mesma classe de bug já corrigida para CP/Fertagus/Madrid/etc.).
-  const fmt = (d) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Lisbon', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(d);
+  const fmt = (d) => gtfsTime(d, 'Europe/Lisbon');
   const stopTimes = 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\n' +
     `T1,${fmt(soon)},${fmt(soon)},${stopPrefix}1,1\n` +
     `T1,23:59:00,23:59:00,${stopPrefix}2,2\n`;

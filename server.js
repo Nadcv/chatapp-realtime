@@ -102,6 +102,58 @@ for (const route of ['/api/register/verify-email', '/api/login/verify-code', '/a
   app.post(route, rateLimit({ name: 'codes' + route, windowMs: 15 * MIN, max: 30, countFailuresOnly: true, message: 'Demasiadas tentativas falhadas.' }));
 }
 
+// ==================== ESTATÍSTICAS DE UTILIZAÇÃO (painel do administrador) ====================
+// Contadores por dia (UTC): pessoas ativas, mensagens, chamadas e pedidos a
+// cada funcionalidade (/api/<funcionalidade>/...). Guardados em stats.json,
+// que também vai para o MongoDB (ver MIRRORED_FILES). Ficam só os últimos 90
+// dias. Nunca guarda o conteúdo de nada — só contagens (e, para "ativos",
+// a lista de telefones de cada dia, para não contar a mesma pessoa duas vezes).
+const STATS_FILE = path.join(__dirname, 'stats.json');
+const STATS_KEEP_DAYS = 90;
+let usageStats = { days: {} }; // 'AAAA-MM-DD' -> { active: [phone], messages, calls, features: { nome: n } }
+let statsSaveTimer = null;
+function statsDayKey(d = new Date()) { return d.toISOString().slice(0, 10); }
+function statsDay() {
+  const key = statsDayKey();
+  if (!usageStats.days[key]) {
+    usageStats.days[key] = { active: [], messages: 0, calls: 0, features: {} };
+    const keys = Object.keys(usageStats.days).sort();
+    while (keys.length > STATS_KEEP_DAYS) delete usageStats.days[keys.shift()];
+  }
+  return usageStats.days[key];
+}
+function saveStatsSoon() {
+  if (statsSaveTimer) return;
+  statsSaveTimer = setTimeout(() => {
+    statsSaveTimer = null;
+    writeJsonFileSafe(STATS_FILE, JSON.stringify(usageStats), (err) => { if (err) console.error('Erro ao salvar estatísticas:', err.message); });
+  }, 5000);
+  statsSaveTimer.unref?.();
+}
+function loadStatsLocal() {
+  try { if (fs.existsSync(STATS_FILE)) usageStats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar estatísticas:', err.message); }
+  if (!usageStats || typeof usageStats.days !== 'object') usageStats = { days: {} };
+}
+function statsMarkActive(phone) {
+  if (!phone) return;
+  const day = statsDay();
+  if (!day.active.includes(phone)) { day.active.push(phone); saveStatsSoon(); }
+}
+function statsCount(field, n = 1) { statsDay()[field] += n; saveStatsSoon(); }
+function statsFeature(name) {
+  const day = statsDay();
+  day.features[name] = (day.features[name] || 0) + 1;
+  saveStatsSoon();
+}
+// Pedidos que não são "usar uma funcionalidade" (entrar, painel, erros, etc.).
+const STATS_IGNORED_FEATURES = new Set(['login', 'register', 'password-reset', 'webauthn', 'device-pairing', 'admin', 'client-error', 'vapid-public-key', 'push-subscribe', 'publish-key', 'invite', 'account', 'upload', 'turn-credentials', 'quote-of-day', 'devices', 'time-spent']);
+app.use('/api', (req, res, next) => {
+  const name = (req.path.split('/')[1] || '').toLowerCase();
+  if (name && !STATS_IGNORED_FEATURES.has(name) && /^[a-z0-9-]{2,40}$/.test(name)) statsFeature(name);
+  next();
+});
+
 // ==================== LOGS RECENTES (para o admin ver erros em produção) ====================
 // Até aqui, diagnosticar um problema em produção dependia inteiramente de o
 // utilizador enviar um screenshot da mensagem de erro — sem acesso nenhum aos
@@ -353,7 +405,7 @@ const MIRRORED_FILES = new Set([
   'muted.json', 'archived.json', 'pinned-chats.json', 'blocked.json', 'broadcasts.json',
   'folders.json', 'tourism-favorites.json', 'shopping-list.json', 'reminders.json',
   'recurring-expenses.json', 'scheduled-calls.json', 'roadalerts.json',
-  'price-alerts.json', 'travel-history.json', 'reports.json'
+  'price-alerts.json', 'travel-history.json', 'reports.json', 'stats.json'
 ]);
 // Gravações seguidas do mesmo ficheiro (ex.: várias chamadas a terminar) são
 // juntadas numa só ida ao MongoDB, no máximo uma a cada MIRROR_DEBOUNCE_MS.
@@ -442,7 +494,7 @@ async function connectDatabase() {
   // histórico de chamadas, agendamento, silenciar...) usam sempre ficheiro
   // local; com o MongoDB ligado, esse ficheiro é antes reposto a partir da
   // cópia guardada lá (ver "ESPELHO NO MONGODB" acima).
-  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); };
+  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); loadStatsLocal(); };
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadFileOnlyStores();
@@ -1450,6 +1502,43 @@ app.get('/api/invite/:username', rateLimit({ name: 'invite-lookup', windowMs: 15
   res.json({ found: true, name: acc.name, username: acc.username });
 });
 
+// Estatísticas de utilização (ver "ESTATÍSTICAS DE UTILIZAÇÃO") — só para o administrador.
+app.get('/api/admin/stats', (req, res) => {
+  const token = req.query.token || req.headers['x-admin-token'] || req.headers['x-auth-token'];
+  const phone = sessions[token];
+  if (!phone || !isAdminPhone(phone)) return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
+  const days = Math.min(Math.max(Number(req.query.days) || 14, 7), 90);
+  const today = new Date();
+  const keys = [];
+  for (let i = days - 1; i >= 0; i--) keys.push(statsDayKey(new Date(today.getTime() - i * 86400000)));
+  const regsByDay = {};
+  for (const acc of Object.values(accounts)) {
+    const k = acc.createdAt ? String(acc.createdAt).slice(0, 10) : null;
+    if (k) regsByDay[k] = (regsByDay[k] || 0) + 1;
+  }
+  const series = keys.map((k) => {
+    const d = usageStats.days[k] || { active: [], messages: 0, calls: 0 };
+    return { day: k, registrations: regsByDay[k] || 0, active: d.active.length, messages: d.messages, calls: d.calls };
+  });
+  const uniq = (ks) => new Set(ks.flatMap((k) => usageStats.days[k]?.active || [])).size;
+  const features = {};
+  for (const k of keys) for (const [f, n] of Object.entries(usageStats.days[k]?.features || {})) features[f] = (features[f] || 0) + n;
+  res.json({
+    totals: {
+      users: Object.keys(accounts).length,
+      online: onlinePhones.size,
+      activeToday: uniq(keys.slice(-1)),
+      active7d: uniq(keys.slice(-7)),
+      activePeriod: uniq(keys),
+      registrationsPeriod: series.reduce((a, d) => a + d.registrations, 0),
+      messagesPeriod: series.reduce((a, d) => a + d.messages, 0),
+      callsPeriod: series.reduce((a, d) => a + d.calls, 0)
+    },
+    days, series,
+    topFeatures: Object.entries(features).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, count]) => ({ name, count }))
+  });
+});
+
 // Denúncias (ver "DENÚNCIAS" mais abaixo) — só para o administrador.
 app.get('/api/admin/reports', (req, res) => {
   const token = req.query.token || req.headers['x-admin-token'] || req.headers['x-auth-token'];
@@ -2130,7 +2219,8 @@ async function resolveStcpGtfsUrl() {
   return process.env.STCP_GTFS_URL || STCP_GTFS_URL_DEFAULT;
 }
 async function getStcpRealtimeArrivals(stopId) {
-  const resp = await fetch(`https://stcp.pt/api/stops/${encodeURIComponent(stopId)}/realtime`, {
+  const stcpApiBase = process.env.STCP_API_BASE || 'https://stcp.pt/api'; // os testes apontam isto para um endereço sem resposta
+  const resp = await fetch(`${stcpApiBase}/stops/${encodeURIComponent(stopId)}/realtime`, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36' }
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -4924,6 +5014,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 // volte a partir sempre que a Google desativa um modelo específico (foi o
 // que aconteceu com o 'gemini-2.0-flash', usado antes).
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+// Os testes apontam isto para um Gemini falso local (tests/mocks/mock_gemini_server.js).
+const GEMINI_API_BASE = process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com';
 
 // Converte fileData (data:URL em base64, ou um link http(s) já enviado antes
 // para o Cloudinary) no formato inline_data que o Gemini espera. Ficheiros
@@ -4981,7 +5073,7 @@ app.post('/api/gemini-chat', async (req, res) => {
       if (!parts.length) continue;
       contents.push({ role: m.role === 'user' ? 'user' : 'model', parts });
     }
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `${GEMINI_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     const body = JSON.stringify({
       contents,
       systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat. Consegue analisar fotos, vídeos e documentos que lhe enviarem. Responda em português, de forma clara e útil.' }] }
@@ -5012,6 +5104,74 @@ app.post('/api/gemini-chat', async (req, res) => {
   }
 });
 
+// ==================== IA NAS CONVERSAS: TRANSCREVER ÁUDIOS E RESPOSTAS SUGERIDAS ====================
+// Ambos só correm quando a pessoa carrega no botão (📝 Transcrever / 💡 Sugerir
+// respostas) — as mensagens são encriptadas de ponta a ponta, por isso nunca
+// se envia nada ao Gemini sem a pessoa pedir. Precisam de sessão iniciada.
+async function callGeminiOnce(contents, systemText, extra = {}) {
+  const url = `${GEMINI_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const body = JSON.stringify({ contents, systemInstruction: { parts: [{ text: systemText }] }, ...extra });
+  let r, data;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(45000) });
+    data = await r.json().catch(() => ({}));
+    if (r.ok || r.status !== 503 || attempt === 1) break;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  if (!r.ok) {
+    const err = new Error(data?.error?.message || ('HTTP ' + r.status));
+    err.status = r.status;
+    throw err;
+  }
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join('\n').trim() || '';
+}
+function geminiErrorResponse(res, err, what) {
+  console.error(`Erro Gemini (${what}):`, err.message);
+  if (err.status === 429) return res.status(429).json({ error: 'O Gemini atingiu o limite gratuito de pedidos por agora — tenta daqui a um bocado.' });
+  return res.status(502).json({ error: 'Não foi possível falar com o Gemini agora. Tenta novamente.' });
+}
+function requireSessionPhone(req, res) {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  const phone = token && sessions[token];
+  if (!phone) { res.status(401).json({ error: 'Sessão inválida. Volta a entrar na app.' }); return null; }
+  return phone;
+}
+app.post('/api/transcribe', rateLimit({ name: 'transcribe', windowMs: 15 * 60 * 1000, max: 40, message: 'Demasiadas transcrições seguidas.' }), async (req, res) => {
+  if (!requireSessionPhone(req, res)) return;
+  if (!GEMINI_API_KEY) return res.status(501).json({ error: 'A transcrição precisa do assistente Gemini configurado no servidor (GEMINI_API_KEY).' });
+  const { fileData, fileType } = req.body || {};
+  const inline = await toGeminiInlineData(fileData, fileType);
+  if (!inline || !/^audio\/|^video\/webm/.test(inline.mime_type)) return res.status(400).json({ error: 'Áudio inválido ou demasiado grande.' });
+  try {
+    const text = await callGeminiOnce(
+      [{ role: 'user', parts: [{ text: 'Transcreve este áudio.' }, { inline_data: inline }] }],
+      'Transcreves mensagens de voz de uma app de chat. Responde APENAS com a transcrição exata, na língua original, com pontuação. Se não houver fala percetível, responde exatamente: [sem fala percetível]'
+    );
+    res.json({ text: text.slice(0, 4000) || '[sem fala percetível]' });
+  } catch (err) { geminiErrorResponse(res, err, 'transcrição'); }
+});
+app.post('/api/smart-replies', rateLimit({ name: 'smart-replies', windowMs: 15 * 60 * 1000, max: 60, message: 'Demasiados pedidos de sugestões.' }), async (req, res) => {
+  if (!requireSessionPhone(req, res)) return;
+  if (!GEMINI_API_KEY) return res.status(501).json({ error: 'As respostas sugeridas precisam do assistente Gemini configurado no servidor (GEMINI_API_KEY).' });
+  const msgs = Array.isArray(req.body?.messages) ? req.body.messages.slice(-8) : [];
+  const clean = msgs.map((m) => ({ from: m.from === 'me' ? 'Eu' : 'Outra pessoa', text: String(m.text || '').slice(0, 500) })).filter((m) => m.text.trim());
+  if (!clean.length) return res.status(400).json({ error: 'Sem mensagens para sugerir respostas.' });
+  const lang = ['pt', 'en', 'es'].includes(req.body?.lang) ? req.body.lang : 'pt';
+  try {
+    const raw = await callGeminiOnce(
+      [{ role: 'user', parts: [{ text: 'Conversa (a última mensagem é da outra pessoa):\n' + clean.map((m) => `${m.from}: ${m.text}`).join('\n') }] }],
+      `Sugeres respostas curtas para "Eu" numa app de chat. Devolve APENAS um array JSON com exatamente 3 respostas diferentes (máx. 60 caracteres cada), naturais e simpáticas, na língua da conversa (se não der para saber, usa ${lang === 'en' ? 'inglês' : lang === 'es' ? 'espanhol' : 'português europeu'}). Sem explicações.`,
+      { generationConfig: { responseMimeType: 'application/json', temperature: 0.8 } }
+    );
+    let replies = [];
+    try { replies = JSON.parse(raw.replace(/^```(?:json)?|```$/g, '').trim()); } catch (e) { replies = raw.split('\n'); }
+    replies = (Array.isArray(replies) ? replies : []).map((r) => String(typeof r === 'object' && r ? (r.text || r.reply || '') : r).replace(/^[-*\d.\s"]+|"$/g, '').trim().slice(0, 80)).filter(Boolean);
+    replies = [...new Set(replies)].slice(0, 3);
+    if (!replies.length) return res.status(502).json({ error: 'O Gemini não devolveu sugestões.' });
+    res.json({ replies });
+  } catch (err) { geminiErrorResponse(res, err, 'respostas sugeridas'); }
+});
+
 // Versão "de bastidores" do mesmo resumo já feito por summarizeChat() no
 // cliente (que chama /api/gemini-chat) — usada pelo resumo diário automático
 // (ver mais abaixo), que corre dentro do próprio servidor sem passar por
@@ -5021,7 +5181,7 @@ app.post('/api/gemini-chat', async (req, res) => {
 async function generateGeminiSummary(transcript) {
   if (!GEMINI_API_KEY) return null;
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `${GEMINI_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     const body = JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: 'Resume a conversa a seguir em português, de forma breve (5-8 linhas no máximo), destacando decisões, pedidos ou combinações importantes. Não inventes nada que não esteja na conversa.\n\n' + transcript }] }],
       systemInstruction: { parts: [{ text: 'Você é o assistente Gemini, integrado num app de chat.' }] }
@@ -6147,6 +6307,7 @@ io.on('connection', (socket) => {
     users[socket.id].phone = account ? myPhone : null;
     if (account) {
       onlinePhones.add(myPhone);
+      statsMarkActive(myPhone);
       registerPhoneSocket(myPhone, socket.id);
       sendContactsTo(myPhone);
       notifyContactsOfStatusChange(myPhone);
@@ -6735,6 +6896,7 @@ io.on('connection', (socket) => {
     // fluxo de "pesquisar utilizador"), por isso isto nunca bloqueia uma
     // primeira mensagem legítima.
     if (!group && !isDmRoomAllowedForPhone(myPhone, data.chatId)) return;
+    if (myPhone) { statsCount('messages'); statsMarkActive(myPhone); }
     if (group && myPhone) {
       if (!isGroupMember(group, myPhone)) return; // grupo privado — só quem já é membro escreve lá
       if (group.bannedPhones?.includes(myPhone)) return;
@@ -7279,6 +7441,7 @@ io.on('connection', (socket) => {
   // comportamento antigo por sala.
   socket.on('call_user', (data) => {
     const myPhone = users[socket.id]?.phone;
+    if (myPhone) statsCount('calls');
     if (data.targetPhone && myPhone && (blockedByPhone[data.targetPhone] || []).includes(myPhone)) {
       socket.emit('call_unavailable', { targetRoomId: data.targetRoomId, reason: 'blocked' });
       return;
