@@ -109,14 +109,16 @@ const { chromium } = require('playwright');
   // Repõe a lista normal (a pesquisa "trigger503" acima deixou a lista de
   // reserva, cujo primeiro elemento é o aviso, não um livro clicável).
   await page.click('button:has-text("Ver lista de livros gratuitos")');
-  await page.waitForFunction(() => document.getElementById('libraryBookList').children.length > 0, { timeout: 8000 }).catch(() => {});
+  // Espera pela lista NOVA (sem o aviso da lista de reserva da pesquisa anterior) — senão,
+  // numa máquina mais lenta, o clique abaixo podia apanhar ainda o aviso, que não é um livro.
+  await page.waitForFunction(() => { const l = document.getElementById('libraryBookList'); return l.querySelector('h4') && !l.textContent.includes('pré-carregados'); }, { timeout: 8000 }).catch(() => {});
 
   // Clica no primeiro livro com o ficheiro inacessível — deve mostrar o aviso
   // amigável em vez de crashar ou ficar preso a "carregar". O pedido do
   // ficheiro é intercetado (502), para o resultado ser o mesmo com ou sem
   // internet (no GitHub Actions o Gutenberg real responde).
   await page.route('**/api/library/*/file**', (route) => route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'Ficheiro inacessível (teste).' }) }));
-  await page.click('#libraryBookList > div:first-child');
+  await page.locator('#libraryBookList > div:has(h4)').first().click();
   const listHidden = await page.waitForFunction(() => document.getElementById('libraryListView').style.display === 'none', { timeout: 3000 }).then(() => true).catch(() => false);
   console.log('Clicar num livro esconde a lista e mostra o leitor:', listHidden);
 
