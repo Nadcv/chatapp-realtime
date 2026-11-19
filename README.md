@@ -131,6 +131,28 @@ para o MongoDB), 90 dias.
   ponta a ponta e estes pedidos enviam o áudio / as últimas mensagens ao Gemini
   (Google). Precisam de sessão iniciada e têm limite de pedidos.
 
+### Feed (🖼️ no topo, ou 📇 → Feed)
+- Publicações com texto, foto ou vídeo, que se veem a rolar. Os vídeos tocam
+  sozinhos, sem som, quando aparecem no ecrã.
+- **Gosto** (❤️), **Reagir** (❤️ 😂 😮 😢 🔥 👏 — uma reação por pessoa) e
+  **Comentar**. Quem publicou pode apagar; os outros podem denunciar (vai para
+  Painel de administração → 🚩 Denúncias).
+- **Só os contactos veem**: cada pessoa vê as suas publicações e as de quem tem
+  nos contactos (ou de quem a tem a ela). Quem está bloqueado, em qualquer
+  sentido, deixa de ver e de ser visto.
+- Fotos e vídeos vão para o **Cloudinary** (vídeos até 14 MB); sem Cloudinary
+  configurado, só se pode publicar texto. As publicações ficam em `posts.json`,
+  que também vai para o MongoDB (as últimas 1000).
+- Avisos em tempo real: ponto vermelho no botão do feed quando um contacto
+  publica, e "↑ Novas publicações" com o feed aberto.
+
+### Ícones modernos
+Os botões do cabeçalho, da conversa, da caixa de mensagem e do feed usam
+ícones desenhados (SVG de linha, baseados no conjunto Lucide, licença ISC) em
+vez de emojis; os menus ⋯, 🎬 e 📇 mostram azulejos coloridos como os ícones de
+apps do iPhone. Ficheiro `js/icons.js`; o emoji original continua no botão,
+invisível, para leitores de ecrã.
+
 ## Roadmap (próximos passos)
 - [ ] **Domínio próprio** (ex.: `nadio.pt`/`nadio.app`, ~1–10 €/ano) — pago,
   fica para mais tarde. Com ele: endereço sem "onrender.com" e o Resend passa a
@@ -404,6 +426,7 @@ Para uso ainda maior, dá para migrar para o teu próprio servidor **coturn** (o
 - `index.html` — estrutura da página (ecrãs, janelas, botões)
 - `css/app.css` — estilos
 - `js/app.js` — lógica da app (chat, chamadas, todas as funcionalidades);
+  `js/feed.js` — o feed; `js/icons.js` — os ícones modernos;
   `js/error-reporter.js` — envia os erros do browser ao servidor
 - `package.json` — dependências
 

@@ -118,7 +118,7 @@ const LOCAL_DATA_FILES = [
   'scheduled.json', 'muted.json', 'archived.json', 'blocked.json', 'roadalerts.json',
   'broadcasts.json', 'folders.json', 'tourism-favorites.json', 'shopping-list.json',
   'reminders.json', 'recurring-expenses.json', 'scheduled-calls.json',
-  'pinned-chats.json', 'price-alerts.json', 'travel-history.json', 'reports.json', 'sessions.json', 'stats.json'
+  'pinned-chats.json', 'price-alerts.json', 'travel-history.json', 'reports.json', 'sessions.json', 'stats.json', 'posts.json'
 ];
 function wipeLocalDataFiles() {
   LOCAL_DATA_FILES.forEach((f) => { try { fs.unlinkSync(path.join(ROOT, f)); } catch (e) {} });
