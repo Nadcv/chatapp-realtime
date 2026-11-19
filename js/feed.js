@@ -190,7 +190,7 @@
                 if (!up.success || !up.url) throw new Error('Fotos e vídeos precisam do Cloudinary configurado no servidor.');
                 mediaUrl = up.url; mediaType = FEED.media.type;
             }
-            status.textContent = 'A publicar…';
+            status.textContent = 'A partilhar…';
             const data = await api('/api/feed', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ text, mediaUrl, mediaType }) });
             textEl.value = ''; setFeedMedia(null); status.textContent = '';
             const list = document.getElementById('feedList');
