@@ -142,6 +142,10 @@
     };
 
     // ---------- publicar ----------
+    // Os ficheiros vão DIRETAMENTE do telemóvel para o Cloudinary (o servidor só
+    // assina o pedido em /api/upload/sign), por isso aceitam-se vídeos até 100 MB
+    // (o limite do plano grátis do Cloudinary) e mostra-se a percentagem do envio.
+    const MAX_VIDEO_MB = 100, MAX_IMAGE_MB = 10;
     window.onFeedFileChosen = function (input) {
         const file = input.files && input.files[0];
         input.value = '';
@@ -149,32 +153,67 @@
         const status = document.getElementById('feedComposerStatus');
         if (!FEED.mediaUploads) { status.textContent = '⚠️ Fotos e vídeos precisam do Cloudinary configurado no servidor.'; return; }
         const isVideo = file.type.startsWith('video/');
-        if (isVideo && file.size > 14 * 1024 * 1024) { status.textContent = '⚠️ Vídeo demasiado grande (máx. 14 MB).'; return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (isVideo) { setFeedMedia({ dataUrl: reader.result, type: 'video' }); return; }
-            // Fotos: reduz para no máximo 1600 px (mais rápido a enviar e a ver).
-            const img = new Image();
-            img.onload = () => {
-                const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
-                const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-                setFeedMedia({ dataUrl: c.toDataURL('image/jpeg', 0.85), type: 'image' });
-            };
-            img.onerror = () => { status.textContent = '⚠️ Não foi possível ler esta imagem.'; };
-            img.src = reader.result;
+        if (isVideo) {
+            if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
+                status.textContent = `⚠️ Vídeo demasiado grande (${Math.round(file.size / 1048576)} MB; máx. ${MAX_VIDEO_MB} MB). Grava um vídeo mais curto ou em qualidade mais baixa.`;
+                return;
+            }
+            setFeedMedia({ blob: file, type: 'video' });
+            return;
+        }
+        // Fotos: reduz para no máximo 1600 px (mais rápido a enviar e a ver).
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+            const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            URL.revokeObjectURL(url);
+            c.toBlob((blob) => {
+                if (!blob) { status.textContent = '⚠️ Não foi possível ler esta imagem.'; return; }
+                if (blob.size > MAX_IMAGE_MB * 1024 * 1024) { status.textContent = `⚠️ Foto demasiado grande (máx. ${MAX_IMAGE_MB} MB).`; return; }
+                setFeedMedia({ blob, type: 'image' });
+            }, 'image/jpeg', 0.85);
         };
-        reader.readAsDataURL(file);
+        img.onerror = () => { URL.revokeObjectURL(url); status.textContent = '⚠️ Não foi possível ler esta imagem.'; };
+        img.src = url;
     };
     function setFeedMedia(m) {
+        if (FEED.media && FEED.media.previewUrl) URL.revokeObjectURL(FEED.media.previewUrl);
         FEED.media = m;
         const box = document.getElementById('feedMediaPreview');
         if (!m) { box.style.display = 'none'; box.innerHTML = ''; return; }
-        box.innerHTML = (m.type === 'video' ? `<video src="${m.dataUrl}" muted playsinline controls></video>` : `<img src="${m.dataUrl}" alt="">`) + '<button onclick="clearFeedMedia()" aria-label="Remover">✕</button>';
+        m.previewUrl = URL.createObjectURL(m.blob);
+        box.innerHTML = (m.type === 'video' ? `<video src="${m.previewUrl}" muted playsinline controls></video>` : `<img src="${m.previewUrl}" alt="">`) + '<button onclick="clearFeedMedia()" aria-label="Remover">✕</button>';
         box.style.display = 'block';
-        document.getElementById('feedComposerStatus').textContent = '';
+        const mb = (m.blob.size / 1048576).toFixed(1);
+        document.getElementById('feedComposerStatus').textContent = m.type === 'video' ? `Vídeo de ${mb} MB` : '';
     }
     window.clearFeedMedia = () => setFeedMedia(null);
+    function uploadToCloudinary(blob, onProgress) {
+        return api('/api/upload/sign', { method: 'POST', headers: authHeaders(true), body: '{}' }).then((sig) => {
+            if (!sig.configured) throw new Error('Fotos e vídeos precisam do Cloudinary configurado no servidor.');
+            return new Promise((resolve, reject) => {
+                const form = new FormData();
+                form.append('file', blob);
+                form.append('api_key', sig.apiKey);
+                form.append('timestamp', String(sig.timestamp));
+                form.append('folder', sig.folder);
+                form.append('signature', sig.signature);
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', sig.uploadUrl);
+                xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+                xhr.onload = () => {
+                    let data = {};
+                    try { data = JSON.parse(xhr.responseText); } catch (e) {}
+                    if (xhr.status >= 200 && xhr.status < 300 && data.secure_url) resolve(data.secure_url);
+                    else reject(new Error(data.error?.message ? 'Cloudinary: ' + data.error.message : 'O envio do ficheiro falhou (HTTP ' + xhr.status + ').'));
+                };
+                xhr.onerror = () => reject(new Error('Falha de rede ao enviar o ficheiro. Tenta outra vez (de preferência em Wi-Fi).'));
+                xhr.send(form);
+            });
+        });
+    }
     window.publishFeedPost = async function () {
         const textEl = document.getElementById('feedText');
         const text = textEl.value.trim();
@@ -185,10 +224,10 @@
         try {
             let mediaUrl = null, mediaType = null;
             if (FEED.media) {
-                status.textContent = FEED.media.type === 'video' ? 'A enviar o vídeo…' : 'A enviar a foto…';
-                const up = await api('/api/upload', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ fileData: FEED.media.dataUrl }) });
-                if (!up.success || !up.url) throw new Error('Fotos e vídeos precisam do Cloudinary configurado no servidor.');
-                mediaUrl = up.url; mediaType = FEED.media.type;
+                const what = FEED.media.type === 'video' ? 'o vídeo' : 'a foto';
+                status.textContent = `A enviar ${what}… 0%`;
+                mediaUrl = await uploadToCloudinary(FEED.media.blob, (pct) => { status.textContent = `A enviar ${what}… ${pct}%`; });
+                mediaType = FEED.media.type;
             }
             status.textContent = 'A partilhar…';
             const data = await api('/api/feed', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ text, mediaUrl, mediaType }) });
