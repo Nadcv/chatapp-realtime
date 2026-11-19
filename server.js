@@ -405,7 +405,7 @@ const MIRRORED_FILES = new Set([
   'muted.json', 'archived.json', 'pinned-chats.json', 'blocked.json', 'broadcasts.json',
   'folders.json', 'tourism-favorites.json', 'shopping-list.json', 'reminders.json',
   'recurring-expenses.json', 'scheduled-calls.json', 'roadalerts.json',
-  'price-alerts.json', 'travel-history.json', 'reports.json', 'stats.json'
+  'price-alerts.json', 'travel-history.json', 'reports.json', 'stats.json', 'posts.json'
 ]);
 // Gravações seguidas do mesmo ficheiro (ex.: várias chamadas a terminar) são
 // juntadas numa só ida ao MongoDB, no máximo uma a cada MIRROR_DEBOUNCE_MS.
@@ -494,7 +494,7 @@ async function connectDatabase() {
   // histórico de chamadas, agendamento, silenciar...) usam sempre ficheiro
   // local; com o MongoDB ligado, esse ficheiro é antes reposto a partir da
   // cópia guardada lá (ver "ESPELHO NO MONGODB" acima).
-  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); loadStatsLocal(); };
+  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); loadStatsLocal(); loadPostsLocal(); };
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadFileOnlyStores();
@@ -5170,6 +5170,165 @@ app.post('/api/smart-replies', rateLimit({ name: 'smart-replies', windowMs: 15 *
     if (!replies.length) return res.status(502).json({ error: 'O Gemini não devolveu sugestões.' });
     res.json({ replies });
   } catch (err) { geminiErrorResponse(res, err, 'respostas sugeridas'); }
+});
+
+// ==================== FEED (publicações dos contactos) ====================
+// Cada pessoa vê as suas publicações e as dos contactos (em qualquer sentido:
+// quem tem nos contactos ou quem a tem nos contactos), nunca as de quem está
+// bloqueado (em qualquer sentido). Fotos e vídeos vão para o Cloudinary
+// (/api/upload, já protegido por sessão) e aqui só se guarda o link — só são
+// aceites links do Cloudinary. Guardado em posts.json (que também vai para o
+// MongoDB, ver MIRRORED_FILES); ficam as últimas FEED_MAX_POSTS publicações.
+const POSTS_FILE = path.join(__dirname, 'posts.json');
+const FEED_MAX_POSTS = 1000;
+const FEED_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '👏'];
+let feedPosts = []; // mais recente no fim: { id, authorPhone, text, media: {url, type} | null, createdAt, reactions: { emoji: [phone] }, comments: [{ id, phone, text, createdAt }] }
+function loadPostsLocal() {
+  try { if (fs.existsSync(POSTS_FILE)) feedPosts = JSON.parse(fs.readFileSync(POSTS_FILE, 'utf-8')); }
+  catch (err) { console.error('Erro ao carregar o feed:', err.message); }
+  if (!Array.isArray(feedPosts)) feedPosts = [];
+}
+function savePostsLocal() {
+  if (feedPosts.length > FEED_MAX_POSTS) feedPosts = feedPosts.slice(-FEED_MAX_POSTS);
+  writeJsonFileSafe(POSTS_FILE, JSON.stringify(feedPosts), (err) => { if (err) console.error('Erro ao salvar o feed:', err.message); });
+}
+function isBlockedEitherWay(a, b) {
+  return (blockedByPhone[a] || []).includes(b) || (blockedByPhone[b] || []).includes(a);
+}
+function canSeePostsOf(viewer, author) {
+  if (!accounts[author]) return false;
+  if (viewer === author) return true;
+  if (isBlockedEitherWay(viewer, author)) return false;
+  return (accounts[viewer]?.contacts || []).includes(author) || (accounts[author]?.contacts || []).includes(viewer);
+}
+function feedAudience(author) {
+  const set = new Set(accounts[author]?.contacts || []);
+  for (const [phone, acc] of Object.entries(accounts)) if ((acc.contacts || []).includes(author)) set.add(phone);
+  set.delete(author);
+  return [...set].filter((p) => !isBlockedEitherWay(p, author));
+}
+function postForViewer(post, viewer) {
+  const author = accounts[post.authorPhone];
+  const reactions = {};
+  let myReaction = null;
+  for (const [emoji, phones] of Object.entries(post.reactions || {})) {
+    if (phones.length) reactions[emoji] = phones.length;
+    if (phones.includes(viewer)) myReaction = emoji;
+  }
+  return {
+    id: post.id, text: post.text, media: post.media, createdAt: post.createdAt,
+    author: { phone: post.authorPhone, name: author?.name || '—', username: author?.username || null, avatarUrl: author?.avatarUrl || null },
+    mine: post.authorPhone === viewer, reactions, myReaction,
+    commentCount: (post.comments || []).filter((c) => canSeePostsOf(viewer, c.phone) || c.phone === post.authorPhone).length
+  };
+}
+function feedSessionPhone(req, res) {
+  const token = req.headers['x-auth-token'] || req.query.token || req.body?.token;
+  const phone = token && sessions[token];
+  if (!phone || !accounts[phone]) { res.status(401).json({ error: 'Sessão inválida. Volta a entrar na app.' }); return null; }
+  return phone;
+}
+function findVisiblePost(req, res, phone) {
+  const post = feedPosts.find((p) => p.id === req.params.id);
+  if (!post || !canSeePostsOf(phone, post.authorPhone)) { res.status(404).json({ error: 'Publicação não encontrada.' }); return null; }
+  return post;
+}
+function isAllowedFeedMediaUrl(url) {
+  try { const u = new URL(url); return u.protocol === 'https:' && u.hostname === 'res.cloudinary.com'; } catch (e) { return false; }
+}
+app.get('/api/feed', (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 30);
+  const before = req.query.before ? String(req.query.before) : null;
+  const out = [];
+  for (let i = feedPosts.length - 1; i >= 0 && out.length < limit; i--) {
+    const p = feedPosts[i];
+    if (before && p.createdAt >= before) continue;
+    if (canSeePostsOf(phone, p.authorPhone)) out.push(postForViewer(p, phone));
+  }
+  res.json({ posts: out, reactions: FEED_REACTIONS, hasMore: out.length === limit, mediaUploads: !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) });
+});
+app.post('/api/feed', rateLimit({ name: 'feed-post', windowMs: 60 * 60 * 1000, max: 30, message: 'Demasiadas publicações seguidas.' }), (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const text = String(req.body?.text || '').trim().slice(0, 2000);
+  let media = null;
+  if (req.body?.mediaUrl) {
+    if (!isAllowedFeedMediaUrl(req.body.mediaUrl)) return res.status(400).json({ error: 'Ficheiro inválido. Envia a foto/vídeo pela app.' });
+    media = { url: String(req.body.mediaUrl), type: req.body.mediaType === 'video' ? 'video' : 'image' };
+  }
+  if (!text && !media) return res.status(400).json({ error: 'Escreve alguma coisa ou junta uma foto/vídeo.' });
+  const post = { id: 'p_' + crypto.randomBytes(8).toString('hex'), authorPhone: phone, text, media, createdAt: new Date().toISOString(), reactions: {}, comments: [] };
+  feedPosts.push(post);
+  savePostsLocal();
+  for (const p of feedAudience(phone)) deliverToPhone(p, 'feed_new_post', { id: post.id, authorName: accounts[phone].name });
+  res.json({ post: postForViewer(post, phone) });
+});
+app.post('/api/feed/:id/react', (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const post = findVisiblePost(req, res, phone); if (!post) return;
+  const emoji = req.body?.emoji || null;
+  if (emoji && !FEED_REACTIONS.includes(emoji)) return res.status(400).json({ error: 'Reação inválida.' });
+  post.reactions = post.reactions || {};
+  for (const k of Object.keys(post.reactions)) post.reactions[k] = post.reactions[k].filter((p) => p !== phone);
+  if (emoji) (post.reactions[emoji] = post.reactions[emoji] || []).push(phone);
+  for (const k of Object.keys(post.reactions)) if (!post.reactions[k].length) delete post.reactions[k];
+  savePostsLocal();
+  res.json({ post: postForViewer(post, phone) });
+});
+app.get('/api/feed/:id/comments', (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const post = findVisiblePost(req, res, phone); if (!post) return;
+  // Comentários de quem a pessoa não pode ver (ou bloqueou) ficam escondidos — menos os do autor.
+  const comments = (post.comments || []).filter((c) => c.phone === phone || c.phone === post.authorPhone || canSeePostsOf(phone, c.phone))
+    .map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, mine: c.phone === phone, author: { name: accounts[c.phone]?.name || '—', avatarUrl: accounts[c.phone]?.avatarUrl || null } }));
+  res.json({ comments });
+});
+app.post('/api/feed/:id/comments', rateLimit({ name: 'feed-comment', windowMs: 15 * 60 * 1000, max: 60, message: 'Demasiados comentários seguidos.' }), (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const post = findVisiblePost(req, res, phone); if (!post) return;
+  const text = String(req.body?.text || '').trim().slice(0, 500);
+  if (!text) return res.status(400).json({ error: 'Comentário vazio.' });
+  const comment = { id: 'c_' + crypto.randomBytes(6).toString('hex'), phone, text, createdAt: new Date().toISOString() };
+  (post.comments = post.comments || []).push(comment);
+  if (post.comments.length > 300) post.comments = post.comments.slice(-300);
+  savePostsLocal();
+  if (post.authorPhone !== phone) deliverToPhone(post.authorPhone, 'feed_new_comment', { postId: post.id, authorName: accounts[phone].name });
+  res.json({ comment: { id: comment.id, text, createdAt: comment.createdAt, mine: true, author: { name: accounts[phone].name, avatarUrl: accounts[phone].avatarUrl || null } }, commentCount: post.comments.length });
+});
+app.delete('/api/feed/:id', (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const idx = feedPosts.findIndex((p) => p.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Publicação não encontrada.' });
+  if (feedPosts[idx].authorPhone !== phone && !isAdminPhone(phone)) return res.status(403).json({ error: 'Só quem publicou pode apagar.' });
+  feedPosts.splice(idx, 1);
+  savePostsLocal();
+  res.json({ ok: true });
+});
+app.delete('/api/feed/:id/comments/:cid', (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const post = feedPosts.find((p) => p.id === req.params.id);
+  const c = post?.comments?.find((x) => x.id === req.params.cid);
+  if (!post || !c) return res.status(404).json({ error: 'Comentário não encontrado.' });
+  if (c.phone !== phone && post.authorPhone !== phone && !isAdminPhone(phone)) return res.status(403).json({ error: 'Sem permissão.' });
+  post.comments = post.comments.filter((x) => x.id !== c.id);
+  savePostsLocal();
+  res.json({ ok: true, commentCount: post.comments.length });
+});
+app.post('/api/feed/:id/report', rateLimit({ name: 'feed-report', windowMs: 24 * 60 * 60 * 1000, max: 20, message: 'Demasiadas denúncias hoje.' }), (req, res) => {
+  const phone = feedSessionPhone(req, res); if (!phone) return;
+  const post = findVisiblePost(req, res, phone); if (!post) return;
+  if (post.authorPhone === phone) return res.status(400).json({ error: 'Não podes denunciar a tua própria publicação.' });
+  const report = {
+    id: crypto.randomBytes(8).toString('hex'), time: new Date().toISOString(),
+    reporterPhone: phone, reporterName: accounts[phone]?.name || phone,
+    targetPhone: post.authorPhone, targetName: accounts[post.authorPhone]?.name || post.authorPhone,
+    reason: ('[Publicação do feed] ' + (String(req.body?.reason || '').trim() || '(sem motivo)')).slice(0, 300) + (post.text ? `\n“${post.text.slice(0, 200)}”` : '') + (post.media ? `\n${post.media.url}` : ''),
+    postId: post.id, status: 'aberta'
+  };
+  userReports.push(report);
+  saveReportsLocal();
+  log(`🚩 ${report.reporterName} denunciou uma publicação de ${report.targetName}`, 'MODERATION');
+  res.json({ ok: true });
 });
 
 // Versão "de bastidores" do mesmo resumo já feito por summarizeChat() no

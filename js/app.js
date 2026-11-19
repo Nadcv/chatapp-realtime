@@ -5739,7 +5739,7 @@
         transport: '🚌 Transportes', news: '📰 Notícias', 'gemini-chat': '🤖 Assistente IA', transcribe: '🎙️ Transcrever áudio', 'smart-replies': '💡 Respostas sugeridas',
         gifs: '🎞️ GIFs', weather: '🌦️ Meteorologia', exchange: '🏦 Câmbio', currency: '🏦 Câmbio', library: '📚 Biblioteca', tv: '📺 TV', watch: '🍿 Onde assistir',
         music: '🎧 Música', space: '🛰️ Espaço', fires: '🔥 Incêndios', tourism: '🗺️ Turismo', events: '🎭 Eventos', flights: '✈️ Voos', translate: '🌐 Tradução',
-        'link-preview': '🔗 Pré-visualização de links', geocode: '🔎 Mapa', 'generate-image': '🎨 Imagens IA', trains: '🚆 Comboios', metro: '🚇 Metro', nav: '🧭 Navegação', culture: '🎭 Eventos', drivelisten: '🚗 Conduzir e ouvir', 'price-alerts': '🔔 Alertas de preço', 'travel-stats': '🧳 Viagens', 'google-calendar': '📆 Google Calendar', slack: '💬 Slack'
+        'link-preview': '🔗 Pré-visualização de links', geocode: '🔎 Mapa', 'generate-image': '🎨 Imagens IA', trains: '🚆 Comboios', metro: '🚇 Metro', nav: '🧭 Navegação', culture: '🎭 Eventos', drivelisten: '🚗 Conduzir e ouvir', 'price-alerts': '🔔 Alertas de preço', 'travel-stats': '🧳 Viagens', 'google-calendar': '📆 Google Calendar', slack: '💬 Slack', feed: '🖼️ Feed'
     };
     function statsLabel(name) { return STATS_FEATURE_LABELS[name] || name; }
     function statsFmtDay(iso) { const [y, m, d] = iso.split('-'); return `${d}/${m}`; }
@@ -9901,6 +9901,7 @@
                 const btn = document.getElementById('voiceRecordBtn');
                 btn.textContent = '🎤';
                 btn.style.color = '';
+                if (window.applyModernIcons) window.applyModernIcons(); // volta a pôr o ícone do microfone (js/icons.js)
                 if (voiceChunks.length === 0) return;
                 const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
                 if (blob.size > MAX_ATTACHMENT_MB * 1024 * 1024) return alert('Áudio muito longo (acima de ' + MAX_ATTACHMENT_MB + 'MB).');
