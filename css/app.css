@@ -1366,3 +1366,22 @@
     .stats-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
     .stats-table th,.stats-table td{padding:3px 6px;text-align:right;border-bottom:1px solid rgba(134,150,160,.2);color:var(--text-primary)}
     .stats-table th:first-child,.stats-table td:first-child{text-align:left}
+
+/* ==================== ZONAS SEGURAS DO ECRÃ (iPhone com notch / Dynamic Island) ====================
+   Instalada no ecrã principal, a app desenha por baixo da barra do sistema
+   (status-bar-style "black-translucent" + viewport-fit=cover). Sem isto, o
+   cabeçalho ficava escondido por trás da hora, da bateria e da Dynamic Island,
+   e o fundo por trás da barra de gestos. env(safe-area-inset-*) vale 0 nos
+   aparelhos sem notch e no computador, por isso lá nada muda. */
+@media (max-width: 500px) {
+    .app-container {
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        padding-left: env(safe-area-inset-left, 0px);
+        padding-right: env(safe-area-inset-right, 0px);
+    }
+}
+.location-screen, .call-screen, .landing, .modal-overlay {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}

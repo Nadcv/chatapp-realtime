@@ -1,5 +1,5 @@
 // Service Worker do NADIO — instalação como app (PWA) + notificações push.
-const CACHE_NAME = 'chatapp-shell-v3'; // v3: estilos e código em ficheiros à parte (css/, js/)
+const CACHE_NAME = 'chatapp-shell-v4'; // v4: zonas seguras do ecrã (iPhone)
 const SHELL_FILES = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png', '/css/app.css', '/js/error-reporter.js', '/js/app.js'];
 
 self.addEventListener('install', (event) => {
