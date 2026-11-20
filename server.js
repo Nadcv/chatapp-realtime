@@ -5234,7 +5234,12 @@ function findVisiblePost(req, res, phone) {
   return post;
 }
 function isAllowedFeedMediaUrl(url) {
-  try { const u = new URL(url); return u.protocol === 'https:' && u.hostname === 'res.cloudinary.com'; } catch (e) { return false; }
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:' && u.hostname === 'res.cloudinary.com') return true;
+    // Só nos testes (CLOUDINARY_UPLOAD_BASE aponta para um Cloudinary falso local).
+    return !!process.env.CLOUDINARY_UPLOAD_BASE && url.startsWith(process.env.CLOUDINARY_UPLOAD_BASE + '/');
+  } catch (e) { return false; }
 }
 app.get('/api/feed', (req, res) => {
   const phone = feedSessionPhone(req, res); if (!phone) return;
@@ -5383,6 +5388,24 @@ app.get('/api/translate', async (req, res) => {
 //      CLOUDINARY_API_SECRET no Railway/Render
 // Sem essas variáveis, os ficheiros continuam a ser guardados em base64 como
 // até agora (não obriga a nada).
+// Envio DIRETO do browser para o Cloudinary (fotos/vídeos grandes do feed):
+// o ficheiro não passa pelo nosso servidor (no Render grátis há pouca memória e
+// o JSON tem limite de 20 MB). O servidor só assina o pedido — com a pasta fixa,
+// para ninguém conseguir usar a assinatura para outra coisa — e só a quem tem
+// sessão. A assinatura vale 1 hora (regra do Cloudinary). Limite do plano grátis
+// do Cloudinary: 100 MB por vídeo, 10 MB por foto.
+app.post('/api/upload/sign', rateLimit({ name: 'upload-sign', windowMs: 60 * 60 * 1000, max: 60, message: 'Demasiados envios seguidos.' }), (req, res) => {
+  const token = req.headers['x-auth-token'] || req.body?.token;
+  if (!token || !sessions[token]) return res.status(401).json({ error: 'Sessão inválida. Volta a entrar na app.' });
+  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) return res.json({ configured: false });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = 'nadio-feed';
+  const signature = crypto.createHash('sha1').update(`folder=${folder}&timestamp=${timestamp}${CLOUDINARY_API_SECRET}`).digest('hex');
+  const base = process.env.CLOUDINARY_UPLOAD_BASE || 'https://api.cloudinary.com'; // os testes apontam isto para um Cloudinary falso
+  res.json({ configured: true, uploadUrl: `${base}/v1_1/${encodeURIComponent(CLOUDINARY_CLOUD_NAME)}/auto/upload`, apiKey: CLOUDINARY_API_KEY, timestamp, folder, signature, maxVideoMB: 100, maxImageMB: 10 });
+});
+
 app.post('/api/upload', async (req, res) => {
   const { fileData } = req.body || {};
   if (!fileData) return res.status(400).json({ error: 'Sem ficheiro.' });
