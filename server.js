@@ -4850,7 +4850,12 @@ const NEWS_FEEDS = [
   { id: 'bbc', name: 'BBC World', flag: '🌍', category: 'mundo', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
   { id: 'euronews', name: 'Euronews', flag: '🇪🇺', category: 'mundo', url: 'https://pt.euronews.com/rss?format=mrss&level=theme&name=news', fallbacks: ['https://pt.euronews.com/rss?level=vertical&name=news', 'https://pt.euronews.com/rss'] },
   { id: 'cnn', name: 'CNN', flag: '🌍', category: 'mundo', url: 'http://rss.cnn.com/rss/edition.rss' },
-  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://www.rtp.pt/noticias/rss/africa', fallbacks: ['https://www.rtp.pt/africa/rss'] },
+  // A RTP África mudou-se para rtpafrica.rtp.pt e os RSS antigos em rtp.pt passaram
+  // a dar 404. Tenta os endereços do site novo e, em último caso, as notícias do
+  // site através do Google Notícias (RSS público, sempre disponível).
+  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://rtpafrica.rtp.pt/feed',
+    fallbacks: ['https://rtpafrica.rtp.pt/rss', 'https://rtpafrica.rtp.pt/noticias/rss', 'https://www.rtp.pt/noticias/rss/africa',
+      'https://news.google.com/rss/search?q=site:rtpafrica.rtp.pt&hl=pt-PT&gl=PT&ceid=PT:pt-150'] },
   { id: 'elpais', name: 'El País', flag: '🇪🇸', category: 'mundo', url: 'https://elpais.com/rss/elpais/portada.xml' },
   { id: 'abc', name: 'ABC', flag: '🇪🇸', category: 'mundo', url: 'https://www.abc.es/rss/feeds/abcPortada.xml' },
   { id: 'lemonde', name: 'Le Monde', flag: '🇫🇷', category: 'mundo', url: 'https://www.lemonde.fr/rss/une.xml' },
@@ -4907,25 +4912,43 @@ const NEWS_FETCH_HEADERS = {
   'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8'
 };
 const newsWorkingUrl = {}; // feed.id -> último endereço que funcionou
+// Estado de cada fonte: se falhar, espera cada vez mais antes de voltar a tentar
+// (10 min, 20, 40… até 24 h) e continua a mostrar as últimas notícias que obteve.
+// Os logs de erro só aparecem quando a fonte começa a falhar e depois uma vez
+// por dia — antes, uma fonte em baixo enchia os "Últimos erros" de 10 em 10 min.
+const newsFeedState = {}; // feed.id -> { failures, nextTryAt, lastItems, lastLoggedAt }
+const NEWS_BACKOFF_BASE_MS = 10 * 60 * 1000, NEWS_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
 async function fetchNewsFeed(feed) {
+  const st = newsFeedState[feed.id] || (newsFeedState[feed.id] = { failures: 0, nextTryAt: 0, lastItems: [], lastLoggedAt: 0 });
+  if (Date.now() < st.nextTryAt) return st.lastItems;
   const candidates = [...new Set([newsWorkingUrl[feed.id], feed.url, ...(feed.fallbacks || [])].filter(Boolean))];
   const errors = [];
   for (const url of candidates) {
     try {
       const r = await fetch(url, { headers: NEWS_FETCH_HEADERS, signal: AbortSignal.timeout(15000) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const items = parseRssXml(await r.text(), feed);
+      let items = parseRssXml(await r.text(), feed);
       if (!items.length) throw new Error('sem notícias no RSS');
+      // No Google Notícias o título vem como "Título - Nome do site": tira o sufixo.
+      if (url.includes('news.google.com')) items = items.map((it) => ({ ...it, title: it.title.replace(/\s+-\s+[^-]{2,40}$/, '') }));
       if (newsWorkingUrl[feed.id] !== url && url !== feed.url) log(`📰 ${feed.name}: a usar o endereço alternativo ${url}`, 'NEWS');
+      if (st.failures) log(`📰 ${feed.name}: voltou a funcionar`, 'NEWS');
       newsWorkingUrl[feed.id] = url;
+      st.failures = 0; st.nextTryAt = 0; st.lastItems = items;
       return items;
     } catch (err) {
       errors.push(`${url} → ${err.message}`);
     }
   }
   delete newsWorkingUrl[feed.id];
-  console.error(`⚠️ Erro ao obter notícias de ${feed.name}: ${errors.join(' | ')}`);
-  return [];
+  st.failures++;
+  const wait = Math.min(NEWS_BACKOFF_MAX_MS, NEWS_BACKOFF_BASE_MS * 2 ** (st.failures - 1));
+  st.nextTryAt = Date.now() + wait;
+  if (st.failures === 1 || Date.now() - st.lastLoggedAt > NEWS_BACKOFF_MAX_MS) {
+    st.lastLoggedAt = Date.now();
+    console.error(`⚠️ Erro ao obter notícias de ${feed.name} (próxima tentativa daqui a ${Math.round(wait / 60000)} min): ${errors.join(' | ')}`);
+  }
+  return st.lastItems;
 }
 async function refreshNews() {
   const results = await Promise.all(NEWS_FEEDS.map(fetchNewsFeed));
