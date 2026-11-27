@@ -147,7 +147,7 @@ function statsFeature(name) {
   saveStatsSoon();
 }
 // Pedidos que não são "usar uma funcionalidade" (entrar, painel, erros, etc.).
-const STATS_IGNORED_FEATURES = new Set(['login', 'register', 'password-reset', 'webauthn', 'device-pairing', 'admin', 'client-error', 'vapid-public-key', 'push-subscribe', 'publish-key', 'invite', 'account', 'upload', 'turn-credentials', 'quote-of-day', 'devices', 'time-spent']);
+const STATS_IGNORED_FEATURES = new Set(['version', 'login', 'register', 'password-reset', 'webauthn', 'device-pairing', 'admin', 'client-error', 'vapid-public-key', 'push-subscribe', 'publish-key', 'invite', 'account', 'upload', 'turn-credentials', 'quote-of-day', 'devices', 'time-spent']);
 app.use('/api', (req, res, next) => {
   const name = (req.path.split('/')[1] || '').toLowerCase();
   if (name && !STATS_IGNORED_FEATURES.has(name) && /^[a-z0-9-]{2,40}$/.test(name)) statsFeature(name);
@@ -5638,6 +5638,24 @@ async function initPush() {
   if (vapidKeys) webpush.setVapidDetails('mailto:admin@chatnadiel.app', vapidKeys.publicKey, vapidKeys.privateKey);
   console.log(vapidKeys ? '🔔 Notificações push prontas.' : '⚠️ Não foi possível preparar as notificações push.');
 }
+
+// ==================== VERSÃO DA APP (avisar o telemóvel de que há atualização) ====================
+// Impressão digital dos ficheiros da app (index.html, css/, js/, sw.js), calculada
+// ao arrancar: muda sempre que um deploy traz uma versão nova. O cliente
+// compara-a com a que carregou e, se for diferente, mostra "Há uma versão nova".
+const APP_VERSION = (() => {
+  const h = crypto.createHash('sha256');
+  const add = (f) => { try { h.update(f); h.update(fs.readFileSync(path.join(__dirname, f))); } catch (e) {} };
+  ['index.html', 'sw.js', 'manifest.json'].forEach(add);
+  for (const d of ['css', 'js']) {
+    try { fs.readdirSync(path.join(__dirname, d)).sort().forEach((f) => add(path.join(d, f))); } catch (e) {}
+  }
+  return (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) + (process.env.RENDER_GIT_COMMIT ? '-' : '') + h.digest('hex').slice(0, 12);
+})();
+app.get('/api/version', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ version: APP_VERSION });
+});
 
 app.get('/api/vapid-public-key', (req, res) => {
   res.json({ publicKey: vapidKeys?.publicKey || null });

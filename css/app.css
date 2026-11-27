@@ -1478,3 +1478,11 @@
 .rs-alert b { display: block; margin-bottom: 4px; }
 #railSafetyScreen textarea, #railSafetyScreen select { width: 100%; background: var(--bg-tertiary); color: var(--text-primary); border: none; border-radius: 10px; padding: 9px 10px; font: inherit; }
 .rs-toast { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; z-index: 9000; background: #f59e0b; color: #1f1300; font-weight: 700; border-radius: 14px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); cursor: pointer; }
+
+/* ==================== ATUALIZAÇÃO DISPONÍVEL (js/updater.js) ==================== */
+.app-update-banner { position: fixed; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 9500; display: flex; align-items: center; gap: 10px;
+    background: linear-gradient(135deg,#7c5cff,#5b3fe0); color: #fff; border-radius: 16px; padding: 12px 12px 12px 16px; box-shadow: 0 14px 40px rgba(0,0,0,.45); font-weight: 600; font-size: 14px; max-width: 520px; margin: 0 auto; }
+.app-update-banner span { flex: 1; }
+.app-update-banner button { border: 0; border-radius: 10px; cursor: pointer; font-weight: 800; }
+#appUpdateBtn { background: #fff; color: #4b2fd0; padding: 9px 14px; }
+.app-update-later { background: transparent; color: #fff; font-size: 16px; padding: 6px 8px; opacity: .8; }

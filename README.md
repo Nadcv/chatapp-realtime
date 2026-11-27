@@ -178,6 +178,25 @@ e de quem gere a ferrovia. Isto ajuda quem viaja ou vive perto da linha:
 - As posições **estimadas** dos comboios têm agora um aviso visível: não são GPS
   e nunca devem ser usadas para atravessar a linha.
 
+### Atualizações sem perder dados
+- Quando o Render publica uma versão nova, a app avisa **"✨ Há uma versão nova
+  da NADIO — Atualizar agora"**. Verifica `/api/version` (impressão digital dos
+  ficheiros da app, calculada ao arrancar) ao abrir, de 5 em 5 minutos, quando a
+  app volta a ficar visível e quando a ligação ao servidor volta. Nunca recarrega
+  sozinha; numa chamada, pede confirmação.
+- Nada se perde: contas, mensagens, grupos e feed estão no servidor (MongoDB); a
+  sessão e as mensagens por enviar (fila offline) ficam no aparelho; o que estiver
+  a ser escrito numa conversa ou no feed é guardado como rascunho e volta a
+  aparecer (também se a app fechar sem querer). Enviar apaga o rascunho.
+- Ao atualizar, o service worker novo toma conta logo e a cache antiga é apagada
+  (só tem cópias dos ficheiros da app, não dados). Ficheiro `js/updater.js`.
+
+### Notícias que falham
+Uma fonte de notícias em baixo passa a ser tentada cada vez menos vezes (10 min →
+24 h), continua a mostrar as últimas notícias que obteve e só aparece nos logs de
+erros quando começa a falhar e depois uma vez por dia. A RTP África usa os
+endereços novos (rtpafrica.rtp.pt) e, em último caso, o RSS do Google Notícias.
+
 ## Roadmap (próximos passos)
 - [ ] **Domínio próprio** (ex.: `nadio.pt`/`nadio.app`, ~1–10 €/ano) — pago,
   fica para mais tarde. Com ele: endereço sem "onrender.com" e o Resend passa a
@@ -451,7 +470,7 @@ Para uso ainda maior, dá para migrar para o teu próprio servidor **coturn** (o
 - `index.html` — estrutura da página (ecrãs, janelas, botões)
 - `css/app.css` — estilos
 - `js/app.js` — lógica da app (chat, chamadas, todas as funcionalidades);
-  `js/feed.js` — o feed; `js/rail-safety.js` — segurança ferroviária; `js/icons.js` — os ícones modernos;
+  `js/feed.js` — o feed; `js/rail-safety.js` — segurança ferroviária; `js/updater.js` — atualizações e rascunhos; `js/icons.js` — os ícones modernos;
   `js/error-reporter.js` — envia os erros do browser ao servidor
 - `package.json` — dependências
 
