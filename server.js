@@ -147,7 +147,7 @@ function statsFeature(name) {
   saveStatsSoon();
 }
 // Pedidos que não são "usar uma funcionalidade" (entrar, painel, erros, etc.).
-const STATS_IGNORED_FEATURES = new Set(['login', 'register', 'password-reset', 'webauthn', 'device-pairing', 'admin', 'client-error', 'vapid-public-key', 'push-subscribe', 'publish-key', 'invite', 'account', 'upload', 'turn-credentials', 'quote-of-day', 'devices', 'time-spent']);
+const STATS_IGNORED_FEATURES = new Set(['version', 'login', 'register', 'password-reset', 'webauthn', 'device-pairing', 'admin', 'client-error', 'vapid-public-key', 'push-subscribe', 'publish-key', 'invite', 'account', 'upload', 'turn-credentials', 'quote-of-day', 'devices', 'time-spent']);
 app.use('/api', (req, res, next) => {
   const name = (req.path.split('/')[1] || '').toLowerCase();
   if (name && !STATS_IGNORED_FEATURES.has(name) && /^[a-z0-9-]{2,40}$/.test(name)) statsFeature(name);
@@ -405,7 +405,7 @@ const MIRRORED_FILES = new Set([
   'muted.json', 'archived.json', 'pinned-chats.json', 'blocked.json', 'broadcasts.json',
   'folders.json', 'tourism-favorites.json', 'shopping-list.json', 'reminders.json',
   'recurring-expenses.json', 'scheduled-calls.json', 'roadalerts.json',
-  'price-alerts.json', 'travel-history.json', 'reports.json', 'stats.json', 'posts.json'
+  'price-alerts.json', 'travel-history.json', 'reports.json', 'stats.json', 'posts.json', 'rail-follow.json'
 ]);
 // Gravações seguidas do mesmo ficheiro (ex.: várias chamadas a terminar) são
 // juntadas numa só ida ao MongoDB, no máximo uma a cada MIRROR_DEBOUNCE_MS.
@@ -494,7 +494,7 @@ async function connectDatabase() {
   // histórico de chamadas, agendamento, silenciar...) usam sempre ficheiro
   // local; com o MongoDB ligado, esse ficheiro é antes reposto a partir da
   // cópia guardada lá (ver "ESPELHO NO MONGODB" acima).
-  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); loadStatsLocal(); loadPostsLocal(); };
+  const loadFileOnlyStores = () => { loadPinsLocal(); loadDisappearingLocal(); loadStatusesLocal(); loadCallLogLocal(); loadScheduledLocal(); loadMutedLocal(); loadAlertsLocal(); loadArchivedLocal(); loadBlockedLocal(); loadBroadcastsLocal(); loadFoldersLocal(); loadTourismFavoritesLocal(); loadShoppingListLocal(); loadRemindersLocal(); loadRecurringExpensesLocal(); loadScheduledCallsLocal(); loadPinnedChatsLocal(); loadPriceAlertsLocal(); loadTravelHistoryLocal(); loadReportsLocal(); loadStatsLocal(); loadPostsLocal(); loadRailFollowLocal(); };
   if (!MONGO_URI) {
     console.log('⚠️ AVISO: MONGO_URI não definida. A usar ficheiros locais — os dados apagam a cada novo deploy.');
     loadFileOnlyStores();
@@ -1617,7 +1617,8 @@ async function cachedFetch(key, url, ttlMs, options) {
 // tentativa e um espelho público de reserva, uma falha na instância
 // principal recupera automaticamente em vez de deixar a funcionalidade
 // inutilizável enquanto essa instância estiver em baixo.
-const OVERPASS_ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+// OVERPASS_API_BASE só existe para os testes apontarem para um Overpass falso local.
+const OVERPASS_ENDPOINTS = process.env.OVERPASS_API_BASE ? [process.env.OVERPASS_API_BASE] : ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const OVERPASS_TIMEOUT_MS = 12000;
 async function fetchOverpass(key, query, ttlMs) {
   const now = Date.now();
@@ -1645,6 +1646,154 @@ async function fetchOverpass(key, query, ttlMs) {
   }
   throw lastErr || new Error('Overpass indisponível.');
 }
+
+// ==================== SEGURANÇA FERROVIÁRIA ====================
+// Nada disto impede um acidente (isso depende da via, da sinalização e de quem
+// gere a ferrovia): ajuda quem viaja ou vive perto da linha a estar mais atento
+// e a avisar as entidades certas.
+//
+// 1) Passagens de nível perto de um ponto — dados abertos do OpenStreetMap
+//    (railway=level_crossing para carros, railway=crossing para peões), com a
+//    proteção quando o OSM a tem (cancela, luzes, sino). Cache de 30 minutos.
+app.get('/api/rail/level-crossings', rateLimit({ name: 'level-crossings', windowMs: 60 * 1000, max: 30, message: 'Demasiados pedidos seguidos.' }), async (req, res) => {
+  const lat = Number(req.query.lat), lon = Number(req.query.lon);
+  const radius = Math.min(Math.max(Number(req.query.radius) || 2000, 200), 5000);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return res.status(400).json({ error: 'Localização inválida.' });
+  const key = `lc_${lat.toFixed(3)}_${lon.toFixed(3)}_${radius}`;
+  const query = `[out:json][timeout:20];node["railway"~"^(level_crossing|crossing)$"](around:${radius},${lat},${lon});out body;`;
+  try {
+    const data = await fetchOverpass(key, query, 30 * 60 * 1000);
+    const toRad = (d) => d * Math.PI / 180;
+    const dist = (a, b) => { const R = 6371000, dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon); const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2; return Math.round(2 * R * Math.asin(Math.sqrt(h))); };
+    const crossings = (data.elements || []).filter((e) => e.type === 'node' && Number.isFinite(e.lat)).map((e) => {
+      const t = e.tags || {};
+      const barrier = t['crossing:barrier'] || null; // yes / no / full / half / double_half / gate...
+      const light = t['crossing:light'] === 'yes' ? true : t['crossing:light'] === 'no' ? false : null;
+      const bell = t['crossing:bell'] === 'yes' ? true : t['crossing:bell'] === 'no' ? false : null;
+      let protection = 'unknown';
+      if (barrier && barrier !== 'no') protection = 'barrier';
+      else if (light || bell) protection = 'signals';
+      else if (barrier === 'no' || light === false) protection = 'none';
+      return { id: e.id, lat: e.lat, lon: e.lon, kind: t.railway === 'crossing' ? 'pedestrian' : 'road', name: t.name || null, barrier, light, bell, protection, distance: dist({ lat, lon }, e) };
+    }).sort((a, b) => a.distance - b.distance).slice(0, 200);
+    res.json({ crossings, radius, source: 'OpenStreetMap (contribuidores do OSM, ODbL)' });
+  } catch (err) {
+    console.error('Erro Overpass (passagens de nível):', err.message);
+    res.status(503).json({ error: 'Não foi possível obter as passagens de nível agora. Tenta daqui a pouco.' });
+  }
+});
+
+// 2) Avisos oficiais das linhas que cada pessoa segue. Só se usam fontes
+//    oficiais em formato GTFS-Realtime (Service Alerts, em JSON). Por omissão:
+//    Renfe (Cercanías/Rodalies). RAIL_ALERT_SOURCES (JSON: [{id,name,url}])
+//    substitui a lista. Portugal (CP/IP/Fertagus) não publica avisos num formato
+//    aberto — a app mostra os links oficiais em vez de inventar avisos.
+const RAIL_ALERT_SOURCES = (() => {
+  try { if (process.env.RAIL_ALERT_SOURCES) return JSON.parse(process.env.RAIL_ALERT_SOURCES); } catch (e) { console.error('RAIL_ALERT_SOURCES inválido:', e.message); }
+  return [{ id: 'renfe', name: 'Renfe — Cercanías/Rodalies', url: 'https://gtfsrt.renfe.com/alerts.json' }];
+})();
+const RAIL_ALERT_OFFICIAL_LINKS = [
+  { name: 'CP — Comboios de Portugal (avisos e perturbações)', url: 'https://www.cp.pt' },
+  { name: 'Infraestruturas de Portugal', url: 'https://www.infraestruturasdeportugal.pt' },
+  { name: 'Fertagus', url: 'https://www.fertagus.pt' },
+  { name: 'Renfe — Estado da rede', url: 'https://www.renfe.com' },
+  { name: 'Adif', url: 'https://www.adif.es' }
+];
+const RAIL_FOLLOW_FILE = path.join(__dirname, 'rail-follow.json');
+let railFollow = {}; // phone -> [{ source, filter }]
+let railAlertsCache = { alerts: [], fetchedAt: null, errors: {} };
+const railAlertsNotified = new Set(); // "phone|alertId" já avisados (nesta execução do servidor)
+function loadRailFollowLocal() {
+  try { if (fs.existsSync(RAIL_FOLLOW_FILE)) railFollow = JSON.parse(fs.readFileSync(RAIL_FOLLOW_FILE, 'utf-8')) || {}; }
+  catch (err) { console.error('Erro ao carregar linhas seguidas:', err.message); }
+}
+function saveRailFollowLocal() {
+  writeJsonFileSafe(RAIL_FOLLOW_FILE, JSON.stringify(railFollow), (err) => { if (err) console.error('Erro ao salvar linhas seguidas:', err.message); });
+}
+function gtfsText(t) {
+  const tr = t?.translation || [];
+  const pick = tr.find((x) => /^pt/i.test(x.language || '')) || tr.find((x) => /^es/i.test(x.language || '')) || tr[0];
+  return (pick?.text || '').trim();
+}
+function parseGtfsRtAlerts(json, source) {
+  const nowSec = Date.now() / 1000;
+  return (json?.entity || []).map((e) => {
+    const a = e.alert || e.Alert;
+    if (!a) return null;
+    const periods = a.active_period || a.activePeriod || [];
+    const active = !periods.length || periods.some((p) => (!p.start || Number(p.start) <= nowSec) && (!p.end || Number(p.end) >= nowSec));
+    if (!active) return null;
+    const informed = a.informed_entity || a.informedEntity || [];
+    return {
+      id: `${source.id}:${e.id}`, source: source.id, sourceName: source.name,
+      title: gtfsText(a.header_text || a.headerText) || 'Aviso de serviço',
+      description: gtfsText(a.description_text || a.descriptionText),
+      routes: [...new Set(informed.map((i) => i.route_id || i.routeId).filter(Boolean))],
+      url: gtfsText(a.url) || null,
+      effect: a.effect || null
+    };
+  }).filter(Boolean);
+}
+function alertMatchesFollow(alert, f) {
+  if (f.source !== alert.source) return false;
+  const filter = String(f.filter || '').trim().toLowerCase();
+  if (!filter) return true;
+  return [alert.title, alert.description, ...alert.routes].join(' ').toLowerCase().includes(filter);
+}
+async function refreshRailAlerts() {
+  const all = [], errors = {};
+  for (const src of RAIL_ALERT_SOURCES) {
+    try {
+      const r = await fetch(src.url, { headers: { 'User-Agent': 'NadioRailAlerts/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      all.push(...parseGtfsRtAlerts(await r.json(), src));
+    } catch (err) {
+      errors[src.id] = err.message;
+      console.error(`⚠️ Erro ao obter avisos ferroviários (${src.name}):`, err.message);
+    }
+  }
+  railAlertsCache = { alerts: all, fetchedAt: new Date().toISOString(), errors };
+  // Avisa quem segue as linhas afetadas (uma vez por aviso).
+  for (const [phone, follows] of Object.entries(railFollow)) {
+    if (!accounts[phone]) continue;
+    for (const alert of all) {
+      if (!follows.some((f) => alertMatchesFollow(alert, f))) continue;
+      const k = phone + '|' + alert.id;
+      if (railAlertsNotified.has(k)) continue;
+      railAlertsNotified.add(k);
+      deliverToPhone(phone, 'rail_alert', alert);
+      sendPushToPhone(phone, { title: '🚆 ' + alert.sourceName, body: alert.title }).catch(() => {});
+    }
+  }
+}
+function railFollowPhone(req, res) {
+  const token = req.headers['x-auth-token'] || req.query.token || req.body?.token;
+  const phone = token && sessions[token];
+  if (!phone) { res.status(401).json({ error: 'Sessão inválida. Volta a entrar na app.' }); return null; }
+  return phone;
+}
+app.get('/api/rail/alerts', async (req, res) => {
+  const phone = railFollowPhone(req, res); if (!phone) return;
+  if (!railAlertsCache.fetchedAt || Date.now() - Date.parse(railAlertsCache.fetchedAt) > 5 * 60 * 1000) await refreshRailAlerts().catch(() => {});
+  const follows = railFollow[phone] || [];
+  const mine = railAlertsCache.alerts.filter((a) => follows.some((f) => alertMatchesFollow(a, f)));
+  res.json({
+    sources: RAIL_ALERT_SOURCES.map((s) => ({ id: s.id, name: s.name, error: railAlertsCache.errors[s.id] || null })),
+    follows, alerts: mine, otherAlertsCount: railAlertsCache.alerts.length - mine.length,
+    fetchedAt: railAlertsCache.fetchedAt, officialLinks: RAIL_ALERT_OFFICIAL_LINKS
+  });
+});
+app.post('/api/rail/follow', (req, res) => {
+  const phone = railFollowPhone(req, res); if (!phone) return;
+  const list = Array.isArray(req.body?.follows) ? req.body.follows : [];
+  const valid = new Set(RAIL_ALERT_SOURCES.map((s) => s.id));
+  railFollow[phone] = list.filter((f) => f && valid.has(f.source)).slice(0, 20).map((f) => ({ source: f.source, filter: String(f.filter || '').trim().slice(0, 40) }));
+  if (!railFollow[phone].length) delete railFollow[phone];
+  saveRailFollowLocal();
+  res.json({ follows: railFollow[phone] || [] });
+});
+// Verifica os avisos de 5 em 5 minutos (RAIL_ALERTS_CHECK_SECONDS só para os testes).
+setInterval(() => { if (Object.keys(railFollow).length) refreshRailAlerts().catch(() => {}); }, (Number(process.env.RAIL_ALERTS_CHECK_SECONDS) || 300) * 1000).unref();
 
 app.get('/api/transport/buses', async (req, res) => {
   try {
@@ -4701,7 +4850,12 @@ const NEWS_FEEDS = [
   { id: 'bbc', name: 'BBC World', flag: '🌍', category: 'mundo', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
   { id: 'euronews', name: 'Euronews', flag: '🇪🇺', category: 'mundo', url: 'https://pt.euronews.com/rss?format=mrss&level=theme&name=news', fallbacks: ['https://pt.euronews.com/rss?level=vertical&name=news', 'https://pt.euronews.com/rss'] },
   { id: 'cnn', name: 'CNN', flag: '🌍', category: 'mundo', url: 'http://rss.cnn.com/rss/edition.rss' },
-  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://www.rtp.pt/noticias/rss/africa', fallbacks: ['https://www.rtp.pt/africa/rss'] },
+  // A RTP África mudou-se para rtpafrica.rtp.pt e os RSS antigos em rtp.pt passaram
+  // a dar 404. Tenta os endereços do site novo e, em último caso, as notícias do
+  // site através do Google Notícias (RSS público, sempre disponível).
+  { id: 'rtpafrica', name: 'RTP África', flag: '🌍', category: 'mundo', url: 'https://rtpafrica.rtp.pt/feed',
+    fallbacks: ['https://rtpafrica.rtp.pt/rss', 'https://rtpafrica.rtp.pt/noticias/rss', 'https://www.rtp.pt/noticias/rss/africa',
+      'https://news.google.com/rss/search?q=site:rtpafrica.rtp.pt&hl=pt-PT&gl=PT&ceid=PT:pt-150'] },
   { id: 'elpais', name: 'El País', flag: '🇪🇸', category: 'mundo', url: 'https://elpais.com/rss/elpais/portada.xml' },
   { id: 'abc', name: 'ABC', flag: '🇪🇸', category: 'mundo', url: 'https://www.abc.es/rss/feeds/abcPortada.xml' },
   { id: 'lemonde', name: 'Le Monde', flag: '🇫🇷', category: 'mundo', url: 'https://www.lemonde.fr/rss/une.xml' },
@@ -4758,25 +4912,43 @@ const NEWS_FETCH_HEADERS = {
   'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8'
 };
 const newsWorkingUrl = {}; // feed.id -> último endereço que funcionou
+// Estado de cada fonte: se falhar, espera cada vez mais antes de voltar a tentar
+// (10 min, 20, 40… até 24 h) e continua a mostrar as últimas notícias que obteve.
+// Os logs de erro só aparecem quando a fonte começa a falhar e depois uma vez
+// por dia — antes, uma fonte em baixo enchia os "Últimos erros" de 10 em 10 min.
+const newsFeedState = {}; // feed.id -> { failures, nextTryAt, lastItems, lastLoggedAt }
+const NEWS_BACKOFF_BASE_MS = 10 * 60 * 1000, NEWS_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
 async function fetchNewsFeed(feed) {
+  const st = newsFeedState[feed.id] || (newsFeedState[feed.id] = { failures: 0, nextTryAt: 0, lastItems: [], lastLoggedAt: 0 });
+  if (Date.now() < st.nextTryAt) return st.lastItems;
   const candidates = [...new Set([newsWorkingUrl[feed.id], feed.url, ...(feed.fallbacks || [])].filter(Boolean))];
   const errors = [];
   for (const url of candidates) {
     try {
       const r = await fetch(url, { headers: NEWS_FETCH_HEADERS, signal: AbortSignal.timeout(15000) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const items = parseRssXml(await r.text(), feed);
+      let items = parseRssXml(await r.text(), feed);
       if (!items.length) throw new Error('sem notícias no RSS');
+      // No Google Notícias o título vem como "Título - Nome do site": tira o sufixo.
+      if (url.includes('news.google.com')) items = items.map((it) => ({ ...it, title: it.title.replace(/\s+-\s+[^-]{2,40}$/, '') }));
       if (newsWorkingUrl[feed.id] !== url && url !== feed.url) log(`📰 ${feed.name}: a usar o endereço alternativo ${url}`, 'NEWS');
+      if (st.failures) log(`📰 ${feed.name}: voltou a funcionar`, 'NEWS');
       newsWorkingUrl[feed.id] = url;
+      st.failures = 0; st.nextTryAt = 0; st.lastItems = items;
       return items;
     } catch (err) {
       errors.push(`${url} → ${err.message}`);
     }
   }
   delete newsWorkingUrl[feed.id];
-  console.error(`⚠️ Erro ao obter notícias de ${feed.name}: ${errors.join(' | ')}`);
-  return [];
+  st.failures++;
+  const wait = Math.min(NEWS_BACKOFF_MAX_MS, NEWS_BACKOFF_BASE_MS * 2 ** (st.failures - 1));
+  st.nextTryAt = Date.now() + wait;
+  if (st.failures === 1 || Date.now() - st.lastLoggedAt > NEWS_BACKOFF_MAX_MS) {
+    st.lastLoggedAt = Date.now();
+    console.error(`⚠️ Erro ao obter notícias de ${feed.name} (próxima tentativa daqui a ${Math.round(wait / 60000)} min): ${errors.join(' | ')}`);
+  }
+  return st.lastItems;
 }
 async function refreshNews() {
   const results = await Promise.all(NEWS_FEEDS.map(fetchNewsFeed));
@@ -5466,6 +5638,24 @@ async function initPush() {
   if (vapidKeys) webpush.setVapidDetails('mailto:admin@chatnadiel.app', vapidKeys.publicKey, vapidKeys.privateKey);
   console.log(vapidKeys ? '🔔 Notificações push prontas.' : '⚠️ Não foi possível preparar as notificações push.');
 }
+
+// ==================== VERSÃO DA APP (avisar o telemóvel de que há atualização) ====================
+// Impressão digital dos ficheiros da app (index.html, css/, js/, sw.js), calculada
+// ao arrancar: muda sempre que um deploy traz uma versão nova. O cliente
+// compara-a com a que carregou e, se for diferente, mostra "Há uma versão nova".
+const APP_VERSION = (() => {
+  const h = crypto.createHash('sha256');
+  const add = (f) => { try { h.update(f); h.update(fs.readFileSync(path.join(__dirname, f))); } catch (e) {} };
+  ['index.html', 'sw.js', 'manifest.json'].forEach(add);
+  for (const d of ['css', 'js']) {
+    try { fs.readdirSync(path.join(__dirname, d)).sort().forEach((f) => add(path.join(d, f))); } catch (e) {}
+  }
+  return (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) + (process.env.RENDER_GIT_COMMIT ? '-' : '') + h.digest('hex').slice(0, 12);
+})();
+app.get('/api/version', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ version: APP_VERSION });
+});
 
 app.get('/api/vapid-public-key', (req, res) => {
   res.json({ publicKey: vapidKeys?.publicKey || null });

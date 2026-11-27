@@ -1,6 +1,6 @@
 // Service Worker do NADIO — instalação como app (PWA) + notificações push.
-const CACHE_NAME = 'chatapp-shell-v5'; // v5: feed e ícones modernos
-const SHELL_FILES = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png', '/css/app.css', '/js/error-reporter.js', '/js/app.js', '/js/feed.js', '/js/icons.js'];
+const CACHE_NAME = 'chatapp-shell-v7'; // v7: atualizações sem perder dados
+const SHELL_FILES = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png', '/css/app.css', '/js/error-reporter.js', '/js/app.js', '/js/feed.js', '/js/rail-safety.js', '/js/updater.js', '/js/icons.js'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -14,6 +14,11 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
   );
   self.clients.claim();
+});
+
+// A app pede para o service worker novo tomar conta logo (botão "Atualizar agora", js/updater.js).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 // Estratégia simples: tenta a rede primeiro (para não mostrar dados/mensagens

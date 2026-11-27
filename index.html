@@ -413,6 +413,7 @@
                     <button class="btn-small rail-country-tab" data-country="renfe" onclick="switchRailCountry('renfe')" style="flex-shrink:0;">🇪🇸 Espanha (Renfe)</button>
                     <button class="btn-small rail-country-tab" data-country="france" onclick="switchRailCountry('france')" style="flex-shrink:0;">🇫🇷 França (Transilien)</button>
                 </div>
+                <button class="btn-small rail-safety-entry" onclick="openRailSafetyScreen()">🛡️ Segurança ferroviária — passagens de nível, avisos das linhas, reportar perigo</button>
                 <div id="railPortugalContent" style="display:flex;flex-direction:column;gap:6px;">
                 <div id="metroStatusBar" style="display:flex;flex-direction:column;gap:4px;font-size:13px;"></div>
                 <input type="text" id="metroLisboaSearchInput" placeholder="🔍 Pesquisar estação do Metro de Lisboa (horários)..." oninput="debounceMetroLisboaStationSearch()">
@@ -423,6 +424,7 @@
                     <input type="checkbox" id="railEstimatedToggle" onchange="toggleEstimatedTrainPositions()">
                     🚆 Ver comboios de Portugal (CP/Fertagus) e Espanha (Renfe) em trânsito (estimado pelo horário — não é GPS ao vivo)
                 </label>
+                <div id="railEstimatedSafetyNote" class="rail-safety-note">⚠️ Posições <b>estimadas pelo horário</b>, não GPS: um comboio atrasado ou fora de horas pode estar noutro sítio. <b>Nunca uses esta informação para atravessar a linha</b> — atravessa só nas passagens próprias, quando a sinalização o permitir.</div>
                 <div id="railEstimatedStatus" style="font-size:11px;color:var(--text-secondary);"></div>
                 <div id="railTrainDetail" style="display:none;flex-direction:column;gap:4px;background:var(--bg-tertiary);border-radius:8px;padding:8px;font-size:12px;max-height:220px;overflow-y:auto;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -1318,6 +1320,7 @@
                 <h3>⋯ Mais funcionalidades</h3>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openCalcScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧮<span style="font-size:11px;">Calculadora</span></button>
+                    <button class="btn-small" onclick="closeModal('modalMoreFeatures');openRailSafetyScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🛡️<span style="font-size:11px;">Segurança ferroviária</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');startTour()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧭<span style="font-size:11px;">Visita guiada</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openCurrencyScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🏦<span style="font-size:11px;">Câmbio</span></button>
                     <button class="btn-small" onclick="closeModal('modalMoreFeatures');openNavScreen()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;">🧭<span style="font-size:11px;">Navegação</span></button>
@@ -1777,6 +1780,85 @@
         </div>
 
         <!-- ============ ESTADOS (stories, 24h) ============ -->
+        <!-- ============ SEGURANÇA FERROVIÁRIA — ver js/rail-safety.js ============ -->
+        <div class="location-screen" id="railSafetyScreen">
+            <div class="location-header">
+                <strong>🛡️ Segurança ferroviária</strong>
+                <button onclick="closeRailSafetyScreen()" aria-label="Fechar">✖️</button>
+            </div>
+            <div class="rs-tabs">
+                <button class="btn-small rs-tab active" data-rs="crossings" onclick="switchRailSafetyTab('crossings')">🚦 Passagens de nível</button>
+                <button class="btn-small rs-tab" data-rs="alerts" onclick="switchRailSafetyTab('alerts')">📢 Avisos das linhas</button>
+                <button class="btn-small rs-tab" data-rs="report" onclick="switchRailSafetyTab('report')">⚠️ Reportar perigo</button>
+                <button class="btn-small rs-tab" data-rs="onboard" onclick="switchRailSafetyTab('onboard')">🆘 A bordo</button>
+            </div>
+            <div class="rs-body">
+                <div class="rs-panel" id="rsCrossings">
+                    <p class="rs-intro">Passagens de nível perto de ti (dados abertos do OpenStreetMap). Antes de atravessar: <b>pára, olha e escuta</b>, mesmo com a cancela aberta.</p>
+                    <div class="rs-row">
+                        <button class="btn-small" onclick="loadLevelCrossingsHere()">📍 Usar a minha localização</button>
+                        <select id="rsRadius" onchange="loadLevelCrossingsHere()"><option value="1000">1 km</option><option value="2000" selected>2 km</option><option value="5000">5 km</option></select>
+                    </div>
+                    <label class="rs-proximity"><input type="checkbox" id="rsProximityToggle" onchange="toggleCrossingProximity(this.checked)"> 🔔 Avisar-me (voz e vibração) quando me aproximar de uma passagem de nível</label>
+                    <p class="rs-small">O aviso funciona com a app aberta e o ecrã ligado (o telemóvel não deixa as apps web usarem a localização em segundo plano). Se fores a conduzir, deixa o telemóvel num suporte e não mexas nele.</p>
+                    <div id="rsProximityBanner" class="rs-proximity-banner" style="display:none;"></div>
+                    <div id="rsCrossingsMap" class="rs-map"></div>
+                    <div id="rsCrossingsStatus" class="rs-small"></div>
+                    <div id="rsCrossingsList"></div>
+                </div>
+                <div class="rs-panel" id="rsAlerts" style="display:none;">
+                    <p class="rs-intro">Escolhe as linhas que usas e recebe os avisos <b>oficiais</b> de perturbações, supressões e obras (notificação no telemóvel).</p>
+                    <div id="rsAlertSources"></div>
+                    <button class="btn-small" onclick="saveRailFollows()">💾 Guardar as minhas linhas</button>
+                    <div id="rsAlertsStatus" class="rs-small"></div>
+                    <div id="rsAlertsList"></div>
+                    <div class="rs-card"><b>🇵🇹 Portugal</b><p class="rs-small">A CP, a Infraestruturas de Portugal e a Fertagus não publicam os avisos num formato aberto que a app possa ler. Consulta sempre os sites oficiais:</p><div id="rsOfficialLinks"></div></div>
+                </div>
+                <div class="rs-panel" id="rsReport" style="display:none;">
+                    <div class="rs-card rs-danger"><b>🚨 Perigo imediato?</b> (pessoas ou carro na linha, comboio em risco, fogo junto à via)<br><a class="btn-small rs-call" href="tel:112">📞 Ligar 112</a></div>
+                    <p class="rs-intro">Para avisar quem gere a linha (cancela avariada, árvore ou objeto na via, vedação partida…), prepara aqui o reporte com a tua localização e partilha-o com as entidades oficiais.</p>
+                    <select id="rsReportType">
+                        <option>Objeto ou árvore na via</option><option>Passagem de nível avariada</option><option>Pessoas ou animais na linha</option>
+                        <option>Vedação partida / acesso à linha</option><option>Fogo ou fumo junto à via</option><option>Sinalização danificada</option><option>Outro</option>
+                    </select>
+                    <textarea id="rsReportText" rows="3" maxlength="600" placeholder="O que viste? (onde exatamente, há quanto tempo, sentido da linha...)"></textarea>
+                    <div class="rs-row">
+                        <button class="btn-small" onclick="attachReportLocation()">📍 Juntar a minha localização</button>
+                        <label class="btn-small">📷 Foto<input type="file" id="rsReportPhoto" accept="image/*" capture="environment" style="display:none;" onchange="onReportPhoto(this)"></label>
+                    </div>
+                    <div id="rsReportLocation" class="rs-small"></div>
+                    <div id="rsReportPhotoInfo" class="rs-small"></div>
+                    <button class="btn-small rs-share" onclick="shareRailReport()">📤 Partilhar o reporte</button>
+                    <div id="rsReportStatus" class="rs-small"></div>
+                    <div class="rs-card"><b>Contactos oficiais</b><p class="rs-small">Emergência (Portugal e Espanha): <b>112</b>. Para problemas na infraestrutura, usa os contactos indicados nos sites oficiais:</p><div id="rsReportLinks"></div></div>
+                </div>
+                <div class="rs-panel" id="rsOnboard" style="display:none;">
+                    <div class="rs-card">
+                        <b>🆘 Emergência dentro do comboio</b>
+                        <ol class="rs-guide">
+                            <li>Mantém a calma e segue as instruções do pessoal do comboio.</li>
+                            <li>Usa o <b>alarme/intercomunicador</b> da carruagem para avisar a tripulação.</li>
+                            <li>Liga <b>112</b> se houver feridos, fogo ou perigo.</li>
+                            <li><b>Não saias para a via</b> por tua iniciativa: pode passar outro comboio na linha ao lado. Sai só quando o pessoal ou os bombeiros mandarem, pelo lado indicado.</li>
+                            <li>Em caso de fumo, afasta-te para outra carruagem e baixa-te (o ar mais limpo está junto ao chão).</li>
+                            <li>Ajuda quem precisa (crianças, idosos, pessoas com mobilidade reduzida) sem te pores em risco.</li>
+                            <li>Diz à família que estás bem: o <b>SOS</b> da app envia a tua localização aos teus contactos de confiança.</li>
+                        </ol>
+                        <button class="btn-small rs-sos" onclick="closeRailSafetyScreen();openSosModal()">🚨 Abrir o SOS</button>
+                    </div>
+                    <div class="rs-card">
+                        <b>🚦 Nas passagens de nível e nas estações</b>
+                        <ol class="rs-guide">
+                            <li>Pára, olha e escuta — mesmo com a cancela aberta. Um comboio pode vir dos dois lados.</li>
+                            <li>Nunca atravesses com as luzes a piscar, o sino a tocar ou as cancelas a mexer.</li>
+                            <li>Não pares em cima da linha: só avança se houver espaço do outro lado.</li>
+                            <li>Se o carro ficar preso na linha, sai logo com todos e afasta-te na direção de onde vem o comboio, em ângulo; liga 112.</li>
+                            <li>Na plataforma, fica atrás da linha de segurança e nunca atravesses a via fora das passagens.</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
         <!-- ============ FEED (publicações dos contactos) — ver js/feed.js ============ -->
         <div class="location-screen" id="feedScreen">
             <div class="location-header">
@@ -2557,6 +2639,8 @@
 <script src="/js/error-reporter.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/feed.js"></script>
+<script src="/js/rail-safety.js"></script>
+<script src="/js/updater.js"></script>
 <script src="/js/icons.js"></script>
 </body>
 </html>
