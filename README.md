@@ -153,6 +153,31 @@ vez de emojis; os menus ⋯, 🎬 e 📇 mostram azulejos coloridos como os íco
 apps do iPhone. Ficheiro `js/icons.js`; o emoji original continua no botão,
 invisível, para leitores de ecrã.
 
+### 🛡️ Segurança ferroviária (Transportes → Metro/Comboio, ou ⋯ → Segurança ferroviária)
+Uma app não impede acidentes ferroviários — isso depende da via, da sinalização
+e de quem gere a ferrovia. Isto ajuda quem viaja ou vive perto da linha:
+- **🚦 Passagens de nível** perto de ti, num mapa e numa lista, com a proteção
+  quando o OpenStreetMap a tem (🚧 cancela, 🚥 luzes/sino, ⚠️ sem proteção).
+  Dados abertos do OSM via Overpass (`/api/rail/level-crossings`, cache de 30 min).
+  - **Aviso ao aproximar** (opcional): faixa vermelha, voz e vibração a 300 m de
+    uma passagem de estrada (150 m para as pedonais), no máximo uma vez a cada
+    10 minutos por passagem. Funciona com a app aberta e o ecrã ligado (os
+    browsers não deixam usar a localização em segundo plano).
+- **📢 Avisos das linhas**: escolhes as linhas que usas (com filtro, ex.: "C-5")
+  e recebes os avisos oficiais (no ecrã e por notificação). Fonte: GTFS-Realtime
+  Service Alerts da Renfe (`https://gtfsrt.renfe.com/alerts.json`, verificado de 5 em 5 min);
+  `RAIL_ALERT_SOURCES` (JSON `[{id,name,url}]`) troca/acrescenta fontes. A CP, a IP
+  e a Fertagus não publicam avisos num formato aberto: a app mostra os links
+  oficiais em vez de inventar avisos. Linhas seguidas em `rail-follow.json`
+  (espelhado no MongoDB).
+- **⚠️ Reportar perigo**: botão para ligar 112 e um reporte pronto a partilhar
+  (tipo, descrição, localização com link do mapa, foto) com as entidades oficiais.
+  Não é publicado para os outros utilizadores (um aviso falso pode causar pânico).
+- **🆘 A bordo**: o que fazer numa emergência no comboio e nas passagens de nível,
+  com atalho para o SOS da app.
+- As posições **estimadas** dos comboios têm agora um aviso visível: não são GPS
+  e nunca devem ser usadas para atravessar a linha.
+
 ## Roadmap (próximos passos)
 - [ ] **Domínio próprio** (ex.: `nadio.pt`/`nadio.app`, ~1–10 €/ano) — pago,
   fica para mais tarde. Com ele: endereço sem "onrender.com" e o Resend passa a
@@ -426,7 +451,7 @@ Para uso ainda maior, dá para migrar para o teu próprio servidor **coturn** (o
 - `index.html` — estrutura da página (ecrãs, janelas, botões)
 - `css/app.css` — estilos
 - `js/app.js` — lógica da app (chat, chamadas, todas as funcionalidades);
-  `js/feed.js` — o feed; `js/icons.js` — os ícones modernos;
+  `js/feed.js` — o feed; `js/rail-safety.js` — segurança ferroviária; `js/icons.js` — os ícones modernos;
   `js/error-reporter.js` — envia os erros do browser ao servidor
 - `package.json` — dependências
 
